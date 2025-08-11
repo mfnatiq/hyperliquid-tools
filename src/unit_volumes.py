@@ -54,21 +54,36 @@ with st.spinner('Initializing token mappings...'):
     unit_token_mappings = get_cached_unit_token_mappings()
 
 @st.cache_data(ttl=60, show_spinner=False)
-def get_cached_unit_volumes(addresses: list[str], unit_token_mappings: dict[str, str]) -> tuple[dict, str]:
+def get_cached_unit_volumes(addresses: list[str], unit_token_mappings: dict[str, str], exclude_subaccounts: bool=False) -> tuple[dict, dict[str, list], str]:
     """
     get unit volumes with caching
     """
     info = Info(constants.MAINNET_API_URL, skip_ws=True)
+
+    subaccounts_mapping = {
+        a: [] for a in addresses
+    }    # { queried_account : list of subaccounts }
+
+    addresses_to_query = addresses
+    if not exclude_subaccounts:
+        for address in addresses:
+            subaccounts = info.query_sub_accounts(address)
+            if subaccounts is not None:
+                for sub in subaccounts:
+                    subaccount = sub['subAccountUser']
+                    subaccounts_mapping[address].append(subaccount)
+                    addresses_to_query.append(subaccount)
+
     fills = []
     try:
-        for address in addresses:
+        for address in addresses_to_query:
             fills.extend(info.post("/info", {
                 "type": "userFills",
                 "user": address,
                 "aggregateByTime": True
             }))
     except Exception:
-        return dict(), 'Unable to fetch trade history - did you put a valid set of addresses? If you copied your Liminal institutional subaccount address, remember to remove the "HL:" prefix'
+        return dict(), subaccounts_mapping, 'Unable to fetch trade history - did you put a valid set of addresses? If you copied your Liminal institutional subaccount address, remember to remove the "HL:" prefix'
 
     volume_by_token = {
         t: {
@@ -96,7 +111,7 @@ def get_cached_unit_volumes(addresses: list[str], unit_token_mappings: dict[str,
                 volume_by_token[token_name][direction]['Last Updated'] = trade_time
             volume_by_token[token_name][direction]['Volume'] += trade_volume
 
-    return volume_by_token, None
+    return volume_by_token, subaccounts_mapping, None
 
 # --- data processing and display functions ---
 def get_latest_txn_datetime(latest_buy: datetime | None, latest_sell: datetime | None):
@@ -106,7 +121,7 @@ def get_latest_txn_datetime(latest_buy: datetime | None, latest_sell: datetime |
         return latest_buy
     return max(latest_buy, latest_sell)
 
-def create_volume_dataframe(volume_by_token: dict) -> pd.DataFrame:
+def create_volume_df(volume_by_token: dict) -> pd.DataFrame:
     """
     converts volume_by_token dict to properly formatted df
     """
@@ -135,20 +150,6 @@ def create_volume_dataframe(volume_by_token: dict) -> pd.DataFrame:
     if not df.empty:
         df = df.sort_values('Total Volume', ascending=False).reset_index(drop=True)
     return df
-
-def format_currency(value):
-    if value >= 1_000_000_000_000_000:
-        return f"${value/1_000_000_000_000_000:.2f}Q"
-    if value >= 1_000_000_000_000:
-        return f"${value/1_000_000_000_000:.2f}T"
-    if value >= 1_000_000_000:
-        return f"${value/1_000_000_000:.2f}B"
-    if value >= 1_000_000:
-        return f"${value/1_000_000:.2f}M"
-    elif value >= 1_000:
-        return f"${value/1_000:.2f}K"
-    else:
-        return f"${value:.2f}"
 
 def display_volume_table(df: pd.DataFrame):
     have_volume = not df.empty
@@ -210,12 +211,51 @@ def display_volume_table(df: pd.DataFrame):
         )
         st.plotly_chart(fig, use_container_width=True)
 
+def create_accounts_df(subaccounts_mapping: dict[str, list]) -> pd.DataFrame:
+    records = []
+    for account, subaccount_list in subaccounts_mapping.items():
+        records.append({
+            'Account': account,
+            'Remarks': '',
+        })
+        for sub in subaccount_list:
+            records.append({
+                'Account': sub,
+                'Remarks': f'Subaccount of {account[:8]}...',
+            })
+
+    return pd.DataFrame(records)
+
+def display_accounts_table(accounts_df: pd.DataFrame):
+    st.dataframe(
+        accounts_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            'Account': st.column_config.TextColumn('Accounts', width='medium'),
+            'Remarks': st.column_config.TextColumn('Remarks', width='small'),
+        }
+    )
+
+def format_currency(value):
+    if value >= 1_000_000_000_000_000:
+        return f"${value/1_000_000_000_000_000:.2f}Q"
+    if value >= 1_000_000_000_000:
+        return f"${value/1_000_000_000_000:.2f}T"
+    if value >= 1_000_000_000:
+        return f"${value/1_000_000_000:.2f}B"
+    if value >= 1_000_000:
+        return f"${value/1_000_000:.2f}M"
+    elif value >= 1_000:
+        return f"${value/1_000:.2f}K"
+    else:
+        return f"${value:.2f}"
 
 # main app logic reruns upon any interaction
 def main():
     st.info(f'Unit tokens: {", ".join(unit_token_mappings.values())}')
 
-    col1, col2 = st.columns([5, 1])
+    col1, col2, col3 = st.columns([6, 3, 2])
     with col1:
         addresses_input: str = st.text_input(
             "Enter hyperliquid addresses, separated by comma",
@@ -224,6 +264,8 @@ def main():
             key='hyperliquid_address_input',
         )
     with col2:
+        exclude_subaccounts = st.checkbox("Exclude Subaccounts")
+    with col3:
         submitted = st.button("Fetch Data", type="primary")
 
     # create placeholder that can be cleared and rewritten
@@ -237,15 +279,17 @@ def main():
         addresses = [a.strip() for a  in addresses_input.split(",") if a]
 
         with st.spinner(f'Loading trade history for {", ".join(addresses)}...'):
-            volume_by_token, err = get_cached_unit_volumes(addresses, unit_token_mappings)
+            volume_by_token, subaccounts_mapping, err = get_cached_unit_volumes(addresses, unit_token_mappings, exclude_subaccounts)
 
         # create container within placeholder for new content
         with output_placeholder.container():
             if err is not None:
                 st.error(err)
             else:
-                df = create_volume_dataframe(volume_by_token)
+                df_accounts = create_accounts_df(subaccounts_mapping)
+                display_accounts_table(df_accounts)
 
+                df = create_volume_df(volume_by_token)
                 display_volume_table(df)
 
                 # show raw data in expander
