@@ -223,7 +223,7 @@ def display_volume_table(df: pd.DataFrame, num_accounts: int):
 
     if not have_volume:
         st.warning(
-            "No trade volumes on unit tokens found - if you think this is an error, contact me")
+            "No trades on Unit tokens found - if you think this is an error, contact me")
 
     # display metrics at top
     col1, col2, col3 = st.columns(3)
@@ -358,46 +358,48 @@ if __name__ == '__main__':
 # sticky footer
 import streamlit.components.v1 as components
 
-# inject CSS into parent page so the components.html iframe sits fixed at the bottom
-st.markdown(
-    """
-    <style>
-    /* target the iframe that components.html creates (it uses srcdoc) */
-    iframe[srcdoc] {
-        position: fixed !important;
-        left: 0;
-        bottom: 0;
-        width: 100% !important;
-        height: 70px !important;   /* adjust */
-        border: none !important;
-        z-index: 9999 !important;
-    }
-    /* add a small body bottom padding so the rest of the streamlit content isn't hidden */
-    .css-1outpf7 { padding-bottom: 90px !important; } /* if that class changes, you can adjust/remove */
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+# reserve space for footer so page doesn't jump
+st.markdown('<div style="height: 70px;"></div>', unsafe_allow_html=True)
 
-# actual footer HTML (runs inside iframe)
-html = """
+# css to fix iframe and initially hide it
+st.markdown("""
+<style>
+iframe[srcdoc] {
+    position: fixed !important;
+    left: 0 !important;
+    bottom: 0 !important;
+    width: 100% !important;
+    height: 70px !important;
+    border: none !important;
+    z-index: 9999 !important;
+    pointer-events: none;
+}
+iframe[srcdoc].visible {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+footer_html = """
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,600&display=swap">
 <style>
+html, body { margin: 0; padding: 0; background: transparent; }
 .footer {
     position: fixed;
     left: 0;
     bottom: 0;
     width: 100%;
     color: #D3D3D3;
+    display: flex;
     justify-content: center;
-    text-align: center;
+    align-items: center;
     padding: 10px 20px;
     font-size: 14px;
-    display: flex;
-    align-items: center;
-    z-index: 9999;
     font-family: 'Source Sans Pro', sans-serif;
+    background-color: #020817;  /* dark background */
+    z-index: 9999;
 }
 .footer a { color: #87CEEB; text-decoration: none; }
 .separator { margin: 0 15px; }
@@ -406,16 +408,15 @@ html = """
     padding: 4px 8px;
     border-radius: 5px;
     font-family: monospace;
-    display: inline-flex;
-    align-items: center;
     margin: 8px;
 }
 .icon-container {
     display: inline-block;
-    width: 1.25em; /* fixed width to prevent shifting */
+    width: 1.5em;
     text-align: center;
+    cursor: pointer;
 }
-.copy-icon { cursor: pointer; color: #A9A9A9; transition: color 0.2s; }
+.copy-icon { color: #A9A9A9; transition: color 0.2s; }
 .copy-icon:hover { color: #87CEEB; }
 </style>
 
@@ -431,6 +432,10 @@ html = """
 </div>
 
 <script>
+window.onload = function() {
+    parent.postMessage({footerLoaded:true}, "*");
+};
+
 function copy_to_clipboard() {
     var copyText = document.getElementById("donation-address").innerText;
     var iconCopy = document.getElementById("icon-copy");
@@ -447,27 +452,10 @@ function copy_to_clipboard() {
 
     if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(copyText).then(showTick).catch(fallbackCopy);
-    } else {
-        fallbackCopy();
-    }
-
-    function fallbackCopy() {
-        var ta = document.createElement('textarea');
-        ta.value = copyText;
-        ta.style.position = 'fixed';
-        ta.style.left = '-9999px';
-        document.body.appendChild(ta);
-        ta.select();
-        try {
-            document.execCommand('copy');
-            showTick();
-        } catch (e) {
-            console.error('Copy failed', e);
-        }
-        document.body.removeChild(ta);
     }
 }
 </script>
 """
 
-components.html(html)
+# Render footer iframe
+components.html(footer_html, height=70)
