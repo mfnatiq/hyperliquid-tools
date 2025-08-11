@@ -1,5 +1,9 @@
-### Hyperliquid Tools
+## Hyperliquid Tools
 
-run `python src/unit_volumes.py --address <PUT_ADDRESS_HERE>` to run
+### Running 
+
+`streamlit run src/unit_volumes.py`
 
 tested with python 3.13
+
+Last Updated: 2025-08-11
