@@ -240,11 +240,13 @@ def display_volume_table(df: pd.DataFrame, num_accounts: int):
     with col1:
         st.metric("Total Accounts Traded On", num_accounts)
     with col2:
-        df['Total Fees'] = df['Token Fees'] + df['USDC Fees']
-        total_fees = df['Total Fees'].sum() if have_volume else 0.0
+        total_fees = 0.0
+        if have_volume:
+            df['Total Fees'] = df['Token Fees'] + df['USDC Fees']
+            total_fees = df['Total Fees'].sum()
         st.metric('Total Fees Paid', format_currency(total_fees))
     with col3:
-        st.metric('Total Trades Made', df['Num Trades'].sum())
+        st.metric('Total Trades Made', df['Num Trades'].sum() if have_volume else 0)
 
     if not have_volume:
         return
@@ -253,7 +255,7 @@ def display_volume_table(df: pd.DataFrame, num_accounts: int):
 
     # format df for display
     display_df = df[['Token', 'Buy Volume', 'Sell Volume',
-                     'Total Volume', 'Total Fees', 'Last Transaction']].copy()
+                    'Total Volume', 'Total Fees', 'Last Transaction']].copy()
     for col in ['Buy Volume', 'Sell Volume', 'Total Volume', 'Total Fees']:
         display_df[col] = display_df[col].apply(lambda x: f"${x:,.2f}")
     display_df['Last Transaction'] = display_df['Last Transaction'].apply(
