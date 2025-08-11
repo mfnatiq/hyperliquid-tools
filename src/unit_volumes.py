@@ -6,13 +6,16 @@ from hyperliquid.utils import constants
 import streamlit as st
 import plotly.express as px
 
+from utils import format_currency, get_current_timestamp_millis
+
 st.set_page_config(
     'Hyperliquid Tools',
     "🔧",
 )
 
 st.title("Unit Volume Tracker")
-st.markdown("Input 1 or more addresses (comma-separated) to see combined volume across Hyperliquid Unit tokens")
+st.markdown(
+    "Input 1 or more accounts (comma-separated) to see combined volume across Hyperliquid Unit tokens")
 
 # with caching and show_spinner=false
 # even if this is wrapped around a spinner,
@@ -25,8 +28,8 @@ def get_cached_unit_token_mappings() -> dict[str, str]:
     spot_metadata = info.spot_meta()
 
     unit_tokens = (t for t in spot_metadata['tokens']
-                    if t.get('fullName') is not None and \
-                    t['fullName'].startswith('Unit '))
+                   if t.get('fullName') is not None and
+                   t['fullName'].startswith('Unit '))
 
     universe_metadata: list[SpotAssetInfo] = spot_metadata['universe']
     universe_metadata_idx = 0
@@ -46,44 +49,48 @@ def get_cached_unit_token_mappings() -> dict[str, str]:
         if universe_entry:
             mapping[universe_entry['name']] = token_name
         else:
-            print(f'unable to find pair metadata for token {token_name}, skipping processing')
+            print(
+                f'unable to find pair metadata for token {token_name}, skipping processing')
 
     return mapping
 
 with st.spinner('Initializing token mappings...'):
     unit_token_mappings = get_cached_unit_token_mappings()
 
+
 @st.cache_data(ttl=60, show_spinner=False)
-def get_cached_unit_volumes(addresses: list[str], unit_token_mappings: dict[str, str], exclude_subaccounts: bool=False) -> tuple[dict, dict[str, list], str]:
+def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, str], exclude_subaccounts: bool = False) -> tuple[dict, dict[str, dict[str, int]], str]:
     """
     get unit volumes with caching
     """
     info = Info(constants.MAINNET_API_URL, skip_ws=True)
 
-    subaccounts_mapping = {
-        a: [] for a in addresses
-    }    # { queried_account : list of subaccounts }
+    # account: { remarks (subaccount of another), num fills }
+    accounts_mapping: dict[str, dict[str, int]] = dict()
 
-    addresses_to_query = addresses
-    if not exclude_subaccounts:
-        for address in addresses:
-            subaccounts = info.query_sub_accounts(address)
+    for account in accounts:
+        accounts_mapping[account] = {
+            "Name": "",
+            "Remarks": "",
+            "Num Trades": 0,
+            "Token Fees": 0.0,
+            "USDC Fees": 0.0,
+        }
+        if not exclude_subaccounts:
+            subaccounts = info.query_sub_accounts(account)
             if subaccounts is not None:
                 for sub in subaccounts:
                     subaccount = sub['subAccountUser']
-                    subaccounts_mapping[address].append(subaccount)
-                    addresses_to_query.append(subaccount)
 
-    fills = []
-    try:
-        for address in addresses_to_query:
-            fills.extend(info.post("/info", {
-                "type": "userFills",
-                "user": address,
-                "aggregateByTime": True
-            }))
-    except Exception:
-        return dict(), subaccounts_mapping, 'Unable to fetch trade history - did you put a valid set of addresses? If you copied your Liminal institutional subaccount address, remember to remove the "HL:" prefix'
+                    accounts_mapping[subaccount] = {
+                        "Name": sub['name'],
+                        "Remarks": f"Subaccount of {account[:6]}...",
+                        "Num Trades": 0,
+                        "Token Fees": 0.0,
+                        "USDC Fees": 0.0,
+                    }
+
+    accounts_to_query = accounts_mapping.keys()
 
     volume_by_token = {
         t: {
@@ -94,24 +101,75 @@ def get_cached_unit_volumes(addresses: list[str], unit_token_mappings: dict[str,
             'Sell': {
                 'Last Updated': None,
                 'Volume': 0.0,
-            }
+            },
+            'Token Fees': 0.0,
+            'USDC Fees': 0.0,
+            'Num Trades': 0,
         }
         for t in unit_token_mappings.values()
     }
 
-    for f in fills:
-        coin = f['coin']
-        direction = f['dir']
-        if coin in unit_token_mappings.keys():
-            token_name = unit_token_mappings[coin]
-            trade_volume = float(f['sz']) * float(f['px'])
-            trade_time = datetime.fromtimestamp(f['time'] / 1000, tz=timezone.utc)
-            prev_last_updated = volume_by_token[token_name][direction]['Last Updated']
-            if prev_last_updated is None or trade_time > prev_last_updated:
-                volume_by_token[token_name][direction]['Last Updated'] = trade_time
-            volume_by_token[token_name][direction]['Volume'] += trade_volume
+    fills = dict()  # { account: list of fills }
+    try:
+        for account in accounts_to_query:
+            query_again = True
+            endTimeMillis = get_current_timestamp_millis()
+            num_fills_total = 0
+            account_fills = []
+            while query_again:
+                fills_result = info.post("/info", {
+                    "type": "userFillsByTime",  # up to 10k total, then need to query from s3
+                    "user": account,
+                    "aggregateByTime": True,
+                    "startTime": endTimeMillis - 365 * 24 * 60 * 60 * 1000,  # set 1 year by default
+                    "endTimeMillis": endTimeMillis - 1,     # exclude current millisecond in case of repeated fills
+                })
 
-    return volume_by_token, subaccounts_mapping, None
+                # if reached 2k fills, query again til no more
+                num_fills = len(fills_result)
+                num_fills_total += num_fills
+                if num_fills == 2000:
+                    earliest_timestamp = min(f['time'] for f in fills_result)
+                    endTimeMillis = earliest_timestamp
+                else:
+                    query_again = False
+                account_fills.extend(fills_result)
+            fills[account] = account_fills
+    except Exception:
+        return dict(), dict(), 'Unable to fetch trade history - did you put a valid list of accounts? If you copied your Liminal institutional subaccount account, remember to remove the "HL:" prefix'
+
+    for account, fills_list in fills.items():
+        for f in fills_list:
+            coin = f['coin']
+            direction = f['dir']
+            if coin in unit_token_mappings.keys():
+                token_name = unit_token_mappings[coin]
+
+                price = float(f['px'])
+
+                trade_volume = float(f['sz']) * price
+                trade_time = datetime.fromtimestamp(
+                    f['time'] / 1000, tz=timezone.utc)
+                prev_last_updated = volume_by_token[token_name][direction]['Last Updated']
+                if prev_last_updated is None or trade_time > prev_last_updated:
+                    volume_by_token[token_name][direction]['Last Updated'] = trade_time
+                volume_by_token[token_name][direction]['Volume'] += trade_volume
+
+                # only count unit fills
+                volume_by_token[token_name]['Num Trades'] += 1
+                accounts_mapping[account]['Num Trades'] += 1
+
+                fee_in_quote = f['feeToken'] == 'USDC'
+                if fee_in_quote:
+                    fee_amt = float(f['fee'])
+                    accounts_mapping[account]['USDC Fees'] += fee_amt
+                    volume_by_token[token_name]['USDC Fees'] += fee_amt
+                else:
+                    fee_amt = float(f['fee']) * price
+                    accounts_mapping[account]['Token Fees'] += fee_amt
+                    volume_by_token[token_name]['Token Fees'] += fee_amt
+
+    return volume_by_token, accounts_mapping, None
 
 # --- data processing and display functions ---
 def get_latest_txn_datetime(latest_buy: datetime | None, latest_sell: datetime | None):
@@ -132,7 +190,7 @@ def create_volume_df(volume_by_token: dict) -> pd.DataFrame:
         sells = volumes['Sell']
         sell_volume = sells['Volume']
         total_volume = buy_volume + sell_volume
-        
+
         if total_volume > 0:
             records.append({
                 'Token': token,
@@ -141,34 +199,50 @@ def create_volume_df(volume_by_token: dict) -> pd.DataFrame:
                 'Sell Volume': sell_volume,
                 'Latest Sell': sells['Last Updated'],
                 'Total Volume': total_volume,
+                'Token Fees': volumes['Token Fees'],
+                'USDC Fees': volumes['USDC Fees'],
+                'Num Trades': volumes['Num Trades'],
                 'Last Transaction': get_latest_txn_datetime(buys['Last Updated'], sells['Last Updated']),
-                'Buy %': (buy_volume / total_volume * 100) if total_volume > 0 else 0,
-                'Sell %': (sell_volume / total_volume * 100) if total_volume > 0 else 0,
             })
-    
+
     df = pd.DataFrame(records)
     if not df.empty:
-        df = df.sort_values('Total Volume', ascending=False).reset_index(drop=True)
+        df = df.sort_values(
+            'Total Volume', ascending=False).reset_index(drop=True)
     return df
 
-def display_volume_table(df: pd.DataFrame):
+
+def display_volume_table(df: pd.DataFrame, num_accounts: int):
     have_volume = not df.empty
 
     last_updated = datetime.now(timezone.utc)
-    st.caption(f"Last updated: {last_updated.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    st.caption(
+        f"Last updated: {last_updated.strftime('%Y-%m-%d %H:%M:%S UTC')}")
 
     if not have_volume:
-        st.warning("No trade volumes on unit tokens found - if you think this is an error, contact me (details below)")
+        st.warning(
+            "No trade volumes on unit tokens found - if you think this is an error, contact me (details below)")
 
     # display metrics at top
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Total Volume", format_currency(df['Total Volume'].sum() if have_volume else 0.0))
+        st.metric("Total Volume", format_currency(
+            df['Total Volume'].sum() if have_volume else 0.0))
     with col2:
         st.metric("Tokens Traded", len(df))
     with col3:
         most_traded = df.iloc[0]['Token'] if have_volume else "N/A"
         st.metric("Most Traded Token", most_traded)
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total Accounts Traded On", num_accounts)
+    with col2:
+        df['Total Fees'] = df['Token Fees'] + df['USDC Fees']
+        total_fees = df['Total Fees'].sum() if have_volume else 0.0
+        st.metric('Total Fees Paid', format_currency(total_fees))
+    with col3:
+        st.metric('Total Trades Made', df['Num Trades'].sum())
 
     if not have_volume:
         return
@@ -176,11 +250,13 @@ def display_volume_table(df: pd.DataFrame):
     st.markdown("---")
 
     # format df for display
-    display_df = df[['Token', 'Buy Volume', 'Sell Volume', 'Total Volume', 'Last Transaction']].copy()
-    for col in ['Buy Volume', 'Sell Volume', 'Total Volume']:
+    display_df = df[['Token', 'Buy Volume', 'Sell Volume',
+                     'Total Volume', 'Total Fees', 'Last Transaction']].copy()
+    for col in ['Buy Volume', 'Sell Volume', 'Total Volume', 'Total Fees']:
         display_df[col] = display_df[col].apply(lambda x: f"${x:,.2f}")
-    display_df['Last Transaction'] = display_df['Last Transaction'].apply(lambda x: x.strftime('%Y-%m-%d %H:%M:%S UTC'))
-    
+    display_df['Last Transaction'] = display_df['Last Transaction'].apply(
+        lambda x: x.strftime('%Y-%m-%d %H:%M:%S UTC'))
+
     # display the table
     st.dataframe(
         display_df,
@@ -211,45 +287,14 @@ def display_volume_table(df: pd.DataFrame):
         )
         st.plotly_chart(fig, use_container_width=True)
 
-def create_accounts_df(subaccounts_mapping: dict[str, list]) -> pd.DataFrame:
-    records = []
-    for account, subaccount_list in subaccounts_mapping.items():
-        records.append({
-            'Account': account,
-            'Remarks': '',
-        })
-        for sub in subaccount_list:
-            records.append({
-                'Account': sub,
-                'Remarks': f'Subaccount of {account[:8]}...',
-            })
-
-    return pd.DataFrame(records)
 
 def display_accounts_table(accounts_df: pd.DataFrame):
     st.dataframe(
         accounts_df,
         use_container_width=True,
         hide_index=True,
-        column_config={
-            'Account': st.column_config.TextColumn('Accounts', width='medium'),
-            'Remarks': st.column_config.TextColumn('Remarks', width='small'),
-        }
     )
 
-def format_currency(value):
-    if value >= 1_000_000_000_000_000:
-        return f"${value/1_000_000_000_000_000:.2f}Q"
-    if value >= 1_000_000_000_000:
-        return f"${value/1_000_000_000_000:.2f}T"
-    if value >= 1_000_000_000:
-        return f"${value/1_000_000_000:.2f}B"
-    if value >= 1_000_000:
-        return f"${value/1_000_000:.2f}M"
-    elif value >= 1_000:
-        return f"${value/1_000:.2f}K"
-    else:
-        return f"${value:.2f}"
 
 # main app logic reruns upon any interaction
 def main():
@@ -258,8 +303,8 @@ def main():
     col1, col2, col3 = st.columns([6, 3, 2])
     with col1:
         addresses_input: str = st.text_input(
-            "Enter hyperliquid addresses, separated by comma",
-            placeholder="Enter hyperliquid addresses, separated by comma",
+            "Enter hyperliquid accounts, separated by comma",
+            placeholder="Enter hyperliquid accounts, separated by comma",
             label_visibility='collapsed',
             key='hyperliquid_address_input',
         )
@@ -272,29 +317,28 @@ def main():
     output_placeholder = st.empty()
 
     if submitted and addresses_input:
-        # upon address(es) update, clear the placeholder immediately
+        # upon account(es) update, clear the placeholder immediately
         # so that loading spinner only shows up after
         output_placeholder.empty()
 
-        addresses = [a.strip() for a  in addresses_input.split(",") if a]
+        accounts = [a.strip() for a in addresses_input.split(",") if a]
 
-        with st.spinner(f'Loading trade history for {", ".join(addresses)}...'):
-            volume_by_token, subaccounts_mapping, err = get_cached_unit_volumes(addresses, unit_token_mappings, exclude_subaccounts)
+        with st.spinner(f'Loading trade history for {", ".join(accounts)}...'):
+            volume_by_token, accounts_mapping, err = get_cached_unit_volumes(
+                accounts, unit_token_mappings, exclude_subaccounts)
 
         # create container within placeholder for new content
         with output_placeholder.container():
             if err is not None:
                 st.error(err)
             else:
-                df_accounts = create_accounts_df(subaccounts_mapping)
-                display_accounts_table(df_accounts)
-
                 df = create_volume_df(volume_by_token)
-                display_volume_table(df)
+                display_volume_table(df, len(accounts_mapping))
 
                 # show raw data in expander
                 if not df.empty:
                     with st.expander("Raw Data"):
+                        st.json(accounts_mapping)
                         st.json(volume_by_token)
 
 if __name__ == '__main__':
