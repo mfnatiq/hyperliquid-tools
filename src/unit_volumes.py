@@ -59,7 +59,7 @@ with st.spinner('Initializing token mappings...'):
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, str], exclude_subaccounts: bool = False) -> tuple[dict, dict[str, dict[str, int]], str]:
+def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, str], exclude_subaccounts: bool = False):
     """
     get unit volumes with caching
     """
@@ -136,9 +136,15 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
                 account_fills.extend(fills_result)
             fills[account] = account_fills
     except Exception:
-        return dict(), dict(), 'Unable to fetch trade history - did you put a valid list of accounts? If you copied your Liminal institutional subaccount account, remember to remove the "HL:" prefix'
+        return dict(), dict(), [], 'Unable to fetch trade history - did you put a valid list of accounts? If you copied your Liminal institutional subaccount account, remember to remove the "HL:" prefix'
+
+    # 10k - need get from s3
+    accounts_hitting_fills_limits = []
 
     for account, fills_list in fills.items():
+        if len(fills_list) == 10000:
+            accounts_hitting_fills_limits.append(account)
+        
         for f in fills_list:
             coin = f['coin']
             direction = f['dir']
@@ -169,7 +175,7 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
                     accounts_mapping[account]['Token Fees'] += fee_amt
                     volume_by_token[token_name]['Token Fees'] += fee_amt
 
-    return volume_by_token, accounts_mapping, None
+    return volume_by_token, accounts_mapping, accounts_hitting_fills_limits, None
 
 # --- data processing and display functions ---
 def get_latest_txn_datetime(latest_buy: datetime | None, latest_sell: datetime | None):
@@ -215,13 +221,9 @@ def create_volume_df(volume_by_token: dict) -> pd.DataFrame:
 def display_volume_table(df: pd.DataFrame, num_accounts: int):
     have_volume = not df.empty
 
-    last_updated = datetime.now(timezone.utc)
-    st.caption(
-        f"Last updated: {last_updated.strftime('%Y-%m-%d %H:%M:%S UTC')}")
-
     if not have_volume:
         st.warning(
-            "No trade volumes on unit tokens found - if you think this is an error, contact me (details below)")
+            "No trade volumes on unit tokens found - if you think this is an error, contact me")
 
     # display metrics at top
     col1, col2, col3 = st.columns(3)
@@ -324,7 +326,7 @@ def main():
         accounts = [a.strip() for a in addresses_input.split(",") if a]
 
         with st.spinner(f'Loading trade history for {", ".join(accounts)}...'):
-            volume_by_token, accounts_mapping, err = get_cached_unit_volumes(
+            volume_by_token, accounts_mapping, accounts_hitting_fills_limits, err = get_cached_unit_volumes(
                 accounts, unit_token_mappings, exclude_subaccounts)
 
         # create container within placeholder for new content
@@ -332,6 +334,13 @@ def main():
             if err is not None:
                 st.error(err)
             else:
+                last_updated = datetime.now(timezone.utc)
+                st.caption(
+                    f"Last updated: {last_updated.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+                
+                if len(accounts_hitting_fills_limits) > 0:
+                    st.warning(f'Unable to fetch all fills for accounts due to hitting API limits (contact me to check): {', '.join(accounts_hitting_fills_limits)}')
+    
                 df = create_volume_df(volume_by_token)
                 display_volume_table(df, len(accounts_mapping))
 
@@ -343,3 +352,120 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+# sticky footer
+import streamlit.components.v1 as components
+
+# inject CSS into parent page so the components.html iframe sits fixed at the bottom
+st.markdown(
+    """
+    <style>
+    /* target the iframe that components.html creates (it uses srcdoc) */
+    iframe[srcdoc] {
+        position: fixed !important;
+        left: 0;
+        bottom: 0;
+        width: 100% !important;
+        height: 70px !important;   /* adjust */
+        border: none !important;
+        z-index: 9999 !important;
+    }
+    /* add a small body bottom padding so the rest of the streamlit content isn't hidden */
+    .css-1outpf7 { padding-bottom: 90px !important; } /* if that class changes, you can adjust/remove */
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# actual footer HTML (runs inside iframe)
+html = """
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,600&display=swap">
+<style>
+.footer {
+    position: fixed;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    color: #D3D3D3;
+    justify-content: center;
+    text-align: center;
+    padding: 10px 20px;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    z-index: 9999;
+    font-family: 'Source Sans Pro', sans-serif;
+}
+.footer a { color: #87CEEB; text-decoration: none; }
+.separator { margin: 0 15px; }
+.donation-address {
+    background-color: #2C2C2C;
+    padding: 4px 8px;
+    border-radius: 5px;
+    font-family: monospace;
+    display: inline-flex;
+    align-items: center;
+    margin: 8px;
+}
+.icon-container {
+    display: inline-block;
+    width: 1.25em; /* fixed width to prevent shifting */
+    text-align: center;
+}
+.copy-icon { cursor: pointer; color: #A9A9A9; transition: color 0.2s; }
+.copy-icon:hover { color: #87CEEB; }
+</style>
+
+<div class="footer">
+    <span>made by <a href="https://x.com/mfnatiq1" target="_blank">@mfnatiq1</a></span>
+    <span class="separator">•</span>
+    <span>donations:</span>
+    <span id="donation-address" class="donation-address">0xB17648Ed98C9766B880b5A24eEcAebA19866d1d7</span>
+    <span class="icon-container" onclick="copy_to_clipboard()">
+        <i id="icon-copy" class="fa-solid fa-copy copy-icon"></i>
+        <i id="icon-check" class="fa-solid fa-check copy-icon" style="display:none; color:#7CFC00;"></i>
+    </span>
+</div>
+
+<script>
+function copy_to_clipboard() {
+    var copyText = document.getElementById("donation-address").innerText;
+    var iconCopy = document.getElementById("icon-copy");
+    var iconCheck = document.getElementById("icon-check");
+
+    function showTick() {
+        iconCopy.style.display = 'none';
+        iconCheck.style.display = 'inline-block';
+        setTimeout(function() {
+            iconCheck.style.display = 'none';
+            iconCopy.style.display = 'inline-block';
+        }, 1500);
+    }
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(copyText).then(showTick).catch(fallbackCopy);
+    } else {
+        fallbackCopy();
+    }
+
+    function fallbackCopy() {
+        var ta = document.createElement('textarea');
+        ta.value = copyText;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+            document.execCommand('copy');
+            showTick();
+        } catch (e) {
+            console.error('Copy failed', e);
+        }
+        document.body.removeChild(ta);
+    }
+}
+</script>
+"""
+
+components.html(html)
