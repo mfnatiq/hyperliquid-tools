@@ -17,6 +17,109 @@ st.title("Unit Volume Tracker")
 st.markdown(
     "Input 1 or more accounts (comma-separated) to see combined volume across Hyperliquid Unit tokens")
 
+# region sticky footer
+# put up here so container emptying doesn't make footer flash
+footer_html = """
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,600&display=swap">
+<style>
+html, body { margin: 0; padding: 0; background: transparent; }
+.footer {
+    position: fixed;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    color: #D3D3D3;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 10px 20px;
+    font-size: 14px;
+    font-family: 'Source Sans Pro', sans-serif;
+    background-color: #0e1117;  /* same as main streamlit background */
+    z-index: 9999;
+}
+.footer a { color: #87CEEB; text-decoration: none; }
+.separator { margin: 0 15px; }
+.donation-address {
+    background-color: #2C2C2C;
+    padding: 4px 8px;
+    border-radius: 5px;
+    font-family: monospace;
+    margin: 8px;
+}
+.icon-container {
+    display: inline-block;
+    width: 1.5em;
+    text-align: center;
+    cursor: pointer;
+}
+.copy-icon { color: #A9A9A9; transition: color 0.2s; }
+.copy-icon:hover { color: #87CEEB; }
+</style>
+
+<div class="footer">
+    <span>made by <a href="https://x.com/mfnatiq1" target="_blank">@mfnatiq1</a></span>
+    <span class="separator">•</span>
+    <span>donations:</span>
+    <span id="donation-address" class="donation-address">0xB17648Ed98C9766B880b5A24eEcAebA19866d1d7</span> 
+</div>
+"""
+# <span class="icon-container" id="copy-btn" title="Copy to clipboard">
+#         <i id="icon-copy" class="fa-solid fa-copy copy-icon"></i>
+#         <i id="icon-check" class="fa-solid fa-check copy-icon" style="display:none; color:#7CFC00;"></i>
+#     </span>
+# <script>
+# function copy_to_clipboard() {
+#     var copyText = document.getElementById("donation-address").innerText;
+#     var iconCopy = document.getElementById("icon-copy");
+#     var iconCheck = document.getElementById("icon-check");
+
+#     function showTick() {
+#         iconCopy.style.display = 'none';
+#         iconCheck.style.display = 'inline-block';
+#         setTimeout(function() {
+#             iconCheck.style.display = 'none';
+#             iconCopy.style.display = 'inline-block';
+#         }, 1500);
+#     }
+
+#     if (navigator.clipboard && navigator.clipboard.writeText) {
+#         navigator.clipboard.writeText(copyText).then(showTick).catch(function() {
+#             fallbackCopy();
+#         });
+#     } else {
+#         fallbackCopy();
+#     }
+
+#     function fallbackCopy() {
+#         var ta = document.createElement('textarea');
+#         ta.value = copyText;
+#         ta.style.position = 'fixed';
+#         ta.style.left = '-9999px';
+#         document.body.appendChild(ta);
+#         ta.select();
+#         try {
+#             document.execCommand('copy');
+#             showTick();
+#         } catch (e) {
+#             alert('Copy failed');
+#         }
+#         document.body.removeChild(ta);
+#     }
+# }
+
+# // Immediately bind event listener when this script runs
+# var copyBtn = document.getElementById('copy-btn');
+# if (copyBtn) {
+#     copyBtn.addEventListener('click', copy_to_clipboard);
+# }
+# </script>
+# render footer
+# TODO copy icon change doesn't work, commented out for now
+st.markdown(footer_html, unsafe_allow_html=True)
+# endregion
+
 # with caching and show_spinner=false
 # even if this is wrapped around a spinner,
 # that spinner only runs whenever data is NOT fetched from cache
@@ -291,14 +394,12 @@ def display_volume_table(df: pd.DataFrame, num_accounts: int):
         )
         st.plotly_chart(fig, use_container_width=True)
 
-
 def display_accounts_table(accounts_df: pd.DataFrame):
     st.dataframe(
         accounts_df,
         use_container_width=True,
         hide_index=True,
     )
-
 
 # main app logic reruns upon any interaction
 def main():
@@ -354,108 +455,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-# sticky footer
-import streamlit.components.v1 as components
-
-# reserve space for footer so page doesn't jump
-st.markdown('<div style="height: 70px;"></div>', unsafe_allow_html=True)
-
-# css to fix iframe and initially hide it
-st.markdown("""
-<style>
-iframe[srcdoc] {
-    position: fixed !important;
-    left: 0 !important;
-    bottom: 0 !important;
-    width: 100% !important;
-    height: 70px !important;
-    border: none !important;
-    z-index: 9999 !important;
-    pointer-events: none;
-}
-iframe[srcdoc].visible {
-    opacity: 1 !important;
-    pointer-events: auto !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-footer_html = """
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,600&display=swap">
-<style>
-html, body { margin: 0; padding: 0; background: transparent; }
-.footer {
-    position: fixed;
-    left: 0;
-    bottom: 0;
-    width: 100%;
-    color: #D3D3D3;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    padding: 10px 20px;
-    font-size: 14px;
-    font-family: 'Source Sans Pro', sans-serif;
-    background-color: #020817;  /* dark background */
-    z-index: 9999;
-}
-.footer a { color: #87CEEB; text-decoration: none; }
-.separator { margin: 0 15px; }
-.donation-address {
-    background-color: #2C2C2C;
-    padding: 4px 8px;
-    border-radius: 5px;
-    font-family: monospace;
-    margin: 8px;
-}
-.icon-container {
-    display: inline-block;
-    width: 1.5em;
-    text-align: center;
-    cursor: pointer;
-}
-.copy-icon { color: #A9A9A9; transition: color 0.2s; }
-.copy-icon:hover { color: #87CEEB; }
-</style>
-
-<div class="footer">
-    <span>made by <a href="https://x.com/mfnatiq1" target="_blank">@mfnatiq1</a></span>
-    <span class="separator">•</span>
-    <span>donations:</span>
-    <span id="donation-address" class="donation-address">0xB17648Ed98C9766B880b5A24eEcAebA19866d1d7</span>
-    <span class="icon-container" onclick="copy_to_clipboard()">
-        <i id="icon-copy" class="fa-solid fa-copy copy-icon"></i>
-        <i id="icon-check" class="fa-solid fa-check copy-icon" style="display:none; color:#7CFC00;"></i>
-    </span>
-</div>
-
-<script>
-window.onload = function() {
-    parent.postMessage({footerLoaded:true}, "*");
-};
-
-function copy_to_clipboard() {
-    var copyText = document.getElementById("donation-address").innerText;
-    var iconCopy = document.getElementById("icon-copy");
-    var iconCheck = document.getElementById("icon-check");
-
-    function showTick() {
-        iconCopy.style.display = 'none';
-        iconCheck.style.display = 'inline-block';
-        setTimeout(function() {
-            iconCheck.style.display = 'none';
-            iconCopy.style.display = 'inline-block';
-        }, 1500);
-    }
-
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(copyText).then(showTick).catch(fallbackCopy);
-    }
-}
-</script>
-"""
-
-# Render footer iframe
-components.html(footer_html, height=70)
