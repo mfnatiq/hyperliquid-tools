@@ -19,6 +19,7 @@ from utils import format_currency, get_current_timestamp_millis
 st.set_page_config(
     'Hyperliquid Tools',
     "🔧",
+    layout="wide",
 )
 
 st.title("Unit Volume Tracker")
@@ -209,11 +210,13 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
     volume_by_token = {
         t: {
             'Buy': {
-                'Last Updated': None,
+                'First Txn': None,
+                'Last Txn': None,
                 'Volume': 0.0,
             },
             'Sell': {
-                'Last Updated': None,
+                'First Txn': None,
+                'Last Txn': None,
                 'Volume': 0.0,
             },
             'Token Fees': 0.0,
@@ -287,9 +290,15 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
                 trade_volume = float(f['sz']) * price
                 trade_time = datetime.fromtimestamp(
                     f['time'] / 1000, tz=timezone.utc)
-                prev_last_updated = volume_by_token[token_name][direction]['Last Updated']
-                if prev_last_updated is None or trade_time > prev_last_updated:
-                    volume_by_token[token_name][direction]['Last Updated'] = trade_time
+                
+                prev_first_txn = volume_by_token[token_name][direction]['First Txn']
+                if prev_first_txn is None or trade_time < prev_first_txn:
+                    volume_by_token[token_name][direction]['First Txn'] = trade_time
+
+                prev_last_txn = volume_by_token[token_name][direction]['Last Txn']
+                if prev_last_txn is None or trade_time > prev_last_txn:
+                    volume_by_token[token_name][direction]['Last Txn'] = trade_time
+                
                 volume_by_token[token_name][direction]['Volume'] += trade_volume
 
                 # only count unit fills
@@ -309,6 +318,13 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
     return volume_by_token, accounts_mapping, accounts_hitting_fills_limits, None
 
 # --- data processing and display functions ---
+def get_earliest_txn_datetime(earliest_buy: datetime | None, earliest_sell: datetime | None):
+    if earliest_buy is None:
+        return earliest_sell
+    if earliest_sell is None:
+        return earliest_buy
+    return min(earliest_buy, earliest_sell)
+
 def get_latest_txn_datetime(latest_buy: datetime | None, latest_sell: datetime | None):
     if latest_buy is None:
         return latest_sell
@@ -332,14 +348,17 @@ def create_volume_df(volume_by_token: dict) -> pd.DataFrame:
             records.append({
                 'Token': token,
                 'Buy Volume': buy_volume,
-                'Latest Buy': buys['Last Updated'],
+                'First Buy': buys['First Txn'],
+                'Last Buy': buys['Last Txn'],
                 'Sell Volume': sell_volume,
-                'Latest Sell': sells['Last Updated'],
+                'First Sell': sells['First Txn'],
+                'Last Sell': sells['Last Txn'],
                 'Total Volume': total_volume,
                 'Token Fees': volumes['Token Fees'],
                 'USDC Fees': volumes['USDC Fees'],
                 'Num Trades': volumes['Num Trades'],
-                'Last Transaction': get_latest_txn_datetime(buys['Last Updated'], sells['Last Updated']),
+                'First Trade': get_earliest_txn_datetime(buys['First Txn'], sells['First Txn']),
+                'Last Trade': get_latest_txn_datetime(buys['Last Txn'], sells['Last Txn']),
             })
 
     df = pd.DataFrame(records)
@@ -386,10 +405,12 @@ def display_volume_table(df: pd.DataFrame, num_accounts: int):
 
     # format df for display
     display_df = df[['Token', 'Buy Volume', 'Sell Volume',
-                    'Total Volume', 'Total Fees', 'Last Transaction']].copy()
+                    'Total Volume', 'Total Fees', 'First Trade', 'Last Trade']].copy()
     for col in ['Buy Volume', 'Sell Volume', 'Total Volume', 'Total Fees']:
         display_df[col] = display_df[col].apply(lambda x: f"${x:,.2f}")
-    display_df['Last Transaction'] = display_df['Last Transaction'].apply(
+    display_df['First Trade'] = display_df['First Trade'].apply(
+        lambda x: x.strftime('%Y-%m-%d %H:%M:%S UTC'))
+    display_df['Last Trade'] = display_df['Last Trade'].apply(
         lambda x: x.strftime('%Y-%m-%d %H:%M:%S UTC'))
 
     # display the table
@@ -402,7 +423,8 @@ def display_volume_table(df: pd.DataFrame, num_accounts: int):
             'Buy Volume': st.column_config.TextColumn('Buy Volume', width='small'),
             'Sell Volume': st.column_config.TextColumn('Sell Volume', width='small'),
             'Total Volume': st.column_config.TextColumn('Total Volume', width='small'),
-            'Last Transaction': st.column_config.TextColumn('Last Transaction', width='medium'),
+            'First Trade': st.column_config.TextColumn('First Trade', width='medium'),
+            'Last Trade': st.column_config.TextColumn('Last Trade', width='medium'),
         }
     )
 
@@ -433,7 +455,7 @@ def display_accounts_table(accounts_df: pd.DataFrame):
 def main():
     st.info(f'Unit tokens: {", ".join(unit_token_mappings.values())}')
 
-    col1, col2, col3 = st.columns([6, 3, 2])
+    col1, col2, col3 = st.columns([10, 2, 1])
     with col1:
         addresses_input: str = st.text_input(
             "Enter hyperliquid accounts, separated by comma",
