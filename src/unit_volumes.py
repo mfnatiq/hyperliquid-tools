@@ -1,10 +1,18 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 from hyperliquid.utils.types import SpotAssetInfo
 from hyperliquid.info import Info
 from hyperliquid.utils import constants
 import streamlit as st
 import plotly.express as px
+
+# setup and configure logging
+import logging
+logging.basicConfig(
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    level=logging.INFO,
+)
+logger = logging.getLogger(__name__)
 
 from utils import format_currency, get_current_timestamp_millis
 
@@ -152,7 +160,7 @@ def get_cached_unit_token_mappings() -> dict[str, str]:
         if universe_entry:
             mapping[universe_entry['name']] = token_name
         else:
-            print(
+            logging.info(
                 f'unable to find pair metadata for token {token_name}, skipping processing')
 
     return mapping
@@ -160,6 +168,9 @@ def get_cached_unit_token_mappings() -> dict[str, str]:
 with st.spinner('Initializing token mappings...'):
     unit_token_mappings = get_cached_unit_token_mappings()
 
+
+# assumes unit started when spot BTC started trading
+unit_start_date = datetime(2025, 2, 14, tzinfo=timezone.utc)
 
 @st.cache_data(ttl=60, show_spinner=False)
 def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, str], exclude_subaccounts: bool = False):
@@ -213,33 +224,50 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
     }
 
     fills = dict()  # { account: list of fills }
+    overallStartTime = int(unit_start_date.timestamp() * 1000)
+    numDaysQuerySpan = 30
     try:
         for account in accounts_to_query:
-            query_again = True
-            endTimeMillis = get_current_timestamp_millis()
             num_fills_total = 0
             account_fills = []
-            while query_again:
+
+            # initial values
+            endTimeMillis = get_current_timestamp_millis()
+            startTime = endTimeMillis - int(timedelta(days=numDaysQuerySpan).total_seconds()) * 1000
+            endTime = endTimeMillis
+
+            while endTime > overallStartTime: # check back until this date
+                logging.info(f'querying for {account} startTime: {startTime}; endTime: {endTime}')
+
                 fills_result = info.post("/info", {
                     "type": "userFillsByTime",  # up to 10k total, then need to query from s3
                     "user": account,
                     "aggregateByTime": True,
-                    "startTime": endTimeMillis - 365 * 24 * 60 * 60 * 1000,  # set 1 year by default
-                    "endTime": endTimeMillis - 1,     # exclude current millisecond in case of repeated fills
+                    "startTime": startTime,
+                    "endTime": endTime,
                 })
+                logging.info(f'num fills: {len(fills_result)}')
 
-                # if reached 2k fills, query again til no more
+                # query again til no more
                 num_fills = len(fills_result)
                 num_fills_total += num_fills
-                if num_fills == 2000:
+
+                # logic:
+                # if have fills, keep shrinking end time to latest fill - 1 ms
+                # always query endtime less fixed numDaysQuerySpan
+                if num_fills > 0:
                     earliest_timestamp = min(f['time'] for f in fills_result)
-                    endTimeMillis = earliest_timestamp
+                    endTime = earliest_timestamp - 1
+                    startTime = endTime - int(timedelta(days=numDaysQuerySpan).total_seconds()) * 1000
                 else:
-                    query_again = False
+                    endTime = startTime - int(timedelta(days=numDaysQuerySpan).total_seconds()) * 1000
+                    startTime = endTime - int(timedelta(days=numDaysQuerySpan).total_seconds()) * 1000
+
                 account_fills.extend(fills_result)
             fills[account] = account_fills
-    except Exception:
-        return dict(), dict(), [], 'Unable to fetch trade history - did you put a valid list of accounts? If you copied your Liminal institutional subaccount account, remember to remove the "HL:" prefix'
+    except Exception as e:
+        logging.error(e)
+        return dict(), dict(), [], 'Unable to fetch trade history - did you put a valid list of accounts?'
 
     # 10k - need get from s3
     accounts_hitting_fills_limits = []
@@ -251,7 +279,7 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
         for f in fills_list:
             coin = f['coin']
             direction = f['dir']
-            if coin in unit_token_mappings.keys():
+            if coin in unit_token_mappings.keys() and direction in ['Buy', 'Sell']:
                 token_name = unit_token_mappings[coin]
 
                 price = float(f['px'])
