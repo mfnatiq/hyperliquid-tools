@@ -225,7 +225,7 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
                     "user": account,
                     "aggregateByTime": True,
                     "startTime": endTimeMillis - 365 * 24 * 60 * 60 * 1000,  # set 1 year by default
-                    "endTimeMillis": endTimeMillis - 1,     # exclude current millisecond in case of repeated fills
+                    "endTime": endTimeMillis - 1,     # exclude current millisecond in case of repeated fills
                 })
 
                 # if reached 2k fills, query again til no more
