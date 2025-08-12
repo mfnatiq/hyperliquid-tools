@@ -84,7 +84,6 @@ copy_script = """
 <script>
 function copy_to_clipboard() {
     var copyText = "0xB17648Ed98C9766B880b5A24eEcAebA19866d1d7";
-    console.log("Copying text: " + copyText);
     var iconCopy = parent.document.getElementById("icon-copy");
     var iconCheck = parent.document.getElementById("icon-check");
 
@@ -127,11 +126,9 @@ function copy_to_clipboard() {
 // Function to attach event listener
 function attachCopyEvent() {
     var copyBtn = parent.document.getElementById('copy-btn');
-    console.log("Copy button found:", copyBtn);
     if (copyBtn && !copyBtn.hasAttribute('data-listener-attached')) {
         copyBtn.addEventListener('click', copy_to_clipboard);
         copyBtn.setAttribute('data-listener-attached', 'true');
-        console.log("Event listener attached successfully");
         return true;
     }
     return false;
