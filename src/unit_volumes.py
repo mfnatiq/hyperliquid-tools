@@ -129,6 +129,8 @@ html, body { margin: 0; padding: 0; background: transparent; }
 st.markdown(footer_html, unsafe_allow_html=True)
 # endregion
 
+info = Info(constants.MAINNET_API_URL, skip_ws=True)
+
 # with caching and show_spinner=false
 # even if this is wrapped around a spinner,
 # that spinner only runs whenever data is NOT fetched from cache
@@ -136,7 +138,6 @@ st.markdown(footer_html, unsafe_allow_html=True)
 # hence reducing unnecessary quick spinner upon fetching from cache
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_cached_unit_token_mappings() -> dict[str, str]:
-    info = Info(constants.MAINNET_API_URL, skip_ws=True)
     spot_metadata = info.spot_meta()
 
     unit_tokens = (t for t in spot_metadata['tokens']
@@ -170,6 +171,13 @@ with st.spinner('Initializing token mappings...'):
     unit_token_mappings = get_cached_unit_token_mappings()
 
 
+# region optimisations
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_subaccounts_cached(info: Info, account: str) -> list:
+    subaccounts = info.query_sub_accounts(account)
+    return subaccounts if subaccounts is not None else []
+# endregion
+
 # assumes unit started when spot BTC started trading
 unit_start_date = datetime(2025, 2, 14, tzinfo=timezone.utc)
 
@@ -178,8 +186,6 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
     """
     get unit volumes with caching
     """
-    info = Info(constants.MAINNET_API_URL, skip_ws=True)
-
     # account: { remarks (subaccount of another), num fills }
     accounts_mapping: dict[str, dict[str, int]] = dict()
 
@@ -192,18 +198,17 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
             "USDC Fees": 0.0,
         }
         if not exclude_subaccounts:
-            subaccounts = info.query_sub_accounts(account)
-            if subaccounts is not None:
-                for sub in subaccounts:
-                    subaccount = sub['subAccountUser']
+            subaccounts = get_subaccounts_cached(info, account)
+            for sub in subaccounts:
+                subaccount = sub['subAccountUser']
 
-                    accounts_mapping[subaccount] = {
-                        "Name": sub['name'],
-                        "Remarks": f"Subaccount of {account[:6]}...",
-                        "Num Trades": 0,
-                        "Token Fees": 0.0,
-                        "USDC Fees": 0.0,
-                    }
+                accounts_mapping[subaccount] = {
+                    "Name": sub['name'],
+                    "Remarks": f"Subaccount of {account[:6]}...",
+                    "Num Trades": 0,
+                    "Token Fees": 0.0,
+                    "USDC Fees": 0.0,
+                }
 
     accounts_to_query = accounts_mapping.keys()
 
@@ -466,7 +471,7 @@ def main():
     with col2:
         exclude_subaccounts = st.checkbox("Exclude Subaccounts")
     with col3:
-        submitted = st.button("Fetch Data", type="primary")
+        submitted = st.button("Run", type="primary")
 
     # create placeholder that can be cleared and rewritten
     output_placeholder = st.empty()
