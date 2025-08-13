@@ -173,7 +173,7 @@ with st.spinner('Initializing token mappings...'):
 
 # region optimisations
 @st.cache_data(ttl=3600, show_spinner=False)
-def get_subaccounts_cached(info: Info, account: str) -> list:
+def get_subaccounts_cached(account: str) -> list:
     subaccounts = info.query_sub_accounts(account)
     return subaccounts if subaccounts is not None else []
 # endregion
