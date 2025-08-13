@@ -5,16 +5,19 @@ from hyperliquid.info import Info
 from hyperliquid.utils import constants
 import streamlit as st
 import plotly.express as px
+from unit_bridging_api import UnitBridgeInfo
+from utils.render_utils import footer_html
 
 # setup and configure logging
 import logging
+from utils.unit_bridge_utils import create_bridge_summary, process_bridge_operations
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
 
-from utils import format_currency, get_current_timestamp_millis
+from utils.utils import DATE_FORMAT, format_currency, get_current_timestamp_millis
 
 st.set_page_config(
     'Hyperliquid Tools',
@@ -28,108 +31,12 @@ st.markdown(
 
 # region sticky footer
 # put up here so container emptying doesn't make footer flash
-footer_html = """
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,600&display=swap">
-<style>
-html, body { margin: 0; padding: 0; background: transparent; }
-.footer {
-    position: fixed;
-    left: 0;
-    bottom: 0;
-    width: 100%;
-    color: #D3D3D3;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    padding: 10px 20px;
-    font-size: 14px;
-    font-family: 'Source Sans Pro', sans-serif;
-    background-color: #0e1117;  /* same as main streamlit background */
-    z-index: 9999;
-}
-.footer a { color: #87CEEB; text-decoration: none; }
-.separator { margin: 0 15px; }
-.donation-address {
-    background-color: #2C2C2C;
-    padding: 4px 8px;
-    border-radius: 5px;
-    font-family: monospace;
-    margin: 8px;
-}
-.icon-container {
-    display: inline-block;
-    width: 1.5em;
-    text-align: center;
-    cursor: pointer;
-}
-.copy-icon { color: #A9A9A9; transition: color 0.2s; }
-.copy-icon:hover { color: #87CEEB; }
-</style>
-
-<div class="footer">
-    <span>made by <a href="https://x.com/mfnatiq1" target="_blank">@mfnatiq1</a></span>
-    <span class="separator">•</span>
-    <span>donations:</span>
-    <span id="donation-address" class="donation-address">0xB17648Ed98C9766B880b5A24eEcAebA19866d1d7</span> 
-</div>
-"""
-# <span class="icon-container" id="copy-btn" title="Copy to clipboard">
-#         <i id="icon-copy" class="fa-solid fa-copy copy-icon"></i>
-#         <i id="icon-check" class="fa-solid fa-check copy-icon" style="display:none; color:#7CFC00;"></i>
-#     </span>
-# <script>
-# function copy_to_clipboard() {
-#     var copyText = document.getElementById("donation-address").innerText;
-#     var iconCopy = document.getElementById("icon-copy");
-#     var iconCheck = document.getElementById("icon-check");
-
-#     function showTick() {
-#         iconCopy.style.display = 'none';
-#         iconCheck.style.display = 'inline-block';
-#         setTimeout(function() {
-#             iconCheck.style.display = 'none';
-#             iconCopy.style.display = 'inline-block';
-#         }, 1500);
-#     }
-
-#     if (navigator.clipboard && navigator.clipboard.writeText) {
-#         navigator.clipboard.writeText(copyText).then(showTick).catch(function() {
-#             fallbackCopy();
-#         });
-#     } else {
-#         fallbackCopy();
-#     }
-
-#     function fallbackCopy() {
-#         var ta = document.createElement('textarea');
-#         ta.value = copyText;
-#         ta.style.position = 'fixed';
-#         ta.style.left = '-9999px';
-#         document.body.appendChild(ta);
-#         ta.select();
-#         try {
-#             document.execCommand('copy');
-#             showTick();
-#         } catch (e) {
-#             alert('Copy failed');
-#         }
-#         document.body.removeChild(ta);
-#     }
-# }
-
-# // Immediately bind event listener when this script runs
-# var copyBtn = document.getElementById('copy-btn');
-# if (copyBtn) {
-#     copyBtn.addEventListener('click', copy_to_clipboard);
-# }
-# </script>
 # render footer
-# TODO copy icon change doesn't work, commented out for now
 st.markdown(footer_html, unsafe_allow_html=True)
 # endregion
 
 info = Info(constants.MAINNET_API_URL, skip_ws=True)
+unit_bridge_info = UnitBridgeInfo()
 
 # with caching and show_spinner=false
 # even if this is wrapped around a spinner,
@@ -414,9 +321,9 @@ def display_volume_table(df: pd.DataFrame, num_accounts: int):
     for col in ['Buy Volume', 'Sell Volume', 'Total Volume', 'Total Fees']:
         display_df[col] = display_df[col].apply(lambda x: f"${x:,.2f}")
     display_df['First Trade'] = display_df['First Trade'].apply(
-        lambda x: x.strftime('%Y-%m-%d %H:%M:%S UTC'))
+        lambda x: x.strftime(DATE_FORMAT))
     display_df['Last Trade'] = display_df['Last Trade'].apply(
-        lambda x: x.strftime('%Y-%m-%d %H:%M:%S UTC'))
+        lambda x: x.strftime(DATE_FORMAT))
 
     # display the table
     st.dataframe(
@@ -483,30 +390,175 @@ def main():
 
         accounts = [a.strip() for a in addresses_input.split(",") if a]
 
-        with st.spinner(f'Loading trade history for {", ".join(accounts)}...'):
+        with st.spinner(f'Loading data for {", ".join(accounts)}...'):
             volume_by_token, accounts_mapping, accounts_hitting_fills_limits, err = get_cached_unit_volumes(
                 accounts, unit_token_mappings, exclude_subaccounts)
+            
+            bridging_data = unit_bridge_info.get_operations(accounts)
 
-        # create container within placeholder for new content
         with output_placeholder.container():
             if err is not None:
                 st.error(err)
             else:
-                last_updated = datetime.now(timezone.utc)
-                st.caption(
-                    f"Last updated: {last_updated.strftime('%Y-%m-%d %H:%M:%S UTC')}")
-                
-                if len(accounts_hitting_fills_limits) > 0:
-                    st.warning(f'Unable to fetch all fills for accounts due to hitting API limits (contact me to check): {', '.join(accounts_hitting_fills_limits)}')
-    
-                df = create_volume_df(volume_by_token)
-                display_volume_table(df, len(accounts_mapping))
+                # store results in session state so they persist across tab switches
+                st.session_state['volume_data'] = {
+                    'volume_by_token': volume_by_token,
+                    'accounts_mapping': accounts_mapping,
+                    'accounts_hitting_fills_limits': accounts_hitting_fills_limits,
+                    'last_updated': datetime.now(timezone.utc),
+                    'accounts': accounts,
+                }
+                st.session_state['bridging_data'] = bridging_data
 
-                # show raw data in expander
-                if not df.empty:
-                    with st.expander("Raw Data"):
-                        st.json(accounts_mapping)
-                        st.json(volume_by_token)
+    # show content in output placeholder only if have data
+    if 'volume_data' in st.session_state and 'bridging_data' in st.session_state:
+        with output_placeholder.container():
+            volume_data = st.session_state['volume_data']
+            bridging_data = st.session_state['bridging_data']
+
+            st.caption(f"Last updated: {volume_data['last_updated'].strftime(DATE_FORMAT)}")
+
+            # create tabs
+            tab1, tab2 = st.tabs(["📊 Volume Analysis", "🌉 Bridge Analysis"])
+            
+            with tab1:
+                display_volume_content(
+                    volume_data['volume_by_token'],
+                    volume_data['accounts_mapping'],
+                    volume_data['accounts_hitting_fills_limits']
+                )
+            
+            with tab2:
+                display_bridging_content(bridging_data)
+
+        # # create container within placeholder for new content
+        # with output_placeholder.container():
+        #     if err is not None:
+        #         st.error(err)
+        #         return
+        #     else:
+        #         last_updated = datetime.now(timezone.utc)
+        #         st.caption(
+        #             f"Last updated: {last_updated.strftime(DATE_FORMAT)}")
+                
+        #         display_volume_content(volume_by_token, accounts_mapping, accounts_hitting_fills_limits)
+
+def display_volume_content(volume_by_token, accounts_mapping, accounts_hitting_fills_limits):
+    if len(accounts_hitting_fills_limits) > 0:
+        st.warning(f'Unable to fetch all fills for accounts due to hitting API limits (contact me to check): {', '.join(accounts_hitting_fills_limits)}')
+
+    df = create_volume_df(volume_by_token)
+    display_volume_table(df, len(accounts_mapping))
+
+    # show raw data in expander
+    if not df.empty:
+        with st.expander("Raw Data"):
+            st.json(accounts_mapping)
+            st.json(volume_by_token)
+
+def display_bridging_content(bridging_data: dict):
+    # combine bridge operations from all addresses into a single DataFrame
+    # TODO separate by address
+    all_operations_df = pd.DataFrame()
+    for address, data in bridging_data.items():
+        processed_df = process_bridge_operations(data)
+        if processed_df is not None and not processed_df.empty:
+            all_operations_df = pd.concat([all_operations_df, processed_df], ignore_index=True)
+
+    if all_operations_df.empty:
+        st.info("ℹ️ No bridging transactions found")
+        st.markdown("""
+        **Possible reasons:**
+        - No bridge operations detected in the analyzed time period
+        - Bridge data not available for the provided accounts
+        - Only spot trading activity found (no cross-chain transfers)
+        """)
+        return
+
+    # create summary
+    summary_df, top_asset = create_bridge_summary(all_operations_df)
+
+    if summary_df is None or summary_df.empty:
+        st.warning("No bridging transactions found")
+        return
+
+    # TODO convert values to USD for each txn? how
+
+    # display top bridged asset metric
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Top Bridged Asset", top_asset if top_asset else "N/A")
+    with col2:
+        total_bridge_volume = summary_df['Total Volume'].sum()
+        st.metric("Total Bridge Volume", f"{total_bridge_volume:.6f}")
+    with col3:
+        total_transactions = summary_df['Total Transactions'].sum()
+        st.metric("Total Bridge Transactions", int(total_transactions))
+
+    st.markdown("---")
+
+    # display bridge summary table
+    st.markdown("### Bridge Activity Summary")
+
+    # format display df
+    display_df = summary_df.copy()
+    display_df['Deposit Volume'] = display_df['Deposit Volume'].apply(lambda x: f"{x:.6f}" if x > 0 else "0")
+    display_df['Withdraw Volume'] = display_df['Withdraw Volume'].apply(lambda x: f"{x:.6f}" if x > 0 else "0")
+    display_df['Total Volume'] = display_df['Total Volume'].apply(lambda x: f"{x:.6f}")
+    
+    # format dates
+    display_df['First Transaction'] = display_df['First Transaction'].apply(
+        lambda x: x.strftime(DATE_FORMAT) if pd.notna(x) else "N/A"
+    )
+    display_df['Last Transaction'] = display_df['Last Transaction'].apply(
+        lambda x: x.strftime(DATE_FORMAT) if pd.notna(x) else "N/A"
+    )
+
+    st.dataframe(
+        display_df,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            'Asset': st.column_config.TextColumn('Asset', width='small'),
+            'Deposit Volume': st.column_config.TextColumn('Deposit Volume', width='small'),
+            'Withdraw Volume': st.column_config.TextColumn('Withdraw Volume', width='small'),
+            'Total Volume': st.column_config.TextColumn('Total Volume', width='small'),
+            'Total Transactions': st.column_config.NumberColumn('Txns', width='small'),
+            'First Transaction': st.column_config.TextColumn('First Transaction', width='medium'),
+            'Last Transaction': st.column_config.TextColumn('Last Transaction', width='medium'),
+        }
+    )
+
+    # bridge activity chart if we have multiple assets
+    if len(summary_df) > 1:
+        st.markdown("### Bridge Volume Distribution")
+        
+        chart_df = summary_df[['Asset', 'Deposit Volume', 'Withdraw Volume']].melt(
+            id_vars=['Asset'],
+            value_vars=['Deposit Volume', 'Withdraw Volume'],
+            var_name='Direction',
+            value_name='Volume'
+        )
+        
+        fig = px.bar(
+            chart_df,
+            x='Asset',
+            y='Volume',
+            color='Direction',
+            labels={'Volume': 'Volume (Native Units)'}
+        )
+        fig.update_layout(
+            xaxis_title='Asset',
+            yaxis_title='Volume',
+            showlegend=True
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    
+    # raw data
+    with st.expander("Raw Data"):
+        st.dataframe(all_operations_df[['asset', 'direction', 'amount_formatted', 'opCreatedAt', 'state', 'sourceChain', 'destinationChain']])
+        st.json(bridging_data)
+
 
 if __name__ == '__main__':
     main()
