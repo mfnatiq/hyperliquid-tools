@@ -4,6 +4,7 @@ from hyperliquid.utils.types import SpotAssetInfo
 from hyperliquid.info import Info
 from hyperliquid.utils import constants
 import streamlit as st
+import streamlit.components.v1 as components
 import plotly.express as px
 
 # setup and configure logging
@@ -72,61 +73,103 @@ html, body { margin: 0; padding: 0; background: transparent; }
     <span class="separator">•</span>
     <span>donations:</span>
     <span id="donation-address" class="donation-address">0xB17648Ed98C9766B880b5A24eEcAebA19866d1d7</span> 
+    <span class="icon-container" id="copy-btn" title="Copy to clipboard">
+        <i id="icon-copy" class="fa-solid fa-copy copy-icon"></i>
+        <i id="icon-check" class="fa-solid fa-check copy-icon" style="display:none; color:#7CFC00;"></i>
+    </span>
 </div>
 """
-# <span class="icon-container" id="copy-btn" title="Copy to clipboard">
-#         <i id="icon-copy" class="fa-solid fa-copy copy-icon"></i>
-#         <i id="icon-check" class="fa-solid fa-check copy-icon" style="display:none; color:#7CFC00;"></i>
-#     </span>
-# <script>
-# function copy_to_clipboard() {
-#     var copyText = document.getElementById("donation-address").innerText;
-#     var iconCopy = document.getElementById("icon-copy");
-#     var iconCheck = document.getElementById("icon-check");
 
-#     function showTick() {
-#         iconCopy.style.display = 'none';
-#         iconCheck.style.display = 'inline-block';
-#         setTimeout(function() {
-#             iconCheck.style.display = 'none';
-#             iconCopy.style.display = 'inline-block';
-#         }, 1500);
-#     }
+# JavaScript component for copy functionality
+copy_script = """
+<script>
+function copy_to_clipboard() {
+    var copyText = "0xB17648Ed98C9766B880b5A24eEcAebA19866d1d7";
+    var iconCopy = parent.document.getElementById("icon-copy");
+    var iconCheck = parent.document.getElementById("icon-check");
 
-#     if (navigator.clipboard && navigator.clipboard.writeText) {
-#         navigator.clipboard.writeText(copyText).then(showTick).catch(function() {
-#             fallbackCopy();
-#         });
-#     } else {
-#         fallbackCopy();
-#     }
+    function showTick() {
+        if (iconCopy && iconCheck) {
+            iconCopy.style.display = 'none';
+            iconCheck.style.display = 'inline-block';
+            setTimeout(function() {
+                iconCheck.style.display = 'none';
+                iconCopy.style.display = 'inline-block';
+            }, 1500);
+        }
+    }
 
-#     function fallbackCopy() {
-#         var ta = document.createElement('textarea');
-#         ta.value = copyText;
-#         ta.style.position = 'fixed';
-#         ta.style.left = '-9999px';
-#         document.body.appendChild(ta);
-#         ta.select();
-#         try {
-#             document.execCommand('copy');
-#             showTick();
-#         } catch (e) {
-#             alert('Copy failed');
-#         }
-#         document.body.removeChild(ta);
-#     }
-# }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(copyText).then(showTick).catch(function() {
+            fallbackCopy();
+        });
+    } else {
+        fallbackCopy();
+    }
 
-# // Immediately bind event listener when this script runs
-# var copyBtn = document.getElementById('copy-btn');
-# if (copyBtn) {
-#     copyBtn.addEventListener('click', copy_to_clipboard);
-# }
-# </script>
+    function fallbackCopy() {
+        var ta = document.createElement('textarea');
+        ta.value = copyText;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+            document.execCommand('copy');
+            showTick();
+        } catch (e) {
+            alert('Copy failed');
+        }
+        document.body.removeChild(ta);
+    }
+}
+
+// Function to attach event listener
+function attachCopyEvent() {
+    var copyBtn = parent.document.getElementById('copy-btn');
+    if (copyBtn && !copyBtn.hasAttribute('data-listener-attached')) {
+        copyBtn.addEventListener('click', copy_to_clipboard);
+        copyBtn.setAttribute('data-listener-attached', 'true');
+        return true;
+    }
+    return false;
+}
+
+// Try to attach immediately
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', attachCopyEvent);
+} else {
+    attachCopyEvent();
+}
+
+// Fallback for Streamlit's dynamic content loading
+setTimeout(function() {
+    if (!attachCopyEvent()) {
+        var observer = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                if (mutation.type === 'childList') {
+                    if (attachCopyEvent()) {
+                        observer.disconnect();
+                    }
+                }
+            });
+        });
+        if (parent.document.body) {
+            observer.observe(parent.document.body, { childList: true, subtree: true });
+            setTimeout(function() {
+                observer.disconnect();
+            }, 5000);
+        }
+    }
+}, 100);
+</script>
+"""
+
 # render footer
-# TODO copy icon change doesn't work, commented out for now
 st.markdown(footer_html, unsafe_allow_html=True)
+
+# render copy script in a separate component to avoid CSP issues
+components.html(copy_script, height=0)
 # endregion
 
 info = Info(constants.MAINNET_API_URL, skip_ws=True)
