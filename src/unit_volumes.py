@@ -198,7 +198,7 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
             "USDC Fees": 0.0,
         }
         if not exclude_subaccounts:
-            subaccounts = get_subaccounts_cached(info, account)
+            subaccounts = get_subaccounts_cached(account)
             for sub in subaccounts:
                 subaccount = sub['subAccountUser']
 
