@@ -61,8 +61,10 @@ def get_cached_unit_token_mappings() -> dict[str, tuple[str, int]]:
 
         try:
             # used for bridge
-            token_decimals = int(t['weiDecimals']) + int(t['evmContract']['evm_extra_wei_decimals'])
-        except Exception as e:
+            token_decimals = int(t['weiDecimals'])
+            if t['evmContract'] is not None:
+                token_decimals += int(t['evmContract']['evm_extra_wei_decimals'])
+        except Exception:
             # skip
             logger.warning(f'skipping as unable to find decimals info for {token_name}: {t}')
             continue
@@ -470,7 +472,7 @@ def format_bridge_data(raw_bridge_data: dict, unit_token_mappings: dict[str, tup
     # TODO separate by address
     all_operations_df = pd.DataFrame()
     for address, data in raw_bridge_data.items():
-        processed_df = process_bridge_operations(data, unit_token_mappings)
+        processed_df = process_bridge_operations(data, unit_token_mappings, logger)
         if processed_df is not None and not processed_df.empty:
             all_operations_df = pd.concat([all_operations_df, processed_df], ignore_index=True)
     return all_operations_df

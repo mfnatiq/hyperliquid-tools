@@ -1,9 +1,10 @@
+from logging import Logger
 import pandas as pd
 
 
-def process_bridge_operations(data_dict: dict, unit_token_mappings: dict[str, tuple[str, int]]) -> pd.DataFrame | None:
+def process_bridge_operations(data_dict: dict, unit_token_mappings: dict[str, tuple[str, int]], logger: Logger) -> pd.DataFrame | None:
     """
-    process a single dictionary of bridge operations data into a structured DataFrame.
+    process a single dictionary of bridge operations data into a structured df
     """
     if not data_dict or 'operations' not in data_dict or not data_dict['operations']:
         return None
@@ -33,12 +34,12 @@ def process_bridge_operations(data_dict: dict, unit_token_mappings: dict[str, tu
         decimal_places = 18
         found_decimals = False
         for asset_name, decimals in unit_token_mappings.values():
-            if asset_name == asset:
+            if asset_name.lower().endswith(asset):
                 decimal_places = decimals
                 found_decimals = True
                 break
         if not found_decimals:
-            print(f"ERROR: decimal places not found for {asset}")
+            logger.warning(f"error: decimal places not found for {asset}: setting to default {decimal_places}")
         
         return amount / (10 ** decimal_places)
 
