@@ -1,8 +1,8 @@
 ## Hyperliquid Tools
 
-### Running 
+### Running
 
-`streamlit run src/unit_volumes.py`
+`streamlit run src/main.py`
 
 Tested with python 3.13
 
