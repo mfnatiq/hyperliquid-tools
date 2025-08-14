@@ -59,8 +59,13 @@ def get_cached_unit_token_mappings() -> dict[str, tuple[str, int]]:
         token_name = t['name']
         token_idx = t['index']
 
-        # used for bridge
-        token_decimals = int(t['weiDecimals']) + int(t['evmContract']['evm_extra_wei_decimals'])
+        try:
+            # used for bridge
+            token_decimals = int(t['weiDecimals']) + int(t['evmContract']['evm_extra_wei_decimals'])
+        except Exception as e:
+            # skip
+            logger.warning(f'skipping as unable to find decimals info for {token_name}: {t}')
+            continue
 
         universe_entry = None
         while universe_metadata_idx < len(universe_metadata):
