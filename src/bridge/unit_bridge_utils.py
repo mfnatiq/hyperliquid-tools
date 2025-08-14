@@ -43,6 +43,7 @@ def process_bridge_operations(data_dict: dict, unit_token_mappings: dict[str, tu
         
         return amount / (10 ** decimal_places)
 
+    # TODO convert amt by EOD price - how to fetch and store?
     df['amount_formatted'] = df.apply(convert_amount, axis=1)
 
     # filter only completed or nearly completed transactions for volume calculation
