@@ -5,12 +5,12 @@ from hyperliquid.info import Info
 from hyperliquid.utils import constants
 import streamlit as st
 import plotly.express as px
-from unit_bridging_api import UnitBridgeInfo
+from bridge.unit_bridge_api import UnitBridgeInfo
 from utils.render_utils import footer_html
 
 # setup and configure logging
 import logging
-from utils.unit_bridge_utils import create_bridge_summary, process_bridge_operations
+from bridge.unit_bridge_utils import create_bridge_summary, process_bridge_operations
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     level=logging.INFO,
@@ -27,7 +27,7 @@ st.set_page_config(
 
 st.title("Unit Volume Tracker")
 st.markdown(
-    "Input 1 or more accounts (comma-separated) to see combined volume across Hyperliquid Unit tokens")
+    "Input 1 or more accounts (comma-separated)")
 
 # region sticky footer
 # put up here so container emptying doesn't make footer flash
@@ -44,7 +44,7 @@ unit_bridge_info = UnitBridgeInfo()
 # i.e. if data is actually fetched
 # hence reducing unnecessary quick spinner upon fetching from cache
 @st.cache_data(ttl=3600, show_spinner=False)
-def get_cached_unit_token_mappings() -> dict[str, str]:
+def get_cached_unit_token_mappings() -> dict[str, tuple[str, int]]:
     spot_metadata = info.spot_meta()
 
     unit_tokens = (t for t in spot_metadata['tokens']
@@ -59,6 +59,9 @@ def get_cached_unit_token_mappings() -> dict[str, str]:
         token_name = t['name']
         token_idx = t['index']
 
+        # used for bridge
+        token_decimals = int(t['weiDecimals']) + int(t['evmContract']['evm_extra_wei_decimals'])
+
         universe_entry = None
         while universe_metadata_idx < len(universe_metadata):
             if token_idx in universe_metadata[universe_metadata_idx]['tokens']:
@@ -67,7 +70,7 @@ def get_cached_unit_token_mappings() -> dict[str, str]:
             universe_metadata_idx += 1
 
         if universe_entry:
-            mapping[universe_entry['name']] = token_name
+            mapping[universe_entry['name']] = (token_name, token_decimals)
         else:
             logging.info(
                 f'unable to find pair metadata for token {token_name}, skipping processing')
@@ -89,7 +92,7 @@ def get_subaccounts_cached(account: str) -> list:
 unit_start_date = datetime(2025, 2, 14, tzinfo=timezone.utc)
 
 @st.cache_data(ttl=60, show_spinner=False)
-def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, str], exclude_subaccounts: bool = False):
+def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, tuple[str, int]], exclude_subaccounts: bool = False):
     """
     get unit volumes with caching
     """
@@ -135,7 +138,7 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
             'USDC Fees': 0.0,
             'Num Trades': 0,
         }
-        for t in unit_token_mappings.values()
+        for t, _ in unit_token_mappings.values()
     }
 
     fills = dict()  # { account: list of fills }
@@ -195,7 +198,7 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
             coin = f['coin']
             direction = f['dir']
             if coin in unit_token_mappings.keys() and direction in ['Buy', 'Sell']:
-                token_name = unit_token_mappings[coin]
+                token_name, _ = unit_token_mappings[coin]
 
                 price = float(f['px'])
 
@@ -365,7 +368,7 @@ def display_accounts_table(accounts_df: pd.DataFrame):
 
 # main app logic reruns upon any interaction
 def main():
-    st.info(f'Unit tokens: {", ".join(unit_token_mappings.values())}')
+    st.info(f'Unit tokens: {", ".join([t for t, _ in unit_token_mappings.values()])}')
 
     col1, col2, col3 = st.columns([10, 2, 1])
     with col1:
@@ -394,7 +397,7 @@ def main():
             volume_by_token, accounts_mapping, accounts_hitting_fills_limits, err = get_cached_unit_volumes(
                 accounts, unit_token_mappings, exclude_subaccounts)
             
-            bridging_data = unit_bridge_info.get_operations(accounts)
+            raw_bridge_data = unit_bridge_info.get_operations(accounts)
 
         with output_placeholder.container():
             if err is not None:
@@ -408,13 +411,13 @@ def main():
                     'last_updated': datetime.now(timezone.utc),
                     'accounts': accounts,
                 }
-                st.session_state['bridging_data'] = bridging_data
+                st.session_state['raw_bridge_data'] = raw_bridge_data
 
     # show content in output placeholder only if have data
-    if 'volume_data' in st.session_state and 'bridging_data' in st.session_state:
+    if 'volume_data' in st.session_state and 'raw_bridge_data' in st.session_state:
         with output_placeholder.container():
             volume_data = st.session_state['volume_data']
-            bridging_data = st.session_state['bridging_data']
+            raw_bridge_data = st.session_state['raw_bridge_data']
 
             st.caption(f"Last updated: {volume_data['last_updated'].strftime(DATE_FORMAT)}")
 
@@ -429,7 +432,8 @@ def main():
                 )
             
             with tab2:
-                display_bridging_content(bridging_data)
+                processed_bridge_data = format_bridge_data(raw_bridge_data, unit_token_mappings)
+                display_bridge_content(raw_bridge_data, processed_bridge_data)
 
         # # create container within placeholder for new content
         # with output_placeholder.container():
@@ -456,17 +460,19 @@ def display_volume_content(volume_by_token, accounts_mapping, accounts_hitting_f
             st.json(accounts_mapping)
             st.json(volume_by_token)
 
-def display_bridging_content(bridging_data: dict):
+def format_bridge_data(raw_bridge_data: dict, unit_token_mappings: dict[str, tuple[str, int]]):
     # combine bridge operations from all addresses into a single DataFrame
     # TODO separate by address
     all_operations_df = pd.DataFrame()
-    for address, data in bridging_data.items():
-        processed_df = process_bridge_operations(data)
+    for address, data in raw_bridge_data.items():
+        processed_df = process_bridge_operations(data, unit_token_mappings)
         if processed_df is not None and not processed_df.empty:
             all_operations_df = pd.concat([all_operations_df, processed_df], ignore_index=True)
+    return all_operations_df
 
+def display_bridge_content(raw_bridge_data: dict, all_operations_df: pd.DataFrame):
     if all_operations_df.empty:
-        st.info("ℹ️ No bridging transactions found")
+        st.info("ℹ️ No bridge transactions found")
         st.markdown("""
         **Possible reasons:**
         - No bridge operations detected in the analyzed time period
@@ -479,7 +485,7 @@ def display_bridging_content(bridging_data: dict):
     summary_df, top_asset = create_bridge_summary(all_operations_df)
 
     if summary_df is None or summary_df.empty:
-        st.warning("No bridging transactions found")
+        st.warning("No bridge transactions found")
         return
 
     # TODO convert values to USD for each txn? how
@@ -557,7 +563,7 @@ def display_bridging_content(bridging_data: dict):
     # raw data
     with st.expander("Raw Data"):
         st.dataframe(all_operations_df[['asset', 'direction', 'amount_formatted', 'opCreatedAt', 'state', 'sourceChain', 'destinationChain']])
-        st.json(bridging_data)
+        st.json(raw_bridge_data)
 
 
 if __name__ == '__main__':
