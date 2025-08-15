@@ -261,14 +261,14 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
                 num_fills_total += num_fills
 
                 # logic:
-                # if have fills, keep shrinking end time to latest fill - 1 ms
-                # always query endtime less fixed numDaysQuerySpan
-                if num_fills > 0:
+                # 1) if hit limit (2k fills per api call), set end == earliest - 1ms
+                # 2) else, slide window fully (i.e. end == start - 1)
+                if num_fills == 2000:
                     earliest_timestamp = min(f['time'] for f in fills_result)
                     endTime = earliest_timestamp - 1
                     startTime = endTime - int(timedelta(days=numDaysQuerySpan).total_seconds()) * 1000
-                else:
-                    endTime = startTime - int(timedelta(days=numDaysQuerySpan).total_seconds()) * 1000
+                else:   # if hit limit, keep shrinking
+                    endTime = startTime - 1
                     startTime = endTime - int(timedelta(days=numDaysQuerySpan).total_seconds()) * 1000
 
                 account_fills.extend(fills_result)
