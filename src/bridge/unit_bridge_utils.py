@@ -99,17 +99,15 @@ def create_bridge_summary(df: pd.DataFrame):
     assets = pivot_summary.index.tolist()
 
     for asset in assets:
-        deposit_volume = pivot_summary.get(f'Volume_Deposit', 0).get(asset, 0)
-        deposit_first = pivot_summary.get(f'First_Txn_Deposit', {}).get(asset)
-        deposit_last = pivot_summary.get(f'Last_Txn_Deposit', {}).get(asset)
-        deposit_count = pivot_summary.get(f'Count_Deposit', 0).get(asset, 0)
+        deposit_volume = pivot_summary.get('Volume_Deposit', {}).get(asset, 0)
+        deposit_first = pivot_summary.get('First_Txn_Deposit', {}).get(asset)
+        deposit_last = pivot_summary.get('Last_Txn_Deposit', {}).get(asset)
+        deposit_count = pivot_summary.get(f'Count_Deposit', {}).get(asset, 0)
 
-        withdraw_volume = pivot_summary.get(
-            f'Volume_Withdraw', 0).get(asset, 0)
-        withdraw_first = pivot_summary.get(
-            f'First_Txn_Withdraw', {}).get(asset)
-        withdraw_last = pivot_summary.get(f'Last_Txn_Withdraw', {}).get(asset)
-        withdraw_count = pivot_summary.get(f'Count_Withdraw', 0).get(asset, 0)
+        withdraw_volume = pivot_summary.get('Volume_Withdraw', {}).get(asset, 0)
+        withdraw_first = pivot_summary.get('First_Txn_Withdraw', {}).get(asset)
+        withdraw_last = pivot_summary.get('Last_Txn_Withdraw', {}).get(asset)
+        withdraw_count = pivot_summary.get('Count_Withdraw', {}).get(asset, 0)
 
         # calculate overall first and last transaction
         dates = [d for d in [deposit_first, deposit_last, withdraw_first, withdraw_last] if pd.notna(d)]
