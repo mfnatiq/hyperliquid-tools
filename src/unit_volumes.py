@@ -232,7 +232,7 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
     }
 
     fills = dict()  # { account: list of fills }
-    overallStartTime = int(unit_start_date.timestamp() * 1000)
+    currTime = get_current_timestamp_millis()
     numDaysQuerySpan = 30
     try:
         for account in accounts_to_query:
@@ -240,11 +240,12 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
             account_fills = []
 
             # initial values
-            endTimeMillis = get_current_timestamp_millis()
-            startTime = endTimeMillis - int(timedelta(days=numDaysQuerySpan).total_seconds()) * 1000
-            endTime = endTimeMillis
+            startTime = int(unit_start_date.timestamp() * 1000)
 
-            while endTime > overallStartTime: # check back until this date
+            # seems like 2k limit for endpoint counts from the start
+            # so start from overall start time then move up til currtime
+            while startTime < currTime: # check back until this date
+                endTime = startTime + int(timedelta(days=numDaysQuerySpan).total_seconds()) * 1000
                 logging.info(f'querying for {account} startTime: {startTime}; endTime: {endTime}')
 
                 fills_result = info.post("/info", {
@@ -261,15 +262,14 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
                 num_fills_total += num_fills
 
                 # logic:
-                # 1) if hit limit (2k fills per api call), set end == earliest - 1ms
-                # 2) else, slide window fully (i.e. end == start - 1)
+                # 1) if hit limit (2k fills per api call), set start = latest fill timestamp + 1
+                # 2) else, slide window fully i.e. start = end + 1
+                # always set endTime as startTime + interval
                 if num_fills == 2000:
-                    earliest_timestamp = min(f['time'] for f in fills_result)
-                    endTime = earliest_timestamp - 1
-                    startTime = endTime - int(timedelta(days=numDaysQuerySpan).total_seconds()) * 1000
-                else:   # if hit limit, keep shrinking
-                    endTime = startTime - 1
-                    startTime = endTime - int(timedelta(days=numDaysQuerySpan).total_seconds()) * 1000
+                    latest_fill_timestamp = max(f['time'] for f in fills_result)
+                    startTime = latest_fill_timestamp + 1
+                else:
+                    startTime = endTime + 1
 
                 account_fills.extend(fills_result)
             fills[account] = account_fills
