@@ -14,7 +14,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-from utils import format_currency, get_current_timestamp_millis
+from src.utils import format_currency, get_current_timestamp_millis
 
 st.set_page_config(
     'Hyperliquid Tools',
