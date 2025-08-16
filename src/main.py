@@ -214,15 +214,29 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
 
     volume_by_token = {
         t: {
-            'Buy': {
-                'First Txn': None,
-                'Last Txn': None,
-                'Volume': 0.0,
+            'Direction': {
+                'Buy': {
+                    'First Txn': None,
+                    'Last Txn': None,
+                    'Volume': 0.0,
+                },
+                'Sell': {
+                    'First Txn': None,
+                    'Last Txn': None,
+                    'Volume': 0.0,
+                }
             },
-            'Sell': {
-                'First Txn': None,
-                'Last Txn': None,
-                'Volume': 0.0,
+            'Type': {
+                'Maker': {
+                    'First Txn': None,
+                    'Last Txn': None,
+                    'Volume': 0.0,
+                },
+                'Taker': {
+                    'First Txn': None,
+                    'Last Txn': None,
+                    'Volume': 0.0,
+                }
             },
             'Token Fees': 0.0,
             'USDC Fees': 0.0,
@@ -289,6 +303,10 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
             direction = f['dir']
             if coin in unit_token_mappings.keys() and direction in ['Buy', 'Sell']:
                 token_name = unit_token_mappings[coin]
+                
+                # only count unit fills
+                volume_by_token[token_name]['Num Trades'] += 1
+                accounts_mapping[account]['Num Trades'] += 1
 
                 price = float(f['px'])
 
@@ -296,19 +314,24 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
                 trade_time = datetime.fromtimestamp(
                     f['time'] / 1000, tz=timezone.utc)
                 
-                prev_first_txn = volume_by_token[token_name][direction]['First Txn']
+                # direction
+                prev_first_txn = volume_by_token[token_name]['Direction'][direction]['First Txn']
                 if prev_first_txn is None or trade_time < prev_first_txn:
-                    volume_by_token[token_name][direction]['First Txn'] = trade_time
-
-                prev_last_txn = volume_by_token[token_name][direction]['Last Txn']
+                    volume_by_token[token_name]['Direction'][direction]['First Txn'] = trade_time
+                prev_last_txn = volume_by_token[token_name]['Direction'][direction]['Last Txn']
                 if prev_last_txn is None or trade_time > prev_last_txn:
-                    volume_by_token[token_name][direction]['Last Txn'] = trade_time
+                    volume_by_token[token_name]['Direction'][direction]['Last Txn'] = trade_time
+                volume_by_token[token_name]['Direction'][direction]['Volume'] += trade_volume
                 
-                volume_by_token[token_name][direction]['Volume'] += trade_volume
-
-                # only count unit fills
-                volume_by_token[token_name]['Num Trades'] += 1
-                accounts_mapping[account]['Num Trades'] += 1
+                # trade type (maker / taker)
+                trade_type = 'Taker' if f['crossed'] is True else 'Maker'
+                prev_first_txn = volume_by_token[token_name]['Type'][trade_type]['First Txn']
+                if prev_first_txn is None or trade_time < prev_first_txn:
+                    volume_by_token[token_name]['Type'][trade_type]['First Txn'] = trade_time
+                prev_last_txn = volume_by_token[token_name]['Type'][trade_type]['Last Txn']
+                if prev_last_txn is None or trade_time > prev_last_txn:
+                    volume_by_token[token_name]['Type'][trade_type]['Last Txn'] = trade_time
+                volume_by_token[token_name]['Type'][trade_type]['Volume'] += trade_volume
 
                 fee_in_quote = f['feeToken'] == 'USDC'
                 if fee_in_quote:
@@ -343,22 +366,37 @@ def create_volume_df(volume_by_token: dict) -> pd.DataFrame:
     """
     records = []
     for token, volumes in volume_by_token.items():
-        buys = volumes['Buy']
+        buys = volumes['Direction']['Buy']
         buy_volume = buys['Volume']
-        sells = volumes['Sell']
+        sells = volumes['Direction']['Sell']
         sell_volume = sells['Volume']
         total_volume = buy_volume + sell_volume
+
+        maker = volumes['Type']['Maker']
+        maker_volume = maker['Volume']
+        taker = volumes['Type']['Taker']
+        taker_volume = taker['Volume']
 
         if total_volume > 0:
             records.append({
                 'Token': token,
+
                 'Buy Volume': buy_volume,
                 'First Buy': buys['First Txn'],
                 'Last Buy': buys['Last Txn'],
                 'Sell Volume': sell_volume,
                 'First Sell': sells['First Txn'],
                 'Last Sell': sells['Last Txn'],
+
                 'Total Volume': total_volume,
+                
+                'Maker Volume': maker_volume,
+                'First Maker Txn': maker['First Txn'],
+                'Last Maker Txn': maker['Last Txn'],
+                'Taker Volume': taker_volume,
+                'First Taker Txn': taker['First Txn'],
+                'Last Taker Txn': taker['Last Txn'],
+                
                 'Token Fees': volumes['Token Fees'],
                 'USDC Fees': volumes['USDC Fees'],
                 'Num Trades': volumes['Num Trades'],
@@ -410,8 +448,8 @@ def display_volume_table(df: pd.DataFrame, num_accounts: int):
 
     # format df for display
     display_df = df[['Token', 'Buy Volume', 'Sell Volume',
-                    'Total Volume', 'Total Fees', 'First Trade', 'Last Trade']].copy()
-    for col in ['Buy Volume', 'Sell Volume', 'Total Volume', 'Total Fees']:
+                    'Total Volume', 'Total Fees', 'First Trade', 'Last Trade', 'Maker Volume', 'Taker Volume']].copy()
+    for col in ['Buy Volume', 'Sell Volume', 'Total Volume', 'Total Fees', 'Maker Volume', 'Taker Volume']:
         display_df[col] = display_df[col].apply(lambda x: f"${x:,.2f}")
     display_df['First Trade'] = display_df['First Trade'].apply(
         lambda x: x.strftime('%Y-%m-%d %H:%M:%S UTC'))
@@ -430,24 +468,46 @@ def display_volume_table(df: pd.DataFrame, num_accounts: int):
             'Total Volume': st.column_config.TextColumn('Total Volume', width='small'),
             'First Trade': st.column_config.TextColumn('First Trade', width='medium'),
             'Last Trade': st.column_config.TextColumn('Last Trade', width='medium'),
+            'Maker Volume': st.column_config.TextColumn('Maker Volume', width='small'),
+            'Taker Volume': st.column_config.TextColumn('Taker Volume', width='small'),
         }
     )
 
-    # bar chart for buy / sell volume distribution
+    # bar chart for volume distribution
     if len(df) > 1:
         st.markdown("### Volume Distribution")
-        fig = px.bar(
-            df,
-            x='Token',
-            y=['Buy Volume', 'Sell Volume'],
-            labels={'value': 'Volume (USD)', 'variable': 'Volume Type'}
-        )
-        fig.update_layout(
-            barmode='stack',
-            xaxis_title='Token',
-            yaxis_title='Volume (USD)'
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # txn side distribution
+            fig = px.bar(
+                df,
+                x='Token',
+                y=['Buy Volume', 'Sell Volume'],
+                labels={'value': 'Volume (USD)', 'variable': 'Volume Type'}
+            )
+            fig.update_layout(
+                barmode='stack',
+                xaxis_title='Token',
+                yaxis_title='Volume (USD)'
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+        with col2:
+            # txn type distribution (maker / taker)
+            fig = px.bar(
+                df,
+                x='Token',
+                y=['Maker Volume', 'Taker Volume'],
+                labels={'value': 'Volume (USD)', 'variable': 'Volume Type'}
+            )
+            fig.update_layout(
+                barmode='stack',
+                xaxis_title='Token',
+                yaxis_title='Volume (USD)'
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
 def display_accounts_table(accounts_df: pd.DataFrame):
     st.dataframe(
