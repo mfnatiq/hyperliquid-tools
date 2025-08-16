@@ -12,7 +12,6 @@ certifi==2025.8.3
 charset-normalizer==3.4.3
 ckzg==2.1.1
 click==8.2.1
-coingecko_sdk==1.8.2
 colorama==0.4.6
 cytoolz==1.0.1
 distro==1.9.0
