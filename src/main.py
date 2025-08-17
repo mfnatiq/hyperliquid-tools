@@ -4,6 +4,7 @@ from hyperliquid.utils.types import SpotAssetInfo
 from hyperliquid.info import Info
 from hyperliquid.utils import constants
 import streamlit as st
+import streamlit.components.v1 as components
 import plotly.express as px
 from bridge.unit_bridge_api import UnitBridgeInfo
 from utils.price_utils import get_prices_cached
@@ -32,6 +33,8 @@ st.title("Unit Volume Tracker")
 # put up here so container emptying doesn't make footer flash
 # render footer
 st.markdown(footer_html, unsafe_allow_html=True)
+# render copy script in a separate component to avoid CSP issues
+components.html(copy_script, height=0)
 # endregion
 
 info = Info(constants.MAINNET_API_URL, skip_ws=True)
