@@ -1,8 +1,14 @@
 from logging import Logger
+import numpy as np
 import pandas as pd
 
 
-def process_bridge_operations(data_dict: dict, unit_token_mappings: dict[str, tuple[str, int]], logger: Logger) -> pd.DataFrame | None:
+def process_bridge_operations(
+    data_dict: dict,
+    unit_token_mappings: dict[str, tuple[str, int]],
+    prices: dict[str, dict[float, float]],
+    logger: Logger,
+) -> pd.DataFrame | None:
     """
     process a single dictionary of bridge operations data into a structured df
     """
@@ -26,10 +32,32 @@ def process_bridge_operations(data_dict: dict, unit_token_mappings: dict[str, tu
         lambda x: 'Deposit' if x == 'hyperliquid' else 'Withdraw'
     )
 
+    amt_cols = ['amount_formatted', 'amount_usd']
+
     # convert amts based on asset (assuming standard decimals)
-    def convert_amount(row):
+    def convert_amount(row, prices: dict[str, dict[float, float]], unit_token_mappings: dict[str, tuple[str, int]]):
         amount = row['sourceAmount']
         asset = row['asset']
+
+        # prices keys are UBTC, UETH etc.
+        # convert to token name
+        found_key = ""
+        for key in prices.keys():
+            if key.lower().endswith(asset) \
+                or (key == 'UFART' and asset == 'fartcoin'):    # TODO FART must be fartcoin?
+                    found_key = key
+                    break
+        if found_key == "":
+            logger.warning(f'no matching key found for bridge asset {asset} among available unit keys ({", ".join(prices.keys())})')
+            return pd.Series([np.nan, np.nan], index=amt_cols)
+
+        # convert string to BOD timestamp then get closing prices of that day
+        start_of_day = int(pd.Timestamp(row['opCreatedAt']).replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000)
+        if start_of_day not in prices[found_key]:
+            logger.warning(f'start of day timestamp {start_of_day} of {row['opCreatedAt']} not found in price list, ignoring')
+            return pd.Series([np.nan, np.nan], index=amt_cols)
+        
+        price = prices[found_key][start_of_day]
 
         decimal_places = 18
         found_decimals = False
@@ -40,16 +68,22 @@ def process_bridge_operations(data_dict: dict, unit_token_mappings: dict[str, tu
                 break
         if not found_decimals:
             logger.warning(f"error: decimal places not found for {asset}: setting to default {decimal_places}")
+            return pd.Series([np.nan, np.nan], index=amt_cols)
         
-        return amount / (10 ** decimal_places)
+        amount_formatted = amount / (10 ** decimal_places)
+        amount_usd = amount_formatted * price
+        
+        return pd.Series([amount_formatted, amount_usd], index=amt_cols)
 
-    # TODO convert amt by EOD price - how to fetch and store?
-    df['amount_formatted'] = df.apply(convert_amount, axis=1)
+    df[amt_cols] = df.apply(lambda row: convert_amount(row, prices, unit_token_mappings), axis=1)
 
     # filter only completed or nearly completed transactions for volume calculation
     completed_states = [
         'done', 'waitForSrcTxFinalization', 'sourceTxDiscovered']
     df_completed = df[df['state'].isin(completed_states)]
+
+    # filter out cols where price is null / not found
+    df_completed = df_completed.dropna(subset=['amount_usd'])
 
     return df_completed
 
@@ -63,12 +97,12 @@ def create_bridge_summary(df: pd.DataFrame):
 
     # group by asset and direction
     summary = df.groupby(['asset', 'direction']).agg({
-        'amount_formatted': 'sum',
+        'amount_usd': 'sum',
         'opCreatedAt': ['min', 'max', 'count']
     }).round(6)
 
     # flatten column names
-    summary.columns = ['Volume', 'First_Txn', 'Last_Txn', 'Count']
+    summary.columns = ['Volume', 'First Txn', 'Last Txn', 'Count']
     summary = summary.reset_index()
 
     # pivot numeric data with fill_value=0
@@ -83,14 +117,14 @@ def create_bridge_summary(df: pd.DataFrame):
     pivot_datetime = summary.pivot_table(
         index='asset',
         columns='direction',
-        values=['First_Txn', 'Last_Txn']
+        values=['First Txn', 'Last Txn']
     )
 
     # flatten column names for both pivot tables
     pivot_numeric.columns = [
-        f'{col[0]}_{col[1]}' for col in pivot_numeric.columns]
+        f'{col[0]} {col[1]}' for col in pivot_numeric.columns]
     pivot_datetime.columns = [
-        f'{col[0]}_{col[1]}' for col in pivot_datetime.columns]
+        f'{col[0]} {col[1]}' for col in pivot_datetime.columns]
 
     # combine the two pivot tables
     pivot_summary = pivot_numeric.join(pivot_datetime)
@@ -99,15 +133,15 @@ def create_bridge_summary(df: pd.DataFrame):
     assets = pivot_summary.index.tolist()
 
     for asset in assets:
-        deposit_volume = pivot_summary.get('Volume_Deposit', {}).get(asset, 0)
-        deposit_first = pivot_summary.get('First_Txn_Deposit', {}).get(asset)
-        deposit_last = pivot_summary.get('Last_Txn_Deposit', {}).get(asset)
-        deposit_count = pivot_summary.get(f'Count_Deposit', {}).get(asset, 0)
+        deposit_volume = pivot_summary.get('Volume Deposit', {}).get(asset, 0)
+        deposit_first = pivot_summary.get('First Txn Deposit', {}).get(asset)
+        deposit_last = pivot_summary.get('Last Txn Deposit', {}).get(asset)
+        deposit_count = pivot_summary.get(f'Count Deposit', {}).get(asset, 0)
 
-        withdraw_volume = pivot_summary.get('Volume_Withdraw', {}).get(asset, 0)
-        withdraw_first = pivot_summary.get('First_Txn_Withdraw', {}).get(asset)
-        withdraw_last = pivot_summary.get('Last_Txn_Withdraw', {}).get(asset)
-        withdraw_count = pivot_summary.get('Count_Withdraw', {}).get(asset, 0)
+        withdraw_volume = pivot_summary.get('Volume Withdraw', {}).get(asset, 0)
+        withdraw_first = pivot_summary.get('First Txn Withdraw', {}).get(asset)
+        withdraw_last = pivot_summary.get('Last Txn Withdraw', {}).get(asset)
+        withdraw_count = pivot_summary.get('Count Withdraw', {}).get(asset, 0)
 
         # calculate overall first and last transaction
         dates = [d for d in [deposit_first, deposit_last, withdraw_first, withdraw_last] if pd.notna(d)]

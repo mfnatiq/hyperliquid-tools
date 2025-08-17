@@ -6,6 +6,7 @@ from hyperliquid.utils import constants
 import streamlit as st
 import plotly.express as px
 from bridge.unit_bridge_api import UnitBridgeInfo
+from utils.price_utils import get_prices_cached
 from utils.render_utils import footer_html
 
 # setup and configure logging
@@ -26,8 +27,6 @@ st.set_page_config(
 )
 
 st.title("Unit Volume Tracker")
-st.markdown(
-    "Input 1 or more accounts (comma-separated)")
 
 # region sticky footer
 # put up here so container emptying doesn't make footer flash
@@ -48,8 +47,8 @@ def get_cached_unit_token_mappings() -> dict[str, tuple[str, int]]:
     spot_metadata = info.spot_meta()
 
     unit_tokens = (t for t in spot_metadata['tokens']
-                   if t.get('fullName') is not None and
-                   t['fullName'].startswith('Unit '))
+                    if t.get('fullName') is not None and
+                    t['fullName'].startswith('Unit '))
 
     universe_metadata: list[SpotAssetInfo] = spot_metadata['universe']
     universe_metadata_idx = 0
@@ -84,8 +83,13 @@ def get_cached_unit_token_mappings() -> dict[str, tuple[str, int]]:
 
     return mapping
 
-with st.spinner('Initializing token mappings...'):
+with st.spinner('Initialising...'):
     unit_token_mappings = get_cached_unit_token_mappings()
+    token_list = [t for t, _ in unit_token_mappings.values()]
+    prices = get_prices_cached(token_list, logger)
+
+st.markdown(
+    "Input 1 or more accounts (comma-separated)")
 
 
 # region optimisations
@@ -328,7 +332,7 @@ def create_volume_df(volume_by_token: dict) -> pd.DataFrame:
     return df
 
 
-def display_volume_table(df: pd.DataFrame, num_accounts: int):
+def display_trade_volume_table(df: pd.DataFrame, num_accounts: int):
     have_volume = not df.empty
 
     if not have_volume:
@@ -338,13 +342,13 @@ def display_volume_table(df: pd.DataFrame, num_accounts: int):
     # display metrics at top
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Total Volume", format_currency(
+        st.metric("Total Trade Volume", format_currency(
             df['Total Volume'].sum() if have_volume else 0.0))
     with col2:
-        st.metric("Tokens Traded", len(df))
-    with col3:
         most_traded = df.iloc[0]['Token'] if have_volume else "N/A"
-        st.metric("Most Traded Token", most_traded)
+        st.metric("Top Traded Token", most_traded)
+    with col3:
+        st.metric("Tokens Traded", len(df))
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -367,7 +371,7 @@ def display_volume_table(df: pd.DataFrame, num_accounts: int):
     display_df = df[['Token', 'Buy Volume', 'Sell Volume',
                     'Total Volume', 'Total Fees', 'First Trade', 'Last Trade', 'Maker Volume', 'Taker Volume']].copy()
     for col in ['Buy Volume', 'Sell Volume', 'Total Volume', 'Total Fees', 'Maker Volume', 'Taker Volume']:
-        display_df[col] = display_df[col].apply(lambda x: f"${x:,.2f}")
+        display_df[col] = display_df[col].apply(lambda x: format_currency(x))
     display_df['First Trade'] = display_df['First Trade'].apply(
         lambda x: x.strftime(DATE_FORMAT))
     display_df['Last Trade'] = display_df['Last Trade'].apply(
@@ -435,7 +439,7 @@ def display_accounts_table(accounts_df: pd.DataFrame):
 
 # main app logic reruns upon any interaction
 def main():
-    st.info(f'Unit tokens: {", ".join([t for t, _ in unit_token_mappings.values()])}')
+    st.info(f'Unit tokens: {", ".join(token_list)}')
 
     col1, col2, col3 = st.columns([10, 2, 1])
     with col1:
@@ -489,37 +493,25 @@ def main():
             st.caption(f"Last updated: {volume_data['last_updated'].strftime(DATE_FORMAT)}")
 
             # create tabs
-            tab1, tab2 = st.tabs(["📊 Volume Analysis", "🌉 Bridge Analysis"])
+            tab1, tab2 = st.tabs(["📊 Trade Analysis", "🌉 Bridge Analysis"])
             
             with tab1:
-                display_volume_content(
+                display_trade_data(
                     volume_data['volume_by_token'],
                     volume_data['accounts_mapping'],
                     volume_data['accounts_hitting_fills_limits']
                 )
             
             with tab2:
-                processed_bridge_data = format_bridge_data(raw_bridge_data, unit_token_mappings)
-                display_bridge_content(raw_bridge_data, processed_bridge_data)
+                processed_bridge_data = format_bridge_data(raw_bridge_data, unit_token_mappings, prices)
+                display_bridge_data(raw_bridge_data, processed_bridge_data)
 
-        # # create container within placeholder for new content
-        # with output_placeholder.container():
-        #     if err is not None:
-        #         st.error(err)
-        #         return
-        #     else:
-        #         last_updated = datetime.now(timezone.utc)
-        #         st.caption(
-        #             f"Last updated: {last_updated.strftime(DATE_FORMAT)}")
-                
-        #         display_volume_content(volume_by_token, accounts_mapping, accounts_hitting_fills_limits)
-
-def display_volume_content(volume_by_token, accounts_mapping, accounts_hitting_fills_limits):
+def display_trade_data(volume_by_token, accounts_mapping, accounts_hitting_fills_limits):
     if len(accounts_hitting_fills_limits) > 0:
         st.warning(f'Unable to fetch all fills for accounts due to hitting API limits (contact me to check): {', '.join(accounts_hitting_fills_limits)}')
 
     df = create_volume_df(volume_by_token)
-    display_volume_table(df, len(accounts_mapping))
+    display_trade_volume_table(df, len(accounts_mapping))
 
     # show raw data in expander
     if not df.empty:
@@ -527,46 +519,52 @@ def display_volume_content(volume_by_token, accounts_mapping, accounts_hitting_f
             st.json(accounts_mapping)
             st.json(volume_by_token)
 
-def format_bridge_data(raw_bridge_data: dict, unit_token_mappings: dict[str, tuple[str, int]]):
+def format_bridge_data(
+    raw_bridge_data: dict,
+    unit_token_mappings: dict[str, tuple[str, int]],
+    prices: dict[str, dict[float, float]],
+):
     # combine bridge operations from all addresses into a single DataFrame
     # TODO separate by address
     all_operations_df = pd.DataFrame()
-    for address, data in raw_bridge_data.items():
-        processed_df = process_bridge_operations(data, unit_token_mappings, logger)
+    for _, data in raw_bridge_data.items():
+        processed_df = process_bridge_operations(data, unit_token_mappings, prices, logger)
         if processed_df is not None and not processed_df.empty:
             all_operations_df = pd.concat([all_operations_df, processed_df], ignore_index=True)
     return all_operations_df
 
-def display_bridge_content(raw_bridge_data: dict, all_operations_df: pd.DataFrame):
+def display_bridge_data(raw_bridge_data: dict, all_operations_df: pd.DataFrame):
     if all_operations_df.empty:
-        st.info("ℹ️ No bridge transactions found")
-        st.markdown("""
-        **Possible reasons:**
-        - No bridge operations detected in the analyzed time period
-        - Bridge data not available for the provided accounts
-        - Only spot trading activity found (no cross-chain transfers)
-        """)
+        st.info("No bridge transactions found: if you think this is an error, contact me")
         return
 
     # create summary
     summary_df, top_asset = create_bridge_summary(all_operations_df)
 
     if summary_df is None or summary_df.empty:
-        st.warning("No bridge transactions found")
+        st.warning("No bridge transactions found: if you think this is an error, contact me")
         return
 
-    # TODO convert values to USD for each txn? how
-
-    # display top bridged asset metric
+    # display metric
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Top Bridged Asset", top_asset if top_asset else "N/A")
-    with col2:
         total_bridge_volume = summary_df['Total Volume'].sum()
-        st.metric("Total Bridge Volume", f"{total_bridge_volume:.6f}")
+        st.metric("Total Bridge Volume", format_currency(total_bridge_volume))
+    with col2:
+        st.metric("Top Bridged Asset", top_asset)
     with col3:
         total_transactions = summary_df['Total Transactions'].sum()
         st.metric("Total Bridge Transactions", int(total_transactions))
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        total_deposit_volume = summary_df['Deposit Volume'].sum()
+        st.metric("Total Deposit Volume", format_currency(total_deposit_volume))
+    with col2:
+        total_withdraw_volume = summary_df['Withdraw Volume'].sum()
+        st.metric("Total Withdraw Volume", format_currency(total_withdraw_volume))
+    with col3:
+        st.metric("Tokens Bridged", len(summary_df))
 
     st.markdown("---")
 
@@ -575,9 +573,9 @@ def display_bridge_content(raw_bridge_data: dict, all_operations_df: pd.DataFram
 
     # format display df
     display_df = summary_df.copy()
-    display_df['Deposit Volume'] = display_df['Deposit Volume'].apply(lambda x: f"{x:.6f}" if x > 0 else "0")
-    display_df['Withdraw Volume'] = display_df['Withdraw Volume'].apply(lambda x: f"{x:.6f}" if x > 0 else "0")
-    display_df['Total Volume'] = display_df['Total Volume'].apply(lambda x: f"{x:.6f}")
+    display_df['Deposit Volume'] = display_df['Deposit Volume'].apply(lambda x: format_currency(x))
+    display_df['Withdraw Volume'] = display_df['Withdraw Volume'].apply(lambda x: format_currency(x))
+    display_df['Total Volume'] = display_df['Total Volume'].apply(lambda x: format_currency(x))
     
     # format dates
     display_df['First Transaction'] = display_df['First Transaction'].apply(
@@ -609,7 +607,7 @@ def display_bridge_content(raw_bridge_data: dict, all_operations_df: pd.DataFram
         chart_df = summary_df[['Asset', 'Deposit Volume', 'Withdraw Volume']].melt(
             id_vars=['Asset'],
             value_vars=['Deposit Volume', 'Withdraw Volume'],
-            var_name='Direction',
+            var_name='Volume Type',
             value_name='Volume'
         )
         
@@ -617,8 +615,8 @@ def display_bridge_content(raw_bridge_data: dict, all_operations_df: pd.DataFram
             chart_df,
             x='Asset',
             y='Volume',
-            color='Direction',
-            labels={'Volume': 'Volume (Native Units)'}
+            color='Volume Type',
+            labels={'Volume': 'Volume (USD)'}
         )
         fig.update_layout(
             xaxis_title='Asset',
