@@ -10,4 +10,4 @@ Tested with python 3.13
 
 Currently deployed with streamlit cloud for ease of deployment
 
-Last Updated: 2025-08-11
+Last Updated: 2025-08-17
