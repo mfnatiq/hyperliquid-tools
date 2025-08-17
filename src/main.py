@@ -8,7 +8,7 @@ import streamlit.components.v1 as components
 import plotly.express as px
 from bridge.unit_bridge_api import UnitBridgeInfo
 from utils.price_utils import get_prices_cached
-from utils.render_utils import footer_html
+from utils.render_utils import footer_html, copy_script
 
 # setup and configure logging
 import logging
