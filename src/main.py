@@ -20,6 +20,7 @@ from utils import format_currency, get_current_timestamp_millis
 st.set_page_config(
     'Hyperliquid Tools',
     "🔧",
+    layout="wide",
 )
 
 st.title("Unit Volume Tracker")
@@ -171,6 +172,8 @@ st.markdown(footer_html, unsafe_allow_html=True)
 components.html(copy_script, height=0)
 # endregion
 
+info = Info(constants.MAINNET_API_URL, skip_ws=True)
+
 # with caching and show_spinner=false
 # even if this is wrapped around a spinner,
 # that spinner only runs whenever data is NOT fetched from cache
@@ -178,7 +181,6 @@ components.html(copy_script, height=0)
 # hence reducing unnecessary quick spinner upon fetching from cache
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_cached_unit_token_mappings() -> dict[str, str]:
-    info = Info(constants.MAINNET_API_URL, skip_ws=True)
     spot_metadata = info.spot_meta()
 
     unit_tokens = (t for t in spot_metadata['tokens']
@@ -212,6 +214,13 @@ with st.spinner('Initializing token mappings...'):
     unit_token_mappings = get_cached_unit_token_mappings()
 
 
+# region optimisations
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_subaccounts_cached(account: str) -> list:
+    subaccounts = info.query_sub_accounts(account)
+    return subaccounts if subaccounts is not None else []
+# endregion
+
 # assumes unit started when spot BTC started trading
 unit_start_date = datetime(2025, 2, 14, tzinfo=timezone.utc)
 
@@ -220,8 +229,6 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
     """
     get unit volumes with caching
     """
-    info = Info(constants.MAINNET_API_URL, skip_ws=True)
-
     # account: { remarks (subaccount of another), num fills }
     accounts_mapping: dict[str, dict[str, int]] = dict()
 
@@ -234,30 +241,45 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
             "USDC Fees": 0.0,
         }
         if not exclude_subaccounts:
-            subaccounts = info.query_sub_accounts(account)
-            if subaccounts is not None:
-                for sub in subaccounts:
-                    subaccount = sub['subAccountUser']
+            subaccounts = get_subaccounts_cached(account)
+            for sub in subaccounts:
+                subaccount = sub['subAccountUser']
 
-                    accounts_mapping[subaccount] = {
-                        "Name": sub['name'],
-                        "Remarks": f"Subaccount of {account[:6]}...",
-                        "Num Trades": 0,
-                        "Token Fees": 0.0,
-                        "USDC Fees": 0.0,
-                    }
+                accounts_mapping[subaccount] = {
+                    "Name": sub['name'],
+                    "Remarks": f"Subaccount of {account[:6]}...",
+                    "Num Trades": 0,
+                    "Token Fees": 0.0,
+                    "USDC Fees": 0.0,
+                }
 
     accounts_to_query = accounts_mapping.keys()
 
     volume_by_token = {
         t: {
-            'Buy': {
-                'Last Updated': None,
-                'Volume': 0.0,
+            'Direction': {
+                'Buy': {
+                    'First Txn': None,
+                    'Last Txn': None,
+                    'Volume': 0.0,
+                },
+                'Sell': {
+                    'First Txn': None,
+                    'Last Txn': None,
+                    'Volume': 0.0,
+                }
             },
-            'Sell': {
-                'Last Updated': None,
-                'Volume': 0.0,
+            'Type': {
+                'Maker': {
+                    'First Txn': None,
+                    'Last Txn': None,
+                    'Volume': 0.0,
+                },
+                'Taker': {
+                    'First Txn': None,
+                    'Last Txn': None,
+                    'Volume': 0.0,
+                }
             },
             'Token Fees': 0.0,
             'USDC Fees': 0.0,
@@ -267,7 +289,7 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
     }
 
     fills = dict()  # { account: list of fills }
-    overallStartTime = int(unit_start_date.timestamp() * 1000)
+    currTime = get_current_timestamp_millis()
     numDaysQuerySpan = 30
     try:
         for account in accounts_to_query:
@@ -275,11 +297,12 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
             account_fills = []
 
             # initial values
-            endTimeMillis = get_current_timestamp_millis()
-            startTime = endTimeMillis - int(timedelta(days=numDaysQuerySpan).total_seconds()) * 1000
-            endTime = endTimeMillis
+            startTime = int(unit_start_date.timestamp() * 1000)
 
-            while endTime > overallStartTime: # check back until this date
+            # seems like 2k limit for endpoint counts from the start
+            # so start from overall start time then move up til currtime
+            while startTime < currTime: # check back until this date
+                endTime = startTime + int(timedelta(days=numDaysQuerySpan).total_seconds()) * 1000
                 logging.info(f'querying for {account} startTime: {startTime}; endTime: {endTime}')
 
                 fills_result = info.post("/info", {
@@ -296,15 +319,14 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
                 num_fills_total += num_fills
 
                 # logic:
-                # if have fills, keep shrinking end time to latest fill - 1 ms
-                # always query endtime less fixed numDaysQuerySpan
-                if num_fills > 0:
-                    earliest_timestamp = min(f['time'] for f in fills_result)
-                    endTime = earliest_timestamp - 1
-                    startTime = endTime - int(timedelta(days=numDaysQuerySpan).total_seconds()) * 1000
+                # 1) if hit limit (2k fills per api call), set start = latest fill timestamp + 1
+                # 2) else, slide window fully i.e. start = end + 1
+                # always set endTime as startTime + interval
+                if num_fills == 2000:
+                    latest_fill_timestamp = max(f['time'] for f in fills_result)
+                    startTime = latest_fill_timestamp + 1
                 else:
-                    endTime = startTime - int(timedelta(days=numDaysQuerySpan).total_seconds()) * 1000
-                    startTime = endTime - int(timedelta(days=numDaysQuerySpan).total_seconds()) * 1000
+                    startTime = endTime + 1
 
                 account_fills.extend(fills_result)
             fills[account] = account_fills
@@ -324,20 +346,35 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
             direction = f['dir']
             if coin in unit_token_mappings.keys() and direction in ['Buy', 'Sell']:
                 token_name = unit_token_mappings[coin]
+                
+                # only count unit fills
+                volume_by_token[token_name]['Num Trades'] += 1
+                accounts_mapping[account]['Num Trades'] += 1
 
                 price = float(f['px'])
 
                 trade_volume = float(f['sz']) * price
                 trade_time = datetime.fromtimestamp(
                     f['time'] / 1000, tz=timezone.utc)
-                prev_last_updated = volume_by_token[token_name][direction]['Last Updated']
-                if prev_last_updated is None or trade_time > prev_last_updated:
-                    volume_by_token[token_name][direction]['Last Updated'] = trade_time
-                volume_by_token[token_name][direction]['Volume'] += trade_volume
-
-                # only count unit fills
-                volume_by_token[token_name]['Num Trades'] += 1
-                accounts_mapping[account]['Num Trades'] += 1
+                
+                # direction
+                prev_first_txn = volume_by_token[token_name]['Direction'][direction]['First Txn']
+                if prev_first_txn is None or trade_time < prev_first_txn:
+                    volume_by_token[token_name]['Direction'][direction]['First Txn'] = trade_time
+                prev_last_txn = volume_by_token[token_name]['Direction'][direction]['Last Txn']
+                if prev_last_txn is None or trade_time > prev_last_txn:
+                    volume_by_token[token_name]['Direction'][direction]['Last Txn'] = trade_time
+                volume_by_token[token_name]['Direction'][direction]['Volume'] += trade_volume
+                
+                # trade type (maker / taker)
+                trade_type = 'Taker' if f['crossed'] is True else 'Maker'
+                prev_first_txn = volume_by_token[token_name]['Type'][trade_type]['First Txn']
+                if prev_first_txn is None or trade_time < prev_first_txn:
+                    volume_by_token[token_name]['Type'][trade_type]['First Txn'] = trade_time
+                prev_last_txn = volume_by_token[token_name]['Type'][trade_type]['Last Txn']
+                if prev_last_txn is None or trade_time > prev_last_txn:
+                    volume_by_token[token_name]['Type'][trade_type]['Last Txn'] = trade_time
+                volume_by_token[token_name]['Type'][trade_type]['Volume'] += trade_volume
 
                 fee_in_quote = f['feeToken'] == 'USDC'
                 if fee_in_quote:
@@ -352,6 +389,13 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
     return volume_by_token, accounts_mapping, accounts_hitting_fills_limits, None
 
 # --- data processing and display functions ---
+def get_earliest_txn_datetime(earliest_buy: datetime | None, earliest_sell: datetime | None):
+    if earliest_buy is None:
+        return earliest_sell
+    if earliest_sell is None:
+        return earliest_buy
+    return min(earliest_buy, earliest_sell)
+
 def get_latest_txn_datetime(latest_buy: datetime | None, latest_sell: datetime | None):
     if latest_buy is None:
         return latest_sell
@@ -365,24 +409,42 @@ def create_volume_df(volume_by_token: dict) -> pd.DataFrame:
     """
     records = []
     for token, volumes in volume_by_token.items():
-        buys = volumes['Buy']
+        buys = volumes['Direction']['Buy']
         buy_volume = buys['Volume']
-        sells = volumes['Sell']
+        sells = volumes['Direction']['Sell']
         sell_volume = sells['Volume']
         total_volume = buy_volume + sell_volume
+
+        maker = volumes['Type']['Maker']
+        maker_volume = maker['Volume']
+        taker = volumes['Type']['Taker']
+        taker_volume = taker['Volume']
 
         if total_volume > 0:
             records.append({
                 'Token': token,
+
                 'Buy Volume': buy_volume,
-                'Latest Buy': buys['Last Updated'],
+                'First Buy': buys['First Txn'],
+                'Last Buy': buys['Last Txn'],
                 'Sell Volume': sell_volume,
-                'Latest Sell': sells['Last Updated'],
+                'First Sell': sells['First Txn'],
+                'Last Sell': sells['Last Txn'],
+
                 'Total Volume': total_volume,
+                
+                'Maker Volume': maker_volume,
+                'First Maker Txn': maker['First Txn'],
+                'Last Maker Txn': maker['Last Txn'],
+                'Taker Volume': taker_volume,
+                'First Taker Txn': taker['First Txn'],
+                'Last Taker Txn': taker['Last Txn'],
+                
                 'Token Fees': volumes['Token Fees'],
                 'USDC Fees': volumes['USDC Fees'],
                 'Num Trades': volumes['Num Trades'],
-                'Last Transaction': get_latest_txn_datetime(buys['Last Updated'], sells['Last Updated']),
+                'First Trade': get_earliest_txn_datetime(buys['First Txn'], sells['First Txn']),
+                'Last Trade': get_latest_txn_datetime(buys['Last Txn'], sells['Last Txn']),
             })
 
     df = pd.DataFrame(records)
@@ -429,10 +491,12 @@ def display_volume_table(df: pd.DataFrame, num_accounts: int):
 
     # format df for display
     display_df = df[['Token', 'Buy Volume', 'Sell Volume',
-                    'Total Volume', 'Total Fees', 'Last Transaction']].copy()
-    for col in ['Buy Volume', 'Sell Volume', 'Total Volume', 'Total Fees']:
+                    'Total Volume', 'Total Fees', 'First Trade', 'Last Trade', 'Maker Volume', 'Taker Volume']].copy()
+    for col in ['Buy Volume', 'Sell Volume', 'Total Volume', 'Total Fees', 'Maker Volume', 'Taker Volume']:
         display_df[col] = display_df[col].apply(lambda x: f"${x:,.2f}")
-    display_df['Last Transaction'] = display_df['Last Transaction'].apply(
+    display_df['First Trade'] = display_df['First Trade'].apply(
+        lambda x: x.strftime('%Y-%m-%d %H:%M:%S UTC'))
+    display_df['Last Trade'] = display_df['Last Trade'].apply(
         lambda x: x.strftime('%Y-%m-%d %H:%M:%S UTC'))
 
     # display the table
@@ -445,25 +509,48 @@ def display_volume_table(df: pd.DataFrame, num_accounts: int):
             'Buy Volume': st.column_config.TextColumn('Buy Volume', width='small'),
             'Sell Volume': st.column_config.TextColumn('Sell Volume', width='small'),
             'Total Volume': st.column_config.TextColumn('Total Volume', width='small'),
-            'Last Transaction': st.column_config.TextColumn('Last Transaction', width='medium'),
+            'First Trade': st.column_config.TextColumn('First Trade', width='medium'),
+            'Last Trade': st.column_config.TextColumn('Last Trade', width='medium'),
+            'Maker Volume': st.column_config.TextColumn('Maker Volume', width='small'),
+            'Taker Volume': st.column_config.TextColumn('Taker Volume', width='small'),
         }
     )
 
-    # bar chart for buy / sell volume distribution
+    # bar chart for volume distribution
     if len(df) > 1:
         st.markdown("### Volume Distribution")
-        fig = px.bar(
-            df,
-            x='Token',
-            y=['Buy Volume', 'Sell Volume'],
-            labels={'value': 'Volume (USD)', 'variable': 'Volume Type'}
-        )
-        fig.update_layout(
-            barmode='stack',
-            xaxis_title='Token',
-            yaxis_title='Volume (USD)'
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # txn side distribution
+            fig = px.bar(
+                df,
+                x='Token',
+                y=['Buy Volume', 'Sell Volume'],
+                labels={'value': 'Volume (USD)', 'variable': 'Volume Type'}
+            )
+            fig.update_layout(
+                barmode='stack',
+                xaxis_title='Token',
+                yaxis_title='Volume (USD)'
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+        with col2:
+            # txn type distribution (maker / taker)
+            fig = px.bar(
+                df,
+                x='Token',
+                y=['Maker Volume', 'Taker Volume'],
+                labels={'value': 'Volume (USD)', 'variable': 'Volume Type'}
+            )
+            fig.update_layout(
+                barmode='stack',
+                xaxis_title='Token',
+                yaxis_title='Volume (USD)'
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
 def display_accounts_table(accounts_df: pd.DataFrame):
     st.dataframe(
@@ -476,7 +563,7 @@ def display_accounts_table(accounts_df: pd.DataFrame):
 def main():
     st.info(f'Unit tokens: {", ".join(unit_token_mappings.values())}')
 
-    col1, col2, col3 = st.columns([6, 3, 2])
+    col1, col2, col3 = st.columns([10, 2, 1])
     with col1:
         addresses_input: str = st.text_input(
             "Enter hyperliquid accounts, separated by comma",
@@ -487,7 +574,7 @@ def main():
     with col2:
         exclude_subaccounts = st.checkbox("Exclude Subaccounts")
     with col3:
-        submitted = st.button("Fetch Data", type="primary")
+        submitted = st.button("Run", type="primary")
 
     # create placeholder that can be cleared and rewritten
     output_placeholder = st.empty()
