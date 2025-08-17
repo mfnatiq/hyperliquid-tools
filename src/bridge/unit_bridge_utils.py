@@ -93,24 +93,25 @@ def create_bridge_summary(df: pd.DataFrame):
     create bridge transaction summary by asset
     """
     if df is None or df.empty:
-        return None, None
+        return None, ""
 
     # group by asset and direction
     summary = df.groupby(['asset', 'direction']).agg({
+        'amount_formatted': 'sum',
         'amount_usd': 'sum',
         'opCreatedAt': ['min', 'max', 'count']
-    }).round(6)
+    })
 
     # flatten column names
-    summary.columns = ['Volume', 'First Txn', 'Last Txn', 'Count']
+    summary.columns = ['Volume', 'Volume (USD)', 'First Txn', 'Last Txn', 'Count']
     summary = summary.reset_index()
 
     # pivot numeric data with fill_value=0
     pivot_numeric = summary.pivot_table(
         index='asset',
         columns='direction',
-        values=['Volume', 'Count'],
-        fill_value=0    # TODO
+        values=['Volume', 'Volume (USD)', 'Count'],
+        fill_value=0,    # TODO
     )
 
     # pivot datetime data with no fill_value (uses NaT by default)
@@ -134,11 +135,13 @@ def create_bridge_summary(df: pd.DataFrame):
 
     for asset in assets:
         deposit_volume = pivot_summary.get('Volume Deposit', {}).get(asset, 0)
+        deposit_volume_usd = pivot_summary.get('Volume (USD) Deposit', {}).get(asset, 0)
         deposit_first = pivot_summary.get('First Txn Deposit', {}).get(asset)
         deposit_last = pivot_summary.get('Last Txn Deposit', {}).get(asset)
         deposit_count = pivot_summary.get(f'Count Deposit', {}).get(asset, 0)
 
         withdraw_volume = pivot_summary.get('Volume Withdraw', {}).get(asset, 0)
+        withdraw_volume_usd = pivot_summary.get('Volume (USD) Withdraw', {}).get(asset, 0)
         withdraw_first = pivot_summary.get('First Txn Withdraw', {}).get(asset)
         withdraw_last = pivot_summary.get('Last Txn Withdraw', {}).get(asset)
         withdraw_count = pivot_summary.get('Count Withdraw', {}).get(asset, 0)
@@ -149,22 +152,26 @@ def create_bridge_summary(df: pd.DataFrame):
         overall_last = max(dates) if dates else pd.NaT
 
         total_volume = deposit_volume + withdraw_volume
+        total_volume_usd = deposit_volume_usd + withdraw_volume_usd
         total_count = deposit_count + withdraw_count
 
         result_data.append({
             'Asset': asset.upper(),
-            'Deposit Volume': deposit_volume,
-            'Withdraw Volume': withdraw_volume,
-            'Total Volume': total_volume,
+            'Deposit': deposit_volume,
+            'Deposit (USD)': deposit_volume_usd,
+            'Withdraw': withdraw_volume,
+            'Withdraw (USD)': withdraw_volume_usd,
+            'Total': total_volume,
+            'Total (USD)': total_volume_usd,
             'Total Transactions': int(total_count),
             'First Transaction': overall_first,
-            'Last Transaction': overall_last
+            'Last Transaction': overall_last,
         })
 
     result_df = pd.DataFrame(result_data).sort_values(
-        'Total Volume', ascending=False)
+        'Total (USD)', ascending=False)
 
     # find top bridged asset
     top_asset = result_df.iloc[0]['Asset'] if not result_df.empty else None
 
-    return result_df, top_asset
+    return result_df, str(top_asset)
