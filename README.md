@@ -1,8 +1,8 @@
 ## Hyperliquid Tools
 
-### Running
+### Running 
 
-`streamlit run src/main.py`
+`streamlit run src/unit_volumes.py`
 
 Tested with python 3.13
 
@@ -10,4 +10,4 @@ Tested with python 3.13
 
 Currently deployed with streamlit cloud for ease of deployment
 
-Last Updated: 2025-08-17
+Last Updated: 2025-08-11
