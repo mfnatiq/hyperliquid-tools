@@ -1,3 +1,4 @@
+from utils import format_currency, get_current_timestamp_millis
 from datetime import datetime, timedelta, timezone
 import pandas as pd
 from hyperliquid.utils.types import SpotAssetInfo
@@ -6,16 +7,17 @@ from hyperliquid.utils import constants
 import streamlit as st
 import streamlit.components.v1 as components
 import plotly.express as px
+from consts import unitStartTime
 
 # setup and configure logging
 import logging
+from trade.trade_data import get_cumulative_trade_data
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
 
-from utils import format_currency, get_current_timestamp_millis
 
 st.set_page_config(
     'Hyperliquid Tools',
@@ -179,6 +181,8 @@ info = Info(constants.MAINNET_API_URL, skip_ws=True)
 # that spinner only runs whenever data is NOT fetched from cache
 # i.e. if data is actually fetched
 # hence reducing unnecessary quick spinner upon fetching from cache
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_cached_unit_token_mappings() -> dict[str, str]:
     spot_metadata = info.spot_meta()
@@ -210,8 +214,10 @@ def get_cached_unit_token_mappings() -> dict[str, str]:
 
     return mapping
 
+
 with st.spinner('Initializing token mappings...'):
     unit_token_mappings = get_cached_unit_token_mappings()
+    cumulative_trade_data = get_cumulative_trade_data(info, unit_token_mappings)
 
 
 # region optimisations
@@ -221,8 +227,6 @@ def get_subaccounts_cached(account: str) -> list:
     return subaccounts if subaccounts is not None else []
 # endregion
 
-# assumes unit started when spot BTC started trading
-unit_start_date = datetime(2025, 2, 14, tzinfo=timezone.utc)
 
 @st.cache_data(ttl=60, show_spinner=False)
 def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, str], exclude_subaccounts: bool = False):
@@ -296,14 +300,16 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
             num_fills_total = 0
             account_fills = []
 
-            # initial values
-            startTime = int(unit_start_date.timestamp() * 1000)
+            # initialisation
+            startTime = unitStartTime
 
             # seems like 2k limit for endpoint counts from the start
             # so start from overall start time then move up til currtime
-            while startTime < currTime: # check back until this date
-                endTime = startTime + int(timedelta(days=numDaysQuerySpan).total_seconds()) * 1000
-                logging.info(f'querying for {account} startTime: {startTime}; endTime: {endTime}')
+            while startTime < currTime:  # check back until this date
+                endTime = startTime + \
+                    int(timedelta(days=numDaysQuerySpan).total_seconds()) * 1000
+                logging.info(
+                    f'querying for {account} startTime: {startTime}; endTime: {endTime}')
 
                 fills_result = info.post("/info", {
                     "type": "userFillsByTime",  # up to 10k total, then need to query from s3
@@ -323,7 +329,8 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
                 # 2) else, slide window fully i.e. start = end + 1
                 # always set endTime as startTime + interval
                 if num_fills == 2000:
-                    latest_fill_timestamp = max(f['time'] for f in fills_result)
+                    latest_fill_timestamp = max(
+                        f['time'] for f in fills_result)
                     startTime = latest_fill_timestamp + 1
                 else:
                     startTime = endTime + 1
@@ -340,13 +347,13 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
     for account, fills_list in fills.items():
         if len(fills_list) == 10000:
             accounts_hitting_fills_limits.append(account)
-        
+
         for f in fills_list:
             coin = f['coin']
             direction = f['dir']
             if coin in unit_token_mappings.keys() and direction in ['Buy', 'Sell']:
                 token_name = unit_token_mappings[coin]
-                
+
                 # only count unit fills
                 volume_by_token[token_name]['Num Trades'] += 1
                 accounts_mapping[account]['Num Trades'] += 1
@@ -356,7 +363,7 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
                 trade_volume = float(f['sz']) * price
                 trade_time = datetime.fromtimestamp(
                     f['time'] / 1000, tz=timezone.utc)
-                
+
                 # direction
                 prev_first_txn = volume_by_token[token_name]['Direction'][direction]['First Txn']
                 if prev_first_txn is None or trade_time < prev_first_txn:
@@ -365,7 +372,7 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
                 if prev_last_txn is None or trade_time > prev_last_txn:
                     volume_by_token[token_name]['Direction'][direction]['Last Txn'] = trade_time
                 volume_by_token[token_name]['Direction'][direction]['Volume'] += trade_volume
-                
+
                 # trade type (maker / taker)
                 trade_type = 'Taker' if f['crossed'] is True else 'Maker'
                 prev_first_txn = volume_by_token[token_name]['Type'][trade_type]['First Txn']
@@ -389,6 +396,8 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
     return volume_by_token, accounts_mapping, accounts_hitting_fills_limits, None
 
 # --- data processing and display functions ---
+
+
 def get_earliest_txn_datetime(earliest_buy: datetime | None, earliest_sell: datetime | None):
     if earliest_buy is None:
         return earliest_sell
@@ -396,12 +405,14 @@ def get_earliest_txn_datetime(earliest_buy: datetime | None, earliest_sell: date
         return earliest_buy
     return min(earliest_buy, earliest_sell)
 
+
 def get_latest_txn_datetime(latest_buy: datetime | None, latest_sell: datetime | None):
     if latest_buy is None:
         return latest_sell
     if latest_sell is None:
         return latest_buy
     return max(latest_buy, latest_sell)
+
 
 def create_volume_df(volume_by_token: dict) -> pd.DataFrame:
     """
@@ -432,14 +443,14 @@ def create_volume_df(volume_by_token: dict) -> pd.DataFrame:
                 'Last Sell': sells['Last Txn'],
 
                 'Total Volume': total_volume,
-                
+
                 'Maker Volume': maker_volume,
                 'First Maker Txn': maker['First Txn'],
                 'Last Maker Txn': maker['Last Txn'],
                 'Taker Volume': taker_volume,
                 'First Taker Txn': taker['First Txn'],
                 'Last Taker Txn': taker['Last Txn'],
-                
+
                 'Token Fees': volumes['Token Fees'],
                 'USDC Fees': volumes['USDC Fees'],
                 'Num Trades': volumes['Num Trades'],
@@ -482,7 +493,8 @@ def display_volume_table(df: pd.DataFrame, num_accounts: int):
             total_fees = df['Total Fees'].sum()
         st.metric('Total Fees Paid', format_currency(total_fees))
     with col3:
-        st.metric('Total Trades Made', df['Num Trades'].sum() if have_volume else 0)
+        st.metric('Total Trades Made',
+                  df['Num Trades'].sum() if have_volume else 0)
 
     if not have_volume:
         return
@@ -519,9 +531,9 @@ def display_volume_table(df: pd.DataFrame, num_accounts: int):
     # bar chart for volume distribution
     if len(df) > 1:
         st.markdown("### Volume Distribution")
-        
+
         col1, col2 = st.columns(2)
-        
+
         with col1:
             # txn side distribution
             fig = px.bar(
@@ -536,7 +548,7 @@ def display_volume_table(df: pd.DataFrame, num_accounts: int):
                 yaxis_title='Volume (USD)'
             )
             st.plotly_chart(fig, use_container_width=True)
-            
+
         with col2:
             # txn type distribution (maker / taker)
             fig = px.bar(
@@ -552,12 +564,90 @@ def display_volume_table(df: pd.DataFrame, num_accounts: int):
             )
             st.plotly_chart(fig, use_container_width=True)
 
+
 def display_accounts_table(accounts_df: pd.DataFrame):
     st.dataframe(
         accounts_df,
         use_container_width=True,
         hide_index=True,
     )
+
+def display_trade_volume_info(
+    trade_df: pd.DataFrame,
+    cumulative_trade_data: pd.DataFrame,
+    unit_token_mappings: dict[str, str],
+    accounts: list[str]
+):
+    # TODO change to use token_list when merging other PR
+    token_list = list(unit_token_mappings.values())
+
+    final_cumulative_volume = cumulative_trade_data.groupby('token_name').agg(
+        final_cumulative_volume=('cumulative_volume_usd', 'last')
+    ).reset_index()
+
+    rows = []
+    total_user_volume = 0
+    total_cumulative_volume = 0
+
+    for token in token_list:
+        user_volume = 0
+        try:
+            user_volume = trade_df[trade_df['Token'] == token].iloc[0]['Total Volume']
+        except:
+            logger.info(f'no volume found for {", ".join(accounts)} for {token}; skipping')
+
+        cumulative_volume = 0
+        try:
+            cumulative_volume = final_cumulative_volume[final_cumulative_volume['token_name'] == token].iloc[0]['final_cumulative_volume']
+        except:
+            # no cumulative volume found for this unit token, ignoring
+            continue
+
+        total_user_volume += user_volume
+        total_cumulative_volume += cumulative_volume
+
+        rows.append({
+            'Asset': token,
+            'User Volume': format_currency(user_volume),
+            'Total Volume': cumulative_volume,
+            'User Percentage': f"{(user_volume / cumulative_volume * 100):.10f}%",
+        })
+
+    # some error here
+    if total_cumulative_volume == 0:
+        logger.warning("unable to get any cumulative trading data; ignoring cumulative volume metrics")
+        return
+
+    st.markdown("### Cumulative Volume Share")
+
+    st.metric("Share of Total Unit Trading Volume", f"{(total_user_volume / total_cumulative_volume * 100):.10f}%")
+
+    df_cumulative = pd.DataFrame(rows)
+    token_order = df_cumulative.groupby('Asset')['Total Volume'].max().sort_values(ascending=False).index.tolist()
+    df_cumulative = df_cumulative.sort_values('Total Volume', ascending=False)
+
+    # get sorting order then format for display
+    df_cumulative['Total Volume'] = df_cumulative['Total Volume'].apply(format_currency)
+
+    col1, col2 = st.columns(2, vertical_alignment='center', gap="large")
+    with col1:
+        st.dataframe(df_cumulative)
+    with col2:
+        # plot cumulative volume over time
+        fig = px.line(
+            cumulative_trade_data,
+            x='start_date',
+            y='cumulative_volume_usd',
+            color='token_name',
+            title='Cumulative Volume Over Time by Token',
+            labels={
+                'cumulative_volume_usd': 'Cumulative Volume (USD)',
+                'start_date': 'Date',
+                'token_name': 'Token'
+            },
+            category_orders={ 'token_name': token_order }
+        )
+        st.plotly_chart(fig, use_container_width=True)  # display legend in descending order of total volume
 
 # main app logic reruns upon any interaction
 def main():
@@ -598,18 +688,23 @@ def main():
                 last_updated = datetime.now(timezone.utc)
                 st.caption(
                     f"Last updated: {last_updated.strftime('%Y-%m-%d %H:%M:%S UTC')}")
-                
+
                 if len(accounts_hitting_fills_limits) > 0:
-                    st.warning(f'Unable to fetch all fills for accounts due to hitting API limits (contact me to check): {', '.join(accounts_hitting_fills_limits)}')
-    
+                    st.warning(
+                        f'Unable to fetch all fills for accounts due to hitting API limits (contact me to check): {', '.join(accounts_hitting_fills_limits)}')
+
                 df = create_volume_df(volume_by_token)
                 display_volume_table(df, len(accounts_mapping))
+
+                # display trade volume info
+                display_trade_volume_info(df, cumulative_trade_data, unit_token_mappings, accounts)
 
                 # show raw data in expander
                 if not df.empty:
                     with st.expander("Raw Data"):
                         st.json(accounts_mapping)
                         st.json(volume_by_token)
+
 
 if __name__ == '__main__':
     main()
