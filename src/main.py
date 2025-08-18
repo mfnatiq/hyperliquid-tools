@@ -608,9 +608,9 @@ def display_trade_volume_info(
 
         rows.append({
             'Asset': token,
-            'User Volume': format_currency(user_volume),
-            'Total Volume': cumulative_volume,
-            'User Percentage': f"{(user_volume / cumulative_volume * 100):.10f}%",
+            'Your Volume (USD)': user_volume,
+            'Market Volume (USD)': cumulative_volume,
+            'Your Share (%)': (user_volume / cumulative_volume * 100.0),
         })
 
     # some error here
@@ -623,11 +623,19 @@ def display_trade_volume_info(
     st.metric("Share of Total Unit Trading Volume", f"{(total_user_volume / total_cumulative_volume * 100):.10f}%")
 
     df_cumulative = pd.DataFrame(rows)
-    token_order = df_cumulative.groupby('Asset')['Total Volume'].max().sort_values(ascending=False).index.tolist()
-    df_cumulative = df_cumulative.sort_values('Total Volume', ascending=False)
+    token_order = (
+        df_cumulative.groupby('Asset')['Market Volume (USD)']
+        .max().sort_values(ascending=False).index.tolist()
+    )
+    df_cumulative = df_cumulative.sort_values('Market Volume (USD)', ascending=False)
 
-    # get sorting order then format for display
-    df_cumulative['Total Volume'] = df_cumulative['Total Volume'].apply(format_currency)
+    # format for display only
+    df_cumulative['Your Volume (USD)'] = df_cumulative['Your Volume (USD)'].apply(
+        format_currency)
+    df_cumulative['Market Volume (USD)'] = df_cumulative['Market Volume (USD)'].apply(
+        format_currency)
+    df_cumulative['Your Share (%)'] = df_cumulative['Your Share (%)'].map(
+        lambda x: f"{x:.6f}%")
 
     col1, col2 = st.columns(2, vertical_alignment='center', gap="large")
     with col1:
