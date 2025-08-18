@@ -7,7 +7,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 import plotly.express as px
 from bridge.unit_bridge_api import UnitBridgeInfo
-from utils.price_utils import get_prices_cached
+from utils.price_utils import get_prices_cached, unit_start_date
 from utils.render_utils import footer_html, copy_script
 
 # setup and configure logging
@@ -101,9 +101,6 @@ def get_subaccounts_cached(account: str) -> list:
     subaccounts = info.query_sub_accounts(account)
     return subaccounts if subaccounts is not None else []
 # endregion
-
-# assumes unit started when spot BTC started trading
-unit_start_date = datetime(2025, 2, 14, tzinfo=timezone.utc)
 
 @st.cache_data(ttl=60, show_spinner=False)
 def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, tuple[str, int]], exclude_subaccounts: bool = False):

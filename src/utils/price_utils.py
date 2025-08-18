@@ -7,8 +7,8 @@ exch = ccxt.hyperliquid()
 
 # consts
 one_day_in_s = 60 * 60 * 24
-start_date = datetime(2025, 2, 14, 0, 0, 0, tzinfo=timezone.utc)
-start_timestamp = exch.parse8601(start_date.isoformat())
+unit_start_date = datetime(2025, 2, 14, 0, 0, 0, tzinfo=timezone.utc)   # assumes unit started when spot BTC started trading
+start_timestamp = exch.parse8601(unit_start_date.isoformat())
 timeframe = '1d'
 
 @st.cache_data(ttl=one_day_in_s, show_spinner=False)    # cache daily just to get OHLCV prices
@@ -20,7 +20,7 @@ def get_prices_cached(token_list: list[str], _logger: Logger) -> dict[str, dict[
     uses close price for simplicity
     """
     end_date = datetime.now(tz=timezone.utc)
-    num_days = (end_date - start_date).days + 1
+    num_days = (end_date - unit_start_date).days + 1
     
     output = {
         t: {} for t in token_list
