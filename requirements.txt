@@ -1,3 +1,4 @@
+aiodns==3.5.0
 aiohappyeyeballs==2.6.1
 aiohttp==3.12.15
 aiosignal==1.4.0
@@ -8,11 +9,14 @@ attrs==25.3.0
 bitarray==3.6.0
 blinker==1.9.0
 cachetools==6.1.0
+ccxt==4.5.0
 certifi==2025.8.3
+cffi==1.17.1
 charset-normalizer==3.4.3
 ckzg==2.1.1
 click==8.2.1
 colorama==0.4.6
+cryptography==45.0.6
 cytoolz==1.0.1
 distro==1.9.0
 docutils==0.22
@@ -51,6 +55,8 @@ plotly==6.2.0
 propcache==0.3.2
 protobuf==6.31.1
 pyarrow==21.0.0
+pycares==4.10.0
+pycparser==2.22
 pycryptodome==3.23.0
 pydantic==2.11.7
 pydantic_core==2.33.2
@@ -63,6 +69,7 @@ regex==2025.7.34
 requests==2.32.4
 rlp==4.1.0
 rpds-py==0.27.0
+setuptools==80.9.0
 sigtools==4.0.1
 six==1.17.0
 smmap==5.0.2

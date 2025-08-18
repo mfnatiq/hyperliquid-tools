@@ -1,6 +1,8 @@
 
 from datetime import datetime, timezone
 
+DATE_FORMAT = '%Y-%m-%d %H:%M:%S UTC'
+
 
 def get_current_timestamp_millis() -> int:
     return int(datetime.now(timezone.utc).timestamp() * 1000)
