@@ -217,7 +217,8 @@ def get_cached_unit_token_mappings() -> dict[str, str]:
 
 with st.spinner('Initializing token mappings...'):
     unit_token_mappings = get_cached_unit_token_mappings()
-    cumulative_trade_data = get_cumulative_trade_data(info, unit_token_mappings)
+    cumulative_trade_data = get_cumulative_trade_data(
+        info, unit_token_mappings)
 
 
 # region optimisations
@@ -572,6 +573,7 @@ def display_accounts_table(accounts_df: pd.DataFrame):
         hide_index=True,
     )
 
+
 def display_trade_volume_info(
     trade_df: pd.DataFrame,
     cumulative_trade_data: pd.DataFrame,
@@ -592,13 +594,16 @@ def display_trade_volume_info(
     for token in token_list:
         user_volume = 0
         try:
-            user_volume = trade_df[trade_df['Token'] == token].iloc[0]['Total Volume']
+            user_volume = trade_df[trade_df['Token']
+                                   == token].iloc[0]['Total Volume']
         except:
-            logger.info(f'no volume found for {", ".join(accounts)} for {token}; skipping')
+            logger.info(
+                f'no volume found for {", ".join(accounts)} for {token}; skipping')
 
         cumulative_volume = 0
         try:
-            cumulative_volume = final_cumulative_volume[final_cumulative_volume['token_name'] == token].iloc[0]['final_cumulative_volume']
+            cumulative_volume = final_cumulative_volume[final_cumulative_volume['token_name']
+                                                        == token].iloc[0]['final_cumulative_volume']
         except:
             # no cumulative volume found for this unit token, ignoring
             continue
@@ -608,26 +613,37 @@ def display_trade_volume_info(
 
         rows.append({
             'Asset': token,
-            'User Volume': format_currency(user_volume),
-            'Total Volume': cumulative_volume,
-            'User Percentage': f"{(user_volume / cumulative_volume * 100):.10f}%",
+            'Your Volume (USD)': user_volume,
+            'Market Volume (USD)': cumulative_volume,
+            'Your Share (%)': (user_volume / cumulative_volume * 100.0),
         })
 
     # some error here
     if total_cumulative_volume == 0:
-        logger.warning("unable to get any cumulative trading data; ignoring cumulative volume metrics")
+        logger.warning(
+            "unable to get any cumulative trading data; ignoring cumulative volume metrics")
         return
 
     st.markdown("### Cumulative Volume Share")
 
-    st.metric("Share of Total Unit Trading Volume", f"{(total_user_volume / total_cumulative_volume * 100):.10f}%")
+    st.metric("Share of Total Unit Trading Volume",
+              f"{(total_user_volume / total_cumulative_volume * 100):.10f}%")
 
     df_cumulative = pd.DataFrame(rows)
-    token_order = df_cumulative.groupby('Asset')['Total Volume'].max().sort_values(ascending=False).index.tolist()
-    df_cumulative = df_cumulative.sort_values('Total Volume', ascending=False)
+    token_order = (
+        df_cumulative.groupby('Asset')['Market Volume (USD)']
+        .max().sort_values(ascending=False).index.tolist()
+    )
+    df_cumulative = df_cumulative.sort_values(
+        'Market Volume (USD)', ascending=False)
 
-    # get sorting order then format for display
-    df_cumulative['Total Volume'] = df_cumulative['Total Volume'].apply(format_currency)
+    # format for display only
+    df_cumulative['Your Volume (USD)'] = df_cumulative['Your Volume (USD)'].apply(
+        format_currency)
+    df_cumulative['Market Volume (USD)'] = df_cumulative['Market Volume (USD)'].apply(
+        format_currency)
+    df_cumulative['Your Share (%)'] = df_cumulative['Your Share (%)'].map(
+        lambda x: f"{x:.6f}%")
 
     col1, col2 = st.columns(2, vertical_alignment='center', gap="large")
     with col1:
@@ -645,9 +661,10 @@ def display_trade_volume_info(
                 'start_date': 'Date',
                 'token_name': 'Token'
             },
-            category_orders={ 'token_name': token_order }
+            category_orders={'token_name': token_order}
         )
-        st.plotly_chart(fig, use_container_width=True)  # display legend in descending order of total volume
+        # display legend in descending order of total volume
+        st.plotly_chart(fig, use_container_width=True)
 
 # main app logic reruns upon any interaction
 def main():
@@ -697,7 +714,8 @@ def main():
                 display_volume_table(df, len(accounts_mapping))
 
                 # display trade volume info
-                display_trade_volume_info(df, cumulative_trade_data, unit_token_mappings, accounts)
+                display_trade_volume_info(
+                    df, cumulative_trade_data, unit_token_mappings, accounts)
 
                 # show raw data in expander
                 if not df.empty:
