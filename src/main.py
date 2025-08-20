@@ -29,6 +29,57 @@ st.set_page_config(
     layout="wide",
 )
 
+# inject css and js to show a loading spinner for deployment cold starts
+st.markdown("""
+<style>
+#root > div:first-child > div > div > div > div {
+    display: none;
+}
+.loading-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: #0e1117;
+    color: #fafafa;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-direction: column;
+    z-index: 9999;
+}
+.spinner {
+    border: 4px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top-color: #0080ff;
+    width: 50px;
+    height: 50px;
+    animation: spin 1s linear infinite;
+    margin-bottom: 20px;
+}
+.loading-text {
+    font-size: 1.2rem;
+    text-align: center;
+}
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+</style>
+<div id="loader" class="loading-container">
+    <div class="spinner"></div>
+    <div class="loading-text">Starting app...</div>
+</div>
+<script>
+    window.onload = function() {
+        var loader = document.getElementById('loader');
+        if (loader) {
+            loader.style.display = 'none';
+        }
+    };
+</script>
+""", unsafe_allow_html=True)
+
 st.title("Unit Volume Tracker")
 
 # region sticky footer
