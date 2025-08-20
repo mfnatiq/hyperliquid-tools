@@ -1,15 +1,15 @@
 from hyperliquid.info import Info
 import pandas as pd
 from consts import unitStartTime
-from utils import get_current_timestamp_millis
+from utils.utils import get_current_timestamp_millis
 
 # TODO need to update once other PR is merged
-def get_cumulative_trade_data(info: Info, unit_token_mappings: dict[str, str]) -> pd.DataFrame:
+def get_cumulative_trade_data(info: Info, token_ids: list[str], token_names: list[str]) -> pd.DataFrame:
     currTime = get_current_timestamp_millis()
 
     rows = []
 
-    for k, v in unit_token_mappings.items():
+    for k, v in zip(token_ids, token_names):
         # TODO can replace ccxt with this? or better to use separately
         # if keeping ccxt, use volume data from there instead
         data = info.candles_snapshot(

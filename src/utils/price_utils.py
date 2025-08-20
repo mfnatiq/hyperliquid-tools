@@ -1,7 +1,6 @@
 from datetime import datetime, timezone
 from logging import Logger
 import ccxt
-import streamlit as st
 
 exch = ccxt.hyperliquid()
 
@@ -11,7 +10,6 @@ unit_start_date = datetime(2025, 2, 14, 0, 0, 0, tzinfo=timezone.utc)   # assume
 start_timestamp = exch.parse8601(unit_start_date.isoformat())
 timeframe = '1d'
 
-@st.cache_data(ttl=one_day_in_s, show_spinner=False)    # cache daily just to get OHLCV prices
 def get_prices_cached(token_list: list[str], _logger: Logger) -> dict[str, dict[float, float]]:
     """
     output dict:
