@@ -11,6 +11,9 @@ DATE_FORMAT = '%Y-%m-%d %H:%M:%S UTC'
 def get_current_timestamp_millis() -> int:
     return int(datetime.now(timezone.utc).timestamp() * 1000)
 
+def get_today_timestamp_millis() -> int:
+    return int(datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000)
+
 
 def format_currency(value):
     if value >= 1_000_000_000_000:
