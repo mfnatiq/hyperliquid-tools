@@ -117,7 +117,11 @@ def get_subaccounts_cached(account: str) -> list:
 # endregion
 
 @st.cache_data(ttl=60, show_spinner=False)
-def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, tuple[str, int]], exclude_subaccounts: bool = False):
+def get_cached_unit_volumes(
+    accounts: list[str],
+    unit_token_mappings: dict[str, tuple[str, int]],
+    exclude_subaccounts: bool = False,
+):
     """
     get unit volumes with caching
     """
@@ -241,7 +245,7 @@ def get_cached_unit_volumes(accounts: list[str], unit_token_mappings: dict[str, 
             direction = f['dir']
             if coin in unit_token_mappings.keys() and direction in ['Buy', 'Sell']:
                 token_name, _ = unit_token_mappings[coin]
-                
+
                 # only count unit fills
                 volume_by_token[token_name]['Num Trades'] += 1
                 accounts_mapping[account]['Num Trades'] += 1
@@ -366,7 +370,7 @@ def main():
         with st.spinner(f'Loading data for {", ".join(accounts)}...'):
             volume_by_token, accounts_mapping, accounts_hitting_fills_limits, err = get_cached_unit_volumes(
                 accounts, unit_token_mappings, exclude_subaccounts)
-            
+
             raw_bridge_data = unit_bridge_info.get_operations(accounts)
 
         with output_placeholder.container():
@@ -388,7 +392,7 @@ def main():
         with output_placeholder.container():
             volume_data = st.session_state['volume_data']
             df_trade = create_volume_df(volume_data['volume_by_token'])
-            
+
             raw_bridge_data = st.session_state['raw_bridge_data']
             processed_bridge_data = format_bridge_data(raw_bridge_data, unit_token_mappings, prices)
             df_bridging, top_bridged_asset = create_bridge_summary(processed_bridge_data)
@@ -397,17 +401,17 @@ def main():
 
             # create tabs
             tab1, tab2, tab3 = st.tabs(["📋 Summary", "📊 Trade Analysis", "🌉 Bridge Analysis"])
-            
+
             with tab1:
                 display_summary(df_trade, df_bridging, top_bridged_asset)
-            
+
             with tab2:
                 display_trade_data(
                     df_trade,
                     volume_data['accounts_mapping'],
-                    volume_data['accounts_hitting_fills_limits']
+                    volume_data['accounts_hitting_fills_limits'],
                 )
-            
+
             with tab3:
                 display_bridge_data(raw_bridge_data, df_bridging, top_bridged_asset, processed_bridge_data)
 
@@ -418,6 +422,7 @@ def display_summary(df_trade: pd.DataFrame, df_bridging: pd.DataFrame | None, to
     if not have_trade_volume:
         st.warning(
             "No trades on Unit tokens found - if you think this is an error, contact me")
+    st.subheader("Trade Data")
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("Total Trade Volume", format_currency(
@@ -427,14 +432,11 @@ def display_summary(df_trade: pd.DataFrame, df_bridging: pd.DataFrame | None, to
         st.metric("Top Traded Token", most_traded)
     with col3:
         st.metric('Total Trades Made', df_trade['Num Trades'].sum() if have_trade_volume else 0)
-    
+
     # bridging data
     if df_bridging is None or df_bridging.empty:
-        st.info("No bridge transactions found: if you think this is an error, contact me")
-        return
-    if df_bridging is None or df_bridging.empty:
         st.warning("No bridge transactions found: if you think this is an error, contact me")
-        return
+    st.subheader("Bridge Data")
     col1, col2, col3 = st.columns(3)
     with col1:
         total_bridge_volume = df_bridging['Total (USD)'].sum()
@@ -707,7 +709,7 @@ def display_bridge_data(raw_bridge_data: dict, summary_df: pd.DataFrame | None, 
     display_df['Deposit (USD)'] = display_df['Deposit (USD)'].apply(lambda x: format_currency(x))
     display_df['Withdraw (USD)'] = display_df['Withdraw (USD)'].apply(lambda x: format_currency(x))
     display_df['Total (USD)'] = display_df['Total (USD)'].apply(lambda x: format_currency(x))
-    
+
     # format dates
     display_df['First Transaction'] = display_df['First Transaction'].apply(
         lambda x: x.strftime(DATE_FORMAT) if pd.notna(x) else "N/A"
@@ -737,14 +739,14 @@ def display_bridge_data(raw_bridge_data: dict, summary_df: pd.DataFrame | None, 
     # bridge activity chart if we have multiple assets
     if len(summary_df) > 1:
         st.markdown("### Bridge Volume Distribution")
-        
+
         chart_df = summary_df[['Asset', 'Deposit (USD)', 'Withdraw (USD)']].melt(
             id_vars=['Asset'],
             value_vars=['Deposit (USD)', 'Withdraw (USD)'],
             var_name='Volume Type',
             value_name='Volume'
         )
-        
+
         fig = px.bar(
             chart_df,
             x='Asset',
@@ -758,7 +760,7 @@ def display_bridge_data(raw_bridge_data: dict, summary_df: pd.DataFrame | None, 
             showlegend=True
         )
         st.plotly_chart(fig, use_container_width=True)
-    
+
     # raw data
     with st.expander("Raw Data"):
         st.dataframe(all_operations_df[['asset', 'direction', 'amount_formatted', 'amount_usd', 'opCreatedAt', 'state', 'sourceChain', 'destinationChain']])
