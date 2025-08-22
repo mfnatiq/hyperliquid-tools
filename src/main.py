@@ -414,22 +414,15 @@ def main():
                 display_summary(df_trade, df_bridging, top_bridged_asset)
 
             with tab2:
-                if df_trade.empty:
-                    st.warning("No trades on Unit tokens found - if you think this is an error, contact me")
-                else:
-                    display_trade_data(
-                        df_trade,
-                        volume_data['accounts_mapping'],
-                        volume_data['accounts_hitting_fills_limits'],
-                    )
+                display_trade_data(
+                    df_trade,
+                    volume_data['accounts_mapping'],
+                    volume_data['accounts_hitting_fills_limits'],
+                )
 
             with tab3:
-                if df_bridging is None or df_bridging.empty:
-                    st.warning(
-                        "No bridge transactions found: if you think this is an error, contact me")
-                else:
-                    display_bridge_data(
-                        raw_bridge_data, df_bridging, top_bridged_asset, processed_bridge_data)
+                display_bridge_data(
+                    raw_bridge_data, df_bridging, top_bridged_asset, processed_bridge_data)
 
 # --------------- display ---------------
 
@@ -443,7 +436,8 @@ def display_summary(df_trade: pd.DataFrame, df_bridging: pd.DataFrame | None, to
         st.subheader("Trade Data")
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("Total Trade Volume", format_currency(df_trade['Total Volume'].sum()))
+            st.metric("Total Trade Volume", format_currency(
+                df_trade['Total Volume'].sum()))
         with col2:
             st.metric("Top Traded Token", df_trade.iloc[0]['Token'])
         with col3:
@@ -452,16 +446,18 @@ def display_summary(df_trade: pd.DataFrame, df_bridging: pd.DataFrame | None, to
     # bridging data
     if df_bridging is None or df_bridging.empty:
         st.warning(
-            "No bridge transactions found: if you think this is an error, contact me")
+            "No bridge transactions found - if you think this is an error, contact me")
     else:
         st.subheader("Bridge Data")
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("Total Bridge Volume (USD)", format_currency(df_bridging['Total (USD)'].sum()))
+            st.metric("Total Bridge Volume (USD)", format_currency(
+                df_bridging['Total (USD)'].sum()))
         with col2:
             st.metric("Top Bridged Token", top_bridged_asset)
         with col3:
-            st.metric("Total Bridge Transactions", int(df_bridging['Total Transactions'].sum()))
+            st.metric("Total Bridge Transactions", int(
+                df_bridging['Total Transactions'].sum()))
 
 
 def display_trade_volume_table(df: pd.DataFrame, num_accounts: int):
@@ -470,6 +466,7 @@ def display_trade_volume_table(df: pd.DataFrame, num_accounts: int):
     if not have_trade_volume:
         st.warning(
             "No trades on Unit tokens found - if you think this is an error, contact me")
+        return
 
     # display metrics at top
     col1, col2, col3 = st.columns(3)
@@ -699,7 +696,7 @@ def format_bridge_data(
 def display_bridge_data(raw_bridge_data: dict, summary_df: pd.DataFrame | None, top_asset: str, all_operations_df: pd.DataFrame):
     if all_operations_df.empty or summary_df is None or summary_df.empty:
         st.warning(
-            "No bridge transactions found: if you think this is an error, contact me")
+            "No bridge transactions found - if you think this is an error, contact me")
         return
 
     # display metric
