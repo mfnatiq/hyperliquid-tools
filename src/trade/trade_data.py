@@ -11,7 +11,7 @@ def get_candlestick_data(info: Info, token_ids: list[str], token_names: list[str
             name=k,
             startTime=unitStartTime,    # use proper start time at midnight
             interval='1d',
-            endTime=get_today_timestamp_millis(),    TODO use currtime as end day at midnight, then delete get_prices_cached and remove ccxt
+            endTime=get_today_timestamp_millis(),
         )
 
         for d in data:

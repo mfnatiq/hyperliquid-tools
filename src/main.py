@@ -7,12 +7,11 @@ import streamlit as st
 import streamlit.components.v1 as components
 import plotly.express as px
 from bridge.unit_bridge_api import UnitBridgeInfo
-from utils.price_utils import get_prices_cached, one_day_in_s
 from utils.render_utils import footer_html, copy_script
 from trade.trade_data import get_candlestick_data
 
 from bridge.unit_bridge_utils import create_bridge_summary, process_bridge_operations
-from consts import unitStartTime
+from consts import unitStartTime, oneDayInS
 
 # setup and configure logging
 import logging
@@ -42,67 +41,58 @@ components.html(copy_script, height=0)
 info = Info(constants.MAINNET_API_URL, skip_ws=True)
 unit_bridge_info = UnitBridgeInfo()
 
-# with caching and show_spinner=false
-# even if this is wrapped around a spinner,
-# that spinner only runs whenever data is NOT fetched from cache
-# i.e. if data is actually fetched
-# hence reducing unnecessary quick spinner upon fetching from cache
-
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def _get_cached_unit_token_mappings() -> dict[str, tuple[str, int]]:
+    """
+    with caching and show_spinner=false
+    even if this is wrapped around a spinner,
+    that spinner only runs whenever data is NOT fetched from cache
+    i.e. if data is actually fetched
+    hence reducing unnecessary quick spinner upon fetching from cache
+    """
     return get_cached_unit_token_mappings(info, logger)
 
 
-# cache daily just to get OHLCV prices
-# @st.cache_data(ttl=one_day_in_s, show_spinner=False)
-# def _get_prices_cached(token_list: list[str]):
-#     return get_prices_cached(token_list, logger)
-@st.cache_data(ttl=one_day_in_s, show_spinner=False)
-def _get_prices_cached(token_list: list[str]):
-    return get_prices_cached(token_list, logger)
-
-
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=oneDayInS, show_spinner=False)
 def _get_candlestick_data(_token_ids: list[str], _token_names: list[str]):
+    """
+    cache daily just to get OHLCV prices
+    """
     return get_candlestick_data(info, _token_ids, _token_names)
 
 
 def load_data():
     unit_token_mappings = _get_cached_unit_token_mappings()
     token_list = [t for t, _ in unit_token_mappings.values()]
-    prices = _get_prices_cached(token_list)
     cumulative_trade_data = _get_candlestick_data(
         [k for k in unit_token_mappings.keys()], token_list)
 
-    return unit_token_mappings, token_list, prices, cumulative_trade_data
+    return unit_token_mappings, token_list, cumulative_trade_data
 
 
 # -------- initialisation and caching --------
 if "init_done" not in st.session_state:
     # first-ever run: initialisation
     with st.spinner("Initialising..."):
-        unit_token_mappings, token_list, prices, cumulative_trade_data = load_data()
+        unit_token_mappings, token_list, cumulative_trade_data = load_data()
 
         # save into session_state so don't re-init
         st.session_state.unit_token_mappings = unit_token_mappings
         st.session_state.token_list = token_list
-        st.session_state.prices = prices
         st.session_state.cumulative_trade_data = cumulative_trade_data
         st.session_state.init_done = True
 else:
     # subsequent runs: refresh cached data
-    unit_token_mappings, token_list, prices, cumulative_trade_data = load_data()
+    unit_token_mappings, token_list, cumulative_trade_data = load_data()
 
     # update session_state with latest values
     st.session_state.unit_token_mappings = unit_token_mappings
     st.session_state.token_list = token_list
-    st.session_state.prices = prices
     st.session_state.cumulative_trade_data = cumulative_trade_data
 # use cached/session values
 unit_token_mappings = st.session_state.unit_token_mappings
 token_list = st.session_state.token_list
-prices = st.session_state.prices
 cumulative_trade_data = st.session_state.cumulative_trade_data
 
 
@@ -409,7 +399,7 @@ def main():
 
             raw_bridge_data = st.session_state['raw_bridge_data']
             processed_bridge_data = format_bridge_data(
-                raw_bridge_data, unit_token_mappings, prices)
+                raw_bridge_data, unit_token_mappings, cumulative_trade_data)
             df_bridging, top_bridged_asset = create_bridge_summary(
                 processed_bridge_data)
 
@@ -690,14 +680,14 @@ def display_trade_data(df_trade, accounts_mapping, accounts_hitting_fills_limits
 def format_bridge_data(
     raw_bridge_data: dict,
     unit_token_mappings: dict[str, tuple[str, int]],
-    prices: dict[str, dict[float, float]],
+    cumulative_trade_data: pd.DataFrame,
 ):
     # combine bridge operations from all addresses into a single DataFrame
     # TODO separate by address?
     all_operations_df = pd.DataFrame()
     for _, data in raw_bridge_data.items():
         processed_df = process_bridge_operations(
-            data, unit_token_mappings, prices, logger)
+            data, unit_token_mappings, cumulative_trade_data, logger)
         if processed_df is not None and not processed_df.empty:
             all_operations_df = pd.concat(
                 [all_operations_df, processed_df], ignore_index=True)
