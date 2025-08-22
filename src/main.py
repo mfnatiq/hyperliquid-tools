@@ -414,52 +414,54 @@ def main():
                 display_summary(df_trade, df_bridging, top_bridged_asset)
 
             with tab2:
-                display_trade_data(
-                    df_trade,
-                    volume_data['accounts_mapping'],
-                    volume_data['accounts_hitting_fills_limits'],
-                )
+                if df_trade.empty:
+                    st.warning("No trades on Unit tokens found - if you think this is an error, contact me")
+                else:
+                    display_trade_data(
+                        df_trade,
+                        volume_data['accounts_mapping'],
+                        volume_data['accounts_hitting_fills_limits'],
+                    )
 
             with tab3:
-                display_bridge_data(
-                    raw_bridge_data, df_bridging, top_bridged_asset, processed_bridge_data)
+                if df_bridging is None or df_bridging.empty:
+                    st.warning(
+                        "No bridge transactions found: if you think this is an error, contact me")
+                else:
+                    display_bridge_data(
+                        raw_bridge_data, df_bridging, top_bridged_asset, processed_bridge_data)
 
 # --------------- display ---------------
 
 
 def display_summary(df_trade: pd.DataFrame, df_bridging: pd.DataFrame | None, top_bridged_asset: str):
     # trade data
-    have_trade_volume = not df_trade.empty
-    if not have_trade_volume:
+    if df_trade.empty:
         st.warning(
             "No trades on Unit tokens found - if you think this is an error, contact me")
-    st.subheader("Trade Data")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Total Trade Volume", format_currency(
-            df_trade['Total Volume'].sum() if have_trade_volume else 0.0))
-    with col2:
-        most_traded = df_trade.iloc[0]['Token'] if have_trade_volume else "N/A"
-        st.metric("Top Traded Token", most_traded)
-    with col3:
-        st.metric('Total Trades Made',
-                  df_trade['Num Trades'].sum() if have_trade_volume else 0)
+    else:
+        st.subheader("Trade Data")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Trade Volume", format_currency(df_trade['Total Volume'].sum()))
+        with col2:
+            st.metric("Top Traded Token", df_trade.iloc[0]['Token'])
+        with col3:
+            st.metric('Total Trades Made', df_trade['Num Trades'].sum())
 
     # bridging data
     if df_bridging is None or df_bridging.empty:
         st.warning(
             "No bridge transactions found: if you think this is an error, contact me")
-    st.subheader("Bridge Data")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        total_bridge_volume = df_bridging['Total (USD)'].sum()
-        st.metric("Total Bridge Volume (USD)",
-                  format_currency(total_bridge_volume))
-    with col2:
-        st.metric("Top Bridged Token", top_bridged_asset)
-    with col3:
-        total_transactions = df_bridging['Total Transactions'].sum()
-        st.metric("Total Bridge Transactions", int(total_transactions))
+    else:
+        st.subheader("Bridge Data")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Bridge Volume (USD)", format_currency(df_bridging['Total (USD)'].sum()))
+        with col2:
+            st.metric("Top Bridged Token", top_bridged_asset)
+        with col3:
+            st.metric("Total Bridge Transactions", int(df_bridging['Total Transactions'].sum()))
 
 
 def display_trade_volume_table(df: pd.DataFrame, num_accounts: int):
