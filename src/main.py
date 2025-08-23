@@ -26,6 +26,22 @@ st.set_page_config(
 )
 
 st.title("Unit Volume Tracker")
+
+
+@st.dialog("Welcome to hyperliquid-tools!", width="large", on_dismiss="ignore")
+def announcement():
+    st.write("""
+        This site is moving to https://app.hyperliquid-tools.xyz/ (more features!)
+
+        It will still be up for a short time, but please migrate as soon as possible.
+
+        Enjoy!
+    """)
+# opening modal only upon startup
+if 'startup' not in st.session_state:
+    announcement()
+    st.session_state['startup'] = True
+
 st.markdown(
     "Input 1 or more accounts (comma-separated) to see combined volume across Hyperliquid Unit tokens")
 
