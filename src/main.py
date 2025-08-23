@@ -30,7 +30,7 @@ st.set_page_config(
 
 st.title("Unit Volume Tracker")
 
-@st.dialog("Welcome to hyperliquid-tools!")
+@st.dialog("Welcome to hyperliquid-tools!", width="large", on_dismiss="ignore")
 def announcement():
     st.write("""
         This site lets you view your HyperUnit trading / bridging volume, along with some other metrics.
@@ -41,8 +41,10 @@ def announcement():
 
         Enjoy!
     """)
-# opening modal
-announcement()
+# opening modal only upon startup
+if 'startup' not in st.session_state:
+    announcement()
+    st.session_state['startup'] = True
 
 # region sticky footer
 # put up here so container emptying doesn't make footer flash
@@ -439,8 +441,6 @@ def main():
                     raw_bridge_data, df_bridging, top_bridged_asset, processed_bridge_data)
 
 # --------------- display ---------------
-
-
 def display_summary(df_trade: pd.DataFrame, df_bridging: pd.DataFrame | None, top_bridged_asset: str):
     # trade data
     if df_trade.empty:
@@ -503,8 +503,7 @@ def display_trade_volume_table(df: pd.DataFrame, num_accounts: int):
             total_fees = df['Total Fees'].sum()
         st.metric('Total Fees Paid', format_currency(total_fees))
     with col3:
-        st.metric('Total Trades Made',
-                  df['Num Trades'].sum() if have_trade_volume else 0)
+        st.metric('Total Trades Made', df['Num Trades'].sum() if have_trade_volume else 0)
 
     if not have_trade_volume:
         return
@@ -540,9 +539,9 @@ def display_trade_volume_table(df: pd.DataFrame, num_accounts: int):
 
     # bar chart for volume distribution
     if len(df) > 1:
-        st.markdown("### Volume Distribution")
+        st.markdown("## Volume Distribution")
 
-        col1, col2 = st.columns(2)
+        col1, col2 = st.columns(2, gap="large")
 
         with col1:
             # txn side distribution
@@ -586,57 +585,65 @@ def display_accounts_table(accounts_df: pd.DataFrame):
 def display_trade_volume_info(
     trade_df: pd.DataFrame,
     cumulative_trade_data: pd.DataFrame,
-    unit_token_mappings: dict[str, str],
     accounts: list[str]
 ):
-    # TODO change to use token_list when merging other PR
-    token_list = list(unit_token_mappings.values())
-
     final_cumulative_volume = cumulative_trade_data.groupby('token_name').agg(
         final_cumulative_volume=('cumulative_volume_usd', 'last')
     ).reset_index()
 
     rows = []
     total_user_volume = 0
-    total_cumulative_volume = 0
+    total_exchange_volume = 0
 
     for token in token_list:
         user_volume = 0
         try:
-            user_volume = trade_df[trade_df['Token']
-                                   == token].iloc[0]['Total Volume']
+            user_volume = trade_df[trade_df['Token'] == token].iloc[0]['Total Volume']
         except:
             logger.info(
                 f'no volume found for {", ".join(accounts)} for {token}; skipping')
 
-        cumulative_volume = 0
+        exchange_volume = 0
         try:
-            cumulative_volume = final_cumulative_volume[final_cumulative_volume['token_name']
+            exchange_volume = final_cumulative_volume[final_cumulative_volume['token_name']
                                                         == token].iloc[0]['final_cumulative_volume']
         except:
             # no cumulative volume found for this unit token, ignoring
             continue
 
         total_user_volume += user_volume
-        total_cumulative_volume += cumulative_volume
+        total_exchange_volume += exchange_volume
 
         rows.append({
             'Asset': token,
             'Your Volume (USD)': user_volume,
-            'Market Volume (USD)': cumulative_volume,
-            'Your Share (%)': (user_volume / cumulative_volume * 100.0),
+            'Market Volume (USD)': exchange_volume,
+            'Your Share (%)': (user_volume / exchange_volume / 2.0 * 100.0),
         })
 
     # some error here
-    if total_cumulative_volume == 0:
+    if total_exchange_volume == 0:
         logger.warning(
             "unable to get any cumulative trading data; ignoring cumulative volume metrics")
         return
 
-    st.markdown("### Cumulative Volume Share")
+    st.markdown("## Volume Share Info")
 
-    st.metric("Share of Total Unit Trading Volume",
-              f"{(total_user_volume / total_cumulative_volume * 100):.10f}%")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Your Volume (Total)", format_currency(total_user_volume))
+    with col2:
+        st.metric("Total Exchange Unit Trading Volume", format_currency(total_exchange_volume))
+    with col3:
+        st.metric("Share of Total Exchange Unit Trading Volume",
+                f"{(total_user_volume / total_exchange_volume / 2.0 * 100):.10f}%",
+                help="""
+                Percentage is your volume / half exchange volume, as exchange volume is 1x for both maker + taker
+
+                E.g. if you take a 1k maker order, both you and the maker get 1k volume, but exchange volume is only 1k
+
+                So each of you gets 50\\% of that volume
+                """)
 
     df_cumulative = pd.DataFrame(rows)
     token_order = (
@@ -654,17 +661,18 @@ def display_trade_volume_info(
     df_cumulative['Your Share (%)'] = df_cumulative['Your Share (%)'].map(
         lambda x: f"{x:.6f}%")
 
-    col1, col2 = st.columns(2, vertical_alignment='center', gap="large")
+    col1, col2 = st.columns(2, vertical_alignment='top', gap="large")
     with col1:
-        st.dataframe(df_cumulative)
+        st.subheader("Trading Volume Breakdown", help="Same half proportion as above")
+        st.dataframe(df_cumulative, hide_index=True)
     with col2:
         # plot cumulative volume over time
+        st.subheader("Cumulative Volume Over Time by Token")
         fig = px.line(
             cumulative_trade_data,
             x='start_date',
             y='cumulative_volume_usd',
             color='token_name',
-            title='Cumulative Volume Over Time by Token',
             labels={
                 'cumulative_volume_usd': 'Cumulative Volume (USD)',
                 'start_date': 'Date',
@@ -676,12 +684,14 @@ def display_trade_volume_info(
         st.plotly_chart(fig, use_container_width=True)
 
 
-def display_trade_data(df_trade, accounts_mapping, accounts_hitting_fills_limits):
+def display_trade_data(df_trade, accounts_mapping: dict, accounts_hitting_fills_limits):
     if len(accounts_hitting_fills_limits) > 0:
         st.warning(
             f'Unable to fetch all fills for accounts due to hitting API limits (contact me to check): {', '.join(accounts_hitting_fills_limits)}')
 
     display_trade_volume_table(df_trade, len(accounts_mapping))
+
+    display_trade_volume_info(df_trade, cumulative_trade_data, list(accounts_mapping.keys()))
 
     # show raw data in expander
     if not df_trade.empty:
@@ -740,7 +750,7 @@ def display_bridge_data(raw_bridge_data: dict, summary_df: pd.DataFrame | None, 
     st.markdown("---")
 
     # display bridge summary table
-    st.markdown("### Bridge Activity Summary")
+    st.markdown("## Bridge Activity Summary")
 
     # format display df
     display_df = summary_df.copy()
@@ -782,7 +792,7 @@ def display_bridge_data(raw_bridge_data: dict, summary_df: pd.DataFrame | None, 
 
     # bridge activity chart if we have multiple assets
     if len(summary_df) > 1:
-        st.markdown("### Bridge Volume Distribution")
+        st.markdown("## Bridge Volume Distribution")
 
         chart_df = summary_df[['Asset', 'Deposit (USD)', 'Withdraw (USD)']].melt(
             id_vars=['Asset'],
