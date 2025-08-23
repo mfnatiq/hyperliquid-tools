@@ -28,6 +28,11 @@ st.set_page_config(
     layout="wide",
 )
 
+# plausible analytics
+st.html("""
+    <script defer data-domain="app.hyperliquid-tools.xyz" src="https://plausible-analytics-ce-production-441d.up.railway.app/js/script.js"></script>
+""")
+
 st.title("Unit Volume Tracker")
 
 @st.dialog("Welcome to hyperliquid-tools!", width="large", on_dismiss="ignore")
