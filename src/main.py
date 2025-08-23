@@ -30,6 +30,20 @@ st.set_page_config(
 
 st.title("Unit Volume Tracker")
 
+@st.dialog("Welcome to hyperliquid-tools!")
+def announcement():
+    st.write("""
+        This site lets you view your HyperUnit trading / bridging volume, along with some other metrics.
+
+        If you like what you see, please follow me on Twitter or perhaps make a little donation (address at bottom of page) :)
+
+        If you find any bugs or have any feature requests, feel free to DM me on Twitter as well.
+
+        Enjoy!
+    """)
+# opening modal
+announcement()
+
 # region sticky footer
 # put up here so container emptying doesn't make footer flash
 # render footer
