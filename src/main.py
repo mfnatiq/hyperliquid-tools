@@ -29,9 +29,11 @@ st.set_page_config(
 )
 
 # plausible analytics
-st.html("""
-    <script defer data-domain="app.hyperliquid-tools.xyz" src="https://plausible-analytics-ce-production-441d.up.railway.app/js/script.js"></script>
-""")
+components.html("""
+<script defer data-domain="app.hyperliquid-tools.xyz"
+    src="https://plausible-analytics-ce-production-441d.up.railway.app/js/script.js">
+</script>
+""", height=0)
 
 st.title("Unit Volume Tracker")
 
