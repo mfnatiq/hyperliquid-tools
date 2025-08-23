@@ -46,14 +46,6 @@ if 'startup' not in st.session_state:
     announcement()
     st.session_state['startup'] = True
 
-# region sticky footer
-# put up here so container emptying doesn't make footer flash
-# render footer
-st.markdown(footer_html, unsafe_allow_html=True)
-# render copy script in a separate component to avoid CSP issues
-components.html(copy_script, height=0)
-# endregion
-
 info = Info(constants.MAINNET_API_URL, skip_ws=True)
 unit_bridge_info = UnitBridgeInfo()
 
@@ -76,6 +68,11 @@ def _get_candlestick_data(_token_ids: list[str], _token_names: list[str]):
     cache daily just to get OHLCV prices
     """
     return get_candlestick_data(info, _token_ids, _token_names)
+
+@st.cache_data(ttl=60, show_spinner=False)
+def get_curr_hype_price():
+    prices = info.all_mids()
+    return float(prices['@107'])
 
 
 def load_data():
@@ -110,6 +107,9 @@ else:
 unit_token_mappings = st.session_state.unit_token_mappings
 token_list = st.session_state.token_list
 cumulative_trade_data = st.session_state.cumulative_trade_data
+
+
+st.metric("Current HYPE Price", format_currency(get_curr_hype_price()))
 
 
 col1, col2, col3 = st.columns([10, 2, 1])
@@ -824,3 +824,11 @@ def display_bridge_data(raw_bridge_data: dict, summary_df: pd.DataFrame | None, 
 
 if __name__ == '__main__':
     main()
+
+    # region sticky footer
+    # put up here so container emptying doesn't make footer flash
+    # render footer
+    st.html(footer_html)
+    # render copy script in a separate component to avoid CSP issues
+    components.html(copy_script, height=0)
+    # endregion

@@ -4,6 +4,10 @@ footer_html = """
 <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,600&display=swap">
 <style>
 html, body { margin: 0; padding: 0; background: transparent; }
+/* Kill extra bottom padding Streamlit adds */
+.block-container {
+    padding-bottom: 1rem !important;
+}
 .footer {
     position: fixed;
     left: 0;
