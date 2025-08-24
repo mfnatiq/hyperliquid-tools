@@ -835,7 +835,7 @@ if __name__ == '__main__':
     # region sticky footer
     # put up here so container emptying doesn't make footer flash
     # render footer
-    st.html(footer_html)
+    st.markdown(footer_html, unsafe_allow_html=True)
     # render copy script in a separate component to avoid CSP issues
     components.html(copy_script, height=0)
     # endregion
