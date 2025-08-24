@@ -668,6 +668,14 @@ def display_trade_volume_info(
 
     st.markdown("## Volume Share Info")
 
+    with st.expander("More Info about Fills vs. Trades:", expanded=False):
+        st.text("""
+
+In every trade, there are 2 parties: buyer and seller. In most central limit order books (CLOBs), including Hyperliquid, each side has a separate fill i.e. one trade contains two fills.
+
+That means that actual trade volume is half of total fill volume, so the percentage of your volume vs. the exchange volume is your volume divided by exchange volume divided by 2.
+        """)
+
     col1, col2, col3 = st.columns(3)
     with col1:
         st.metric("Your Volume (Total)", format_currency(total_user_volume))
@@ -675,14 +683,7 @@ def display_trade_volume_info(
         st.metric("Total Exchange Unit Trading Volume", format_currency(total_exchange_volume))
     with col3:
         st.metric("Share of Total Exchange Unit Trading Volume",
-                f"{(total_user_volume / total_exchange_volume / 2.0 * 100):.10f}%",
-                help="""
-                Percentage is your volume / half exchange volume, as exchange volume is 1x for both maker + taker
-
-                E.g. if you take a 1k maker order, both you and the maker get 1k volume, but exchange volume is only 1k
-
-                So each of you gets 50\\% of that volume
-                """)
+                f"{(total_user_volume / total_exchange_volume / 2.0 * 100):.10f}%")
 
     df_cumulative = pd.DataFrame(rows)
     df_cumulative = df_cumulative.sort_values(
@@ -697,7 +698,7 @@ def display_trade_volume_info(
         lambda x: f"{x:.6f}%")
 
     with st.expander("Volume Trends and Breakdown", expanded=False):
-        st.subheader("Trading Volume Breakdown", help="Same half proportion as above")
+        st.subheader("Trading Volume Breakdown")
         st.dataframe(df_cumulative, hide_index=True)
 
         col1, col2 = st.columns(2, gap="large")
