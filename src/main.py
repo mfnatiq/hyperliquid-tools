@@ -256,10 +256,12 @@ def get_cached_unit_volumes(
             fills[account] = account_fills
     except Exception as e:
         logging.error(e)
-        return dict(), dict(), [], 'Unable to fetch trade history - did you put a valid list of accounts?'
+        return dict(), dict(), [], pd.DataFrame, 'Unable to fetch trade history - did you put a valid list of accounts?'
 
     # 10k - need get from s3
     accounts_hitting_fills_limits = []
+
+    user_fills_rows = []
 
     for account, fills_list in fills.items():
         if len(fills_list) == 10000:
@@ -280,6 +282,15 @@ def get_cached_unit_volumes(
                 trade_volume = float(f['sz']) * price
                 trade_time = datetime.fromtimestamp(
                     f['time'] / 1000, tz=timezone.utc)
+
+                # keep record of all fills in DF
+                # normalise to day start (UTC midnight)
+                trade_day = trade_time.replace(hour=0, minute=0, second=0, microsecond=0)
+                user_fills_rows.append({
+                    'start_date': trade_day,
+                    'token_name': token_name,
+                    'volume_usd': trade_volume,
+                })
 
                 # direction
                 prev_first_txn = volume_by_token[token_name]['Direction'][direction]['First Txn']
@@ -310,11 +321,29 @@ def get_cached_unit_volumes(
                     accounts_mapping[account]['Token Fees'] += fee_amt
                     volume_by_token[token_name]['Token Fees'] += fee_amt
 
-    return volume_by_token, accounts_mapping, accounts_hitting_fills_limits, None
+    user_trades_df = pd.DataFrame(user_fills_rows)
+    if not user_trades_df.empty:
+        # aggregate to one row per (day, token)
+        user_trades_df = (
+            user_trades_df
+            .groupby(['start_date', 'token_name'], as_index=False)
+            .agg(volume_usd=('volume_usd', 'sum'))
+        )
+
+        # make sure start_date is datetime (normalized to midnight UTC already)
+        user_trades_df['start_date'] = pd.to_datetime(user_trades_df['start_date'], utc=True)
+
+        # sort and compute cumulative by token
+        user_trades_df = user_trades_df.sort_values(['token_name', 'start_date'])
+        user_trades_df['cumulative_volume_usd'] = (
+            user_trades_df
+            .groupby('token_name', group_keys=False)['volume_usd']
+            .cumsum()
+        )
+
+    return volume_by_token, accounts_mapping, accounts_hitting_fills_limits, user_trades_df, None
 
 # --- data processing and display functions ---
-
-
 def get_earliest_txn_datetime(earliest_buy: datetime | None, earliest_sell: datetime | None):
     if earliest_buy is None:
         return earliest_sell
@@ -395,7 +424,7 @@ def main():
         accounts = [a.strip() for a in addresses_input.split(",") if a]
 
         with st.spinner(f'Loading data for {", ".join(accounts)}...'):
-            volume_by_token, accounts_mapping, accounts_hitting_fills_limits, err = get_cached_unit_volumes(
+            volume_by_token, accounts_mapping, accounts_hitting_fills_limits, user_trades_df, err = get_cached_unit_volumes(
                 accounts, unit_token_mappings, exclude_subaccounts)
 
             raw_bridge_data = unit_bridge_info.get_operations(accounts)
@@ -409,6 +438,7 @@ def main():
                     'volume_by_token': volume_by_token,
                     'accounts_mapping': accounts_mapping,
                     'accounts_hitting_fills_limits': accounts_hitting_fills_limits,
+                    'user_trades_df': user_trades_df,
                     'last_updated': datetime.now(timezone.utc),
                     'accounts': accounts,
                 }
@@ -441,6 +471,7 @@ def main():
                     df_trade,
                     volume_data['accounts_mapping'],
                     volume_data['accounts_hitting_fills_limits'],
+                    volume_data['user_trades_df'],
                 )
 
             with tab3:
@@ -592,7 +623,8 @@ def display_accounts_table(accounts_df: pd.DataFrame):
 def display_trade_volume_info(
     trade_df: pd.DataFrame,
     cumulative_trade_data: pd.DataFrame,
-    accounts: list[str]
+    accounts: list[str],
+    user_trades_df: pd.DataFrame,
 ):
     final_cumulative_volume = cumulative_trade_data.groupby('token_name').agg(
         final_cumulative_volume=('cumulative_volume_usd', 'last')
@@ -653,10 +685,6 @@ def display_trade_volume_info(
                 """)
 
     df_cumulative = pd.DataFrame(rows)
-    token_order = (
-        df_cumulative.groupby('Asset')['Market Volume (USD)']
-        .max().sort_values(ascending=False).index.tolist()
-    )
     df_cumulative = df_cumulative.sort_values(
         'Market Volume (USD)', ascending=False)
 
@@ -668,37 +696,99 @@ def display_trade_volume_info(
     df_cumulative['Your Share (%)'] = df_cumulative['Your Share (%)'].map(
         lambda x: f"{x:.6f}%")
 
-    col1, col2 = st.columns(2, vertical_alignment='top', gap="large")
-    with col1:
+    with st.expander("Volume Trends and Breakdown", expanded=False):
         st.subheader("Trading Volume Breakdown", help="Same half proportion as above")
         st.dataframe(df_cumulative, hide_index=True)
-    with col2:
-        # plot cumulative volume over time
-        st.subheader("Cumulative Volume Over Time by Token")
-        fig = px.line(
-            cumulative_trade_data,
-            x='start_date',
-            y='cumulative_volume_usd',
-            color='token_name',
-            labels={
-                'cumulative_volume_usd': 'Cumulative Volume (USD)',
-                'start_date': 'Date',
-                'token_name': 'Token'
-            },
-            category_orders={'token_name': token_order}
+
+        col1, col2 = st.columns(2, gap="large")
+        user_vol_token_order = (
+            user_trades_df.groupby('token_name')['cumulative_volume_usd']
+            .max().sort_values(ascending=False).index.tolist()
         )
-        # display legend in descending order of total volume
-        st.plotly_chart(fig, use_container_width=True)
+        with col1:
+            # plot cumulative volume over time
+            st.subheader("Daily User Volume")
+            fig = px.line(
+                user_trades_df,
+                x='start_date',
+                y='volume_usd',
+                color='token_name',
+                labels={
+                    'volume_usd': 'Volume (USD)',
+                    'start_date': 'Date',
+                    'token_name': 'Token'
+                },
+                category_orders={'token_name': user_vol_token_order}
+            )
+            # display legend in descending order of total volume
+            st.plotly_chart(fig, use_container_width=True)
+        with col2:
+            # plot cumulative volume over time
+            st.subheader("Cumulative User Volume")
+            fig = px.line(
+                user_trades_df,
+                x='start_date',
+                y='cumulative_volume_usd',
+                color='token_name',
+                labels={
+                    'cumulative_volume_usd': 'Cumulative Volume (USD)',
+                    'start_date': 'Date',
+                    'token_name': 'Token'
+                },
+                category_orders={'token_name': user_vol_token_order}
+            )
+            # display legend in descending order of total volume
+            st.plotly_chart(fig, use_container_width=True)
+
+        col1, col2 = st.columns(2, gap="large")
+        exchange_vol_token_order = (
+            df_cumulative.groupby('Asset')['Market Volume (USD)']
+            .max().sort_values(ascending=False).index.tolist()
+        )
+        with col1:
+            # plot cumulative volume over time
+            st.subheader("Daily Exchange Volume")
+            fig = px.line(
+                cumulative_trade_data,
+                x='start_date',
+                y='volume_usd',
+                color='token_name',
+                labels={
+                    'volume_usd': 'Volume (USD)',
+                    'start_date': 'Date',
+                    'token_name': 'Token'
+                },
+                category_orders={'token_name': exchange_vol_token_order}
+            )
+            # display legend in descending order of total volume
+            st.plotly_chart(fig, use_container_width=True)
+        with col2:
+            # plot cumulative volume over time
+            st.subheader("Cumulative Exchange Volume")
+            fig = px.line(
+                cumulative_trade_data,
+                x='start_date',
+                y='cumulative_volume_usd',
+                color='token_name',
+                labels={
+                    'cumulative_volume_usd': 'Cumulative Volume (USD)',
+                    'start_date': 'Date',
+                    'token_name': 'Token'
+                },
+                category_orders={'token_name': exchange_vol_token_order}
+            )
+            # display legend in descending order of total volume
+            st.plotly_chart(fig, use_container_width=True)
 
 
-def display_trade_data(df_trade, accounts_mapping: dict, accounts_hitting_fills_limits):
+def display_trade_data(df_trade, accounts_mapping: dict, accounts_hitting_fills_limits, user_trades_df: pd.DataFrame):
     if len(accounts_hitting_fills_limits) > 0:
         st.warning(
             f'Unable to fetch all fills for accounts due to hitting API limits (contact me to check): {', '.join(accounts_hitting_fills_limits)}')
 
     display_trade_volume_table(df_trade, len(accounts_mapping))
 
-    display_trade_volume_info(df_trade, cumulative_trade_data, list(accounts_mapping.keys()))
+    display_trade_volume_info(df_trade, cumulative_trade_data, list(accounts_mapping.keys()), user_trades_df)
 
     # show raw data in expander
     if not df_trade.empty:
