@@ -513,20 +513,16 @@ def display_summary(df_trade: pd.DataFrame, df_bridging: pd.DataFrame | None, to
 
 
 def display_trade_volume_table(df: pd.DataFrame, num_accounts: int):
-    have_trade_volume = not df.empty
-
-    if not have_trade_volume:
-        st.warning(
-            "No trades on Unit tokens found - if you think this is an error, contact me")
-        return
+    """
+    assumes df is not empty (handled externally)
+    """
 
     # display metrics at top
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Total Trade Volume", format_currency(
-            df['Total Volume'].sum() if have_trade_volume else 0.0))
+        st.metric("Total Trade Volume", format_currency(df['Total Volume'].sum()))
     with col2:
-        most_traded = df.iloc[0]['Token'] if have_trade_volume else "N/A"
+        most_traded = df.iloc[0]['Token']
         st.metric("Top Traded Token", most_traded)
     with col3:
         st.metric("Tokens Traded", len(df))
@@ -535,16 +531,11 @@ def display_trade_volume_table(df: pd.DataFrame, num_accounts: int):
     with col1:
         st.metric("Total Accounts Traded On", num_accounts)
     with col2:
-        total_fees = 0.0
-        if have_trade_volume:
-            df['Total Fees'] = df['Token Fees'] + df['USDC Fees']
-            total_fees = df['Total Fees'].sum()
+        df['Total Fees'] = df['Token Fees'] + df['USDC Fees']
+        total_fees = df['Total Fees'].sum()
         st.metric('Total Fees Paid', format_currency(total_fees))
     with col3:
-        st.metric('Total Trades Made', df['Num Trades'].sum() if have_trade_volume else 0)
-
-    if not have_trade_volume:
-        return
+        st.metric('Total Trades Made', df['Num Trades'].sum())
 
     st.markdown("---")
 
@@ -626,6 +617,9 @@ def display_trade_volume_info(
     accounts: list[str],
     user_trades_df: pd.DataFrame,
 ):
+    """
+    assumes trade_df is not empty (handled externally)
+    """
     final_cumulative_volume = cumulative_trade_data.groupby('token_name').agg(
         final_cumulative_volume=('cumulative_volume_usd', 'last')
     ).reset_index()
@@ -787,12 +781,15 @@ def display_trade_data(df_trade, accounts_mapping: dict, accounts_hitting_fills_
         st.warning(
             f'Unable to fetch all fills for accounts due to hitting API limits (contact me to check): {', '.join(accounts_hitting_fills_limits)}')
 
-    display_trade_volume_table(df_trade, len(accounts_mapping))
-
-    display_trade_volume_info(df_trade, cumulative_trade_data, list(accounts_mapping.keys()), user_trades_df)
-
     # show raw data in expander
-    if not df_trade.empty:
+    if df_trade.empty:
+        st.warning(
+            "No trades on Unit tokens found - if you think this is an error, contact me")
+    else:
+        display_trade_volume_table(df_trade, len(accounts_mapping))
+
+        display_trade_volume_info(df_trade, cumulative_trade_data, list(accounts_mapping.keys()), user_trades_df)
+
         with st.expander("Raw Data"):
             st.json(accounts_mapping)
             st.json(df_trade)
