@@ -62,3 +62,5 @@ def verify_valid_payment(email, payment_txn_hash: str, payment_chain: str):
     # TODO check chain using rpc or alchemy methods
     # also check that is not already in DB else return error message
     # TODO
+
+# TODO migrate to persistent storage on railway for more robustness
