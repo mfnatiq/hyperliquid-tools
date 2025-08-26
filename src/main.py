@@ -3,13 +3,13 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 from hyperliquid.info import Info
 from hyperliquid.utils import constants
+from hyperliquid.utils.error import ClientError, ServerError
 import streamlit as st
 import streamlit.components.v1 as components
 import plotly.express as px
 from bridge.unit_bridge_api import UnitBridgeInfo
 from utils.render_utils import footer_html, copy_script
 from trade.trade_data import get_candlestick_data
-
 from bridge.unit_bridge_utils import create_bridge_summary, process_bridge_operations
 from consts import unitStartTime, oneDayInS
 
@@ -59,6 +59,7 @@ unit_bridge_info = UnitBridgeInfo()
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def _get_cached_unit_token_mappings() -> dict[str, tuple[str, int]]:
+    print('calling _get_cached_unit_token_mappings')
     """
     with caching and show_spinner=false
     even if this is wrapped around a spinner,
@@ -81,65 +82,20 @@ def get_curr_hype_price():
     prices = info.all_mids()
     return float(prices['@107'])
 
-
 def load_data():
     unit_token_mappings = _get_cached_unit_token_mappings()
+    for _ in range(1000):
+        get_cached_unit_token_mappings(info, logger)
     token_list = [t for t, _ in unit_token_mappings.values()]
     cumulative_trade_data = _get_candlestick_data(
         [k for k in unit_token_mappings.keys()], token_list)
 
     return unit_token_mappings, token_list, cumulative_trade_data
 
-
-# -------- initialisation and caching --------
-if "init_done" not in st.session_state:
-    # first-ever run: initialisation
-    with st.spinner("Initialising..."):
-        unit_token_mappings, token_list, cumulative_trade_data = load_data()
-
-        # save into session_state so don't re-init
-        st.session_state.unit_token_mappings = unit_token_mappings
-        st.session_state.token_list = token_list
-        st.session_state.cumulative_trade_data = cumulative_trade_data
-        st.session_state.init_done = True
-else:
-    # subsequent runs: refresh cached data
-    unit_token_mappings, token_list, cumulative_trade_data = load_data()
-
-    # update session_state with latest values
-    st.session_state.unit_token_mappings = unit_token_mappings
-    st.session_state.token_list = token_list
-    st.session_state.cumulative_trade_data = cumulative_trade_data
-# use cached/session values
-unit_token_mappings = st.session_state.unit_token_mappings
-token_list = st.session_state.token_list
-cumulative_trade_data = st.session_state.cumulative_trade_data
-
-
-st.metric("Current HYPE Price", format_currency(get_curr_hype_price()))
-
-
-col1, col2, col3 = st.columns([10, 2, 1])
-with col1:
-    addresses_input: str = st.text_input(
-        "Enter 1 or more hyperliquid accounts (comma-separated)",
-        placeholder="Enter 1 or more hyperliquid accounts (comma-separated)",
-        label_visibility='collapsed',
-        key='hyperliquid_address_input',
-    )
-with col2:
-    exclude_subaccounts = st.checkbox("Exclude Subaccounts")
-with col3:
-    submitted = st.button("Run", type="primary")
-
-
-# region optimisations
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_subaccounts_cached(account: str) -> list:
     subaccounts = info.query_sub_accounts(account)
     return subaccounts if subaccounts is not None else []
-# endregion
-
 
 @st.cache_data(ttl=60, show_spinner=False)
 def get_cached_unit_volumes(
@@ -413,6 +369,64 @@ def create_volume_df(volume_by_token: dict) -> pd.DataFrame:
 
 # main app logic reruns upon any interaction
 def main():
+    # -------- initialisation and caching --------
+    try:
+        if "init_done" not in st.session_state:
+            # first-ever run: initialisation
+            with st.spinner("Initialising..."):
+                unit_token_mappings, token_list, cumulative_trade_data = load_data()
+
+                # save into session_state so don't re-init
+                st.session_state.unit_token_mappings = unit_token_mappings
+                st.session_state.token_list = token_list
+                st.session_state.cumulative_trade_data = cumulative_trade_data
+                st.session_state.init_done = True
+        else:
+            # subsequent runs: refresh cached data
+            unit_token_mappings, token_list, cumulative_trade_data = load_data()
+
+            # update session_state with latest values
+            st.session_state.unit_token_mappings = unit_token_mappings
+            st.session_state.token_list = token_list
+            st.session_state.cumulative_trade_data = cumulative_trade_data
+        # use cached/session values
+        unit_token_mappings = st.session_state.unit_token_mappings
+        token_list = st.session_state.token_list
+        cumulative_trade_data = st.session_state.cumulative_trade_data
+
+        st.metric("Current HYPE Price", format_currency(get_curr_hype_price()))
+
+        col1, col2, col3 = st.columns([10, 2, 1])
+        with col1:
+            addresses_input: str = st.text_input(
+                "Enter 1 or more hyperliquid accounts (comma-separated)",
+                placeholder="Enter 1 or more hyperliquid accounts (comma-separated)",
+                label_visibility='collapsed',
+                key='hyperliquid_address_input',
+            )
+        with col2:
+            exclude_subaccounts = st.checkbox("Exclude Subaccounts")
+        with col3:
+            submitted = st.button("Run", type="primary")
+    except ClientError as e:
+        status_code = e.status_code
+        if status_code == 429:
+            logger.error(f'client error occured: {e}')
+            st.error("Hyperliquid API rate limit reached, please try again in a short while")
+        else:
+            logger.error(f'client error occured: {e}')
+            st.error("Unknown error occurred, please try again in a short while")
+        return
+    except ServerError as e:
+        status_code = e.status_code
+        if status_code == 429:
+            logger.error(f'server error occured: {e}')
+            st.error("Hyperliquid API rate limit reached, please try again in a short while")
+        else:
+            logger.error(f'server error occured: {e}')
+            st.error("Unknown error occurred, please try again in a short while")
+        return
+
     # placeholder that can be cleared and rewritten
     output_placeholder = st.empty()
 
@@ -472,6 +486,8 @@ def main():
                     volume_data['accounts_mapping'],
                     volume_data['accounts_hitting_fills_limits'],
                     volume_data['user_trades_df'],
+                    cumulative_trade_data,
+                    token_list,
                 )
 
             with tab3:
@@ -616,6 +632,7 @@ def display_trade_volume_info(
     cumulative_trade_data: pd.DataFrame,
     accounts: list[str],
     user_trades_df: pd.DataFrame,
+    token_list: list[str],
 ):
     """
     assumes trade_df is not empty (handled externally)
@@ -664,7 +681,6 @@ def display_trade_volume_info(
 
     with st.expander("More Info about Fills vs. Trades:", expanded=False):
         st.text("""
-
 In every trade, there are 2 parties: buyer and seller. In most central limit order books (CLOBs), including Hyperliquid, each side has a separate fill i.e. one trade contains two fills.
 
 That means that actual trade volume is half of total fill volume, so the percentage of your volume vs. the exchange volume is your volume divided by exchange volume divided by 2.
@@ -776,7 +792,14 @@ That means that actual trade volume is half of total fill volume, so the percent
             st.plotly_chart(fig, use_container_width=True)
 
 
-def display_trade_data(df_trade, accounts_mapping: dict, accounts_hitting_fills_limits, user_trades_df: pd.DataFrame):
+def display_trade_data(
+    df_trade,
+    accounts_mapping: dict,
+    accounts_hitting_fills_limits,
+    user_trades_df: pd.DataFrame,
+    cumulative_trade_data,
+    token_list: list[str],
+):
     if len(accounts_hitting_fills_limits) > 0:
         st.warning(
             f'Unable to fetch all fills for accounts due to hitting API limits (contact me to check): {', '.join(accounts_hitting_fills_limits)}')
@@ -788,7 +811,7 @@ def display_trade_data(df_trade, accounts_mapping: dict, accounts_hitting_fills_
     else:
         display_trade_volume_table(df_trade, len(accounts_mapping))
 
-        display_trade_volume_info(df_trade, cumulative_trade_data, list(accounts_mapping.keys()), user_trades_df)
+        display_trade_volume_info(df_trade, cumulative_trade_data, list(accounts_mapping.keys()), user_trades_df, token_list)
 
         with st.expander("Raw Data"):
             st.json(accounts_mapping)
