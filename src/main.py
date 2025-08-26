@@ -45,8 +45,6 @@ def announcement():
         If you like what you see, please consider making a little donation as I'm doing this for free :)
 
         Enjoy!
-
-        P.S. my twitter account got suspended: please temporarily DM me at https://x.com/fnatiqmambo for any inquiries / feedback instead!
     """)
 # opening modal only upon startup
 if 'startup' not in st.session_state:
