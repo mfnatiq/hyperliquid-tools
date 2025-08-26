@@ -43,9 +43,10 @@ html, body { margin: 0; padding: 0; background: transparent; }
 </style>
 
 <div class="footer">
-    <span>made by <a href="https://x.com/fnatiqmambo" target="_blank">@fnatiqmambo</a></span>
-    <span class="separator">•</span>
-    <span>former twitter account got banned: <a href="https://x.com/mfnatiq1" target="_blank">@mfnatiq1</a></span>
+    <span>
+    made by <a href="https://x.com/fnatiqmambo" target="_blank">@fnatiqmambo</a>
+    (formerly <a href="https://x.com/mfnatiq1" target="_blank">@mfnatiq1</a>)
+    </span>
     <span class="separator">•</span>
     <span>donations:</span>
     <span id="donation-address" class="donation-address">0xB17648Ed98C9766B880b5A24eEcAebA19866d1d7</span> 

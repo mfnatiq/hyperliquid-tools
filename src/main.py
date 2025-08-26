@@ -59,7 +59,6 @@ unit_bridge_info = UnitBridgeInfo()
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def _get_cached_unit_token_mappings() -> dict[str, tuple[str, int]]:
-    print('calling _get_cached_unit_token_mappings')
     """
     with caching and show_spinner=false
     even if this is wrapped around a spinner,
@@ -84,8 +83,6 @@ def get_curr_hype_price():
 
 def load_data():
     unit_token_mappings = _get_cached_unit_token_mappings()
-    for _ in range(1000):
-        get_cached_unit_token_mappings(info, logger)
     token_list = [t for t, _ in unit_token_mappings.values()]
     cumulative_trade_data = _get_candlestick_data(
         [k for k in unit_token_mappings.keys()], token_list)
