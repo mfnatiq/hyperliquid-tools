@@ -1,3 +1,4 @@
+from auth.db_utils import init_db, is_premium_user
 from utils.utils import DATE_FORMAT, format_currency, get_cached_unit_token_mappings, get_current_timestamp_millis
 from datetime import datetime, timedelta, timezone
 import pandas as pd
@@ -12,6 +13,7 @@ from utils.render_utils import footer_html, copy_script
 from trade.trade_data import get_candlestick_data
 from bridge.unit_bridge_utils import create_bridge_summary, process_bridge_operations
 from consts import unitStartTime, oneDayInS
+import uuid
 
 # setup and configure logging
 import logging
@@ -21,12 +23,49 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
 st.set_page_config(
     'Hyperliquid Tools',
     "🔧",
     layout="wide",
 )
+
+init_db()
+
+# handle user email login state
+if st.user:
+    # if user is logged in, store their email in session state
+    st.session_state["user_email"] = st.user.email
+else:
+    # if user logs out, remove their email from session state
+    if "user_email" in st.session_state:
+        del st.session_state["user_email"]
+
+def show_login_info(show_button_only: bool = False):
+    if not show_button_only:
+        st.markdown("Log in to view more detailed info", width="content")
+    st.button(
+        "Login",
+        key=uuid.uuid4(),
+        on_click=st.login, icon=":material/login:",
+        type="primary"
+    )
+
+col1, col2 = st.columns([1, 1], vertical_alignment='center')
+with col1:
+    st.title("Unit Volume Tracker")
+with col2:
+    with st.container(vertical_alignment='center', horizontal=True, horizontal_alignment="right"):
+        if "user_email" in st.session_state:
+            st.markdown(f"Logged in as **{st.session_state['user_email']}**", width="content")
+            st.button(
+                "Logout",
+                key=f"logout_{uuid.uuid4()}",
+                on_click=st.logout,
+                icon=":material/logout:",
+                type="secondary",
+            )
+        else:
+            show_login_info(show_button_only=True)
 
 # plausible analytics
 components.html("""
@@ -35,8 +74,9 @@ components.html("""
 </script>
 """, height=0)
 
-st.title("Unit Volume Tracker")
-
+################################
+# TODO show this only for new + unsubscribed (show diff message)
+################################
 @st.dialog("Welcome to hyperliquid-tools!", width="large", on_dismiss="ignore")
 def announcement():
     st.write("""
@@ -361,7 +401,6 @@ def create_volume_df(volume_by_token: dict) -> pd.DataFrame:
             'Total Volume', ascending=False).reset_index(drop=True)
     return df
 
-
 # main app logic reruns upon any interaction
 def main():
     # -------- initialisation and caching --------
@@ -389,19 +428,18 @@ def main():
         token_list = st.session_state.token_list
         cumulative_trade_data = st.session_state.cumulative_trade_data
 
+        is_premium = is_premium_user(st.session_state['user_email'])
+
         st.metric("Current HYPE Price", format_currency(get_curr_hype_price()))
 
-        col1, col2, col3 = st.columns([10, 2, 1])
-        with col1:
+        with st.container(vertical_alignment='center', horizontal=True):
             addresses_input: str = st.text_input(
                 "Enter 1 or more hyperliquid accounts (comma-separated)",
                 placeholder="Enter 1 or more hyperliquid accounts (comma-separated)",
                 label_visibility='collapsed',
                 key='hyperliquid_address_input',
             )
-        with col2:
             exclude_subaccounts = st.checkbox("Exclude Subaccounts")
-        with col3:
             submitted = st.button("Run", type="primary")
     except ClientError as e:
         status_code = e.status_code
@@ -476,18 +514,34 @@ def main():
                 display_summary(df_trade, df_bridging, top_bridged_asset)
 
             with tab2:
-                display_trade_data(
-                    df_trade,
-                    volume_data['accounts_mapping'],
-                    volume_data['accounts_hitting_fills_limits'],
-                    volume_data['user_trades_df'],
-                    cumulative_trade_data,
-                    token_list,
-                )
+                if not st.user.is_logged_in:
+                    show_login_info()
+                elif not is_premium:
+                    st.text(f'You are not subscribed: upgrade to view this detailed info')
+                else:
+                    # only runs for subscribed users
+                    display_trade_data(
+                        df_trade,
+                        volume_data['accounts_mapping'],
+                        volume_data['accounts_hitting_fills_limits'],
+                        volume_data['user_trades_df'],
+                        cumulative_trade_data,
+                        token_list,
+                    )
 
             with tab3:
-                display_bridge_data(
-                    raw_bridge_data, df_bridging, top_bridged_asset, processed_bridge_data)
+                if not st.user.is_logged_in:
+                    show_login_info()
+                elif not is_premium:
+                    st.text(f'You are not subscribed: upgrade to view this detailed info')
+                else:
+                    # only runs for subscribed users
+                    display_bridge_data(
+                        raw_bridge_data,
+                        df_bridging,
+                        top_bridged_asset,
+                        processed_bridge_data
+                    )
 
 # --------------- display ---------------
 def display_summary(df_trade: pd.DataFrame, df_bridging: pd.DataFrame | None, top_bridged_asset: str):
