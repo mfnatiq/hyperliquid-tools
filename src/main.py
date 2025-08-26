@@ -42,11 +42,11 @@ def announcement():
     st.write("""
         This site lets you view your HyperUnit trading / bridging volume, along with some other metrics.
 
-        If you like what you see, please follow me on Twitter or perhaps make a little donation (address at bottom of page) :)
-
-        If you find any bugs or have any feature requests, feel free to DM me on Twitter as well.
+        If you like what you see, please consider making a little donation as I'm doing this for free :)
 
         Enjoy!
+
+        P.S. my twitter account got suspended: please temporarily DM me at https://x.com/fnatiqmambo for any inquiries / feedback instead!
     """)
 # opening modal only upon startup
 if 'startup' not in st.session_state:
