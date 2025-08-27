@@ -1,1 +1,1 @@
-web: streamlit run src/main.py --server.port=$PORT --server.address=0.0.0.0
+web: python src/add_ga.py && streamlit run src/main.py --server.port=$PORT --server.address=0.0.0.0
