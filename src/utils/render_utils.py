@@ -48,7 +48,7 @@ html, body { margin: 0; padding: 0; background: transparent; }
     (formerly <a href="https://x.com/mfnatiq1" target="_blank">@mfnatiq1</a>)
     </span>
     <span class="separator">•</span>
-    <span>please donate if you find this helpful:</span>
+    <span>donations:</span>
     <span id="donation-address" class="donation-address">0xB17648Ed98C9766B880b5A24eEcAebA19866d1d7</span> 
     <span class="icon-container" id="copy-btn" title="Copy to clipboard">
         <i id="icon-copy" class="fa-solid fa-copy copy-icon"></i>
