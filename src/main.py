@@ -12,6 +12,7 @@ from utils.render_utils import footer_html, copy_script
 from trade.trade_data import get_candlestick_data
 from bridge.unit_bridge_utils import create_bridge_summary, process_bridge_operations
 from consts import unitStartTime, oneDayInS
+import os
 
 # setup and configure logging
 import logging
@@ -27,6 +28,24 @@ st.set_page_config(
     "🔧",
     layout="wide",
 )
+
+def setup_google_analytics():
+    """add google analytics tracking"""
+    ga_measurement_id = os.getenv("GA_MEASUREMENT_ID")
+
+    if ga_measurement_id:
+        # Inject Google Analytics tracking code
+        ga_html = f"""
+        <script async src="https://www.googletagmanager.com/gtag/js?id={ga_measurement_id}"></script>
+        <script>
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){{dataLayer.push(arguments);}}
+            gtag('js', new Date());
+            gtag('config', '{ga_measurement_id}');
+        </script>
+        """
+        components.html(ga_html, height=0)
+setup_google_analytics()
 
 # plausible analytics
 components.html("""
