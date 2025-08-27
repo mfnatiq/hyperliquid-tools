@@ -9,7 +9,7 @@ ga_measurement_id = os.getenv("GA_MEASUREMENT_ID")
 GA_ID = "google_analytics"
 GA_SCRIPT = f"""
 <!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=G-{ga_measurement_id}"></script>
+<script async src="https://www.googletagmanager.com/gtag/js?id={ga_measurement_id}"></script>
 <script id='google_analytics'>
     window.dataLayer = window.dataLayer || [];
     function gtag(){{dataLayer.push(arguments);}}
