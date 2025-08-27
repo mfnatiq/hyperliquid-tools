@@ -45,7 +45,7 @@ def setup_google_analytics():
         </script>
         """
         components.html(ga_html, height=0)
-setup_google_analytics()
+# setup_google_analytics()
 
 # plausible analytics
 components.html("""
