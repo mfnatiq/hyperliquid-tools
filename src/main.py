@@ -44,7 +44,7 @@ def setup_google_analytics():
             gtag('config', '{ga_measurement_id}');
         </script>
         """
-        components.html(ga_html, height=0)
+        st.markdown(ga_html, unsafe_allow_html=True)
 setup_google_analytics()
 
 # plausible analytics
