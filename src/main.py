@@ -46,11 +46,9 @@ st.title("Unit Volume Tracker")
 @st.dialog("Welcome to hyperliquid-tools!", width="large", on_dismiss="ignore")
 def announcement():
     st.write("""
-        This site lets you view your HyperUnit trading / bridging volume, along with some other metrics.
+        This site is moving to https://app.hyperliquid-tools.xyz/ (more features!)
 
-        If you like what you see, please consider making a little donation as I'm doing this for free :)
-
-        Enjoy!
+        Please migrate as soon as possible as this current site is not being actively maintained. Enjoy!
     """)
 # opening modal only upon startup
 if 'startup' not in st.session_state:
@@ -482,18 +480,30 @@ def main():
                 display_summary(df_trade, df_bridging, top_bridged_asset)
 
             with tab2:
-                display_trade_data(
-                    df_trade,
-                    volume_data['accounts_mapping'],
-                    volume_data['accounts_hitting_fills_limits'],
-                    volume_data['user_trades_df'],
-                    cumulative_trade_data,
-                    token_list,
-                )
+                st.text("""
+This site is moving to https://app.hyperliquid-tools.xyz/ (more features!)
+
+Please migrate to view detailed data as this current site is not being actively maintained. Enjoy!
+                """)
+                st.page_link("https://app.hyperliquid-tools.xyz/", label="New Site", icon=':material/arrow_forward:')
+                # display_trade_data(
+                #     df_trade,
+                #     volume_data['accounts_mapping'],
+                #     volume_data['accounts_hitting_fills_limits'],
+                #     volume_data['user_trades_df'],
+                #     cumulative_trade_data,
+                #     token_list,
+                # )
 
             with tab3:
-                display_bridge_data(
-                    raw_bridge_data, df_bridging, top_bridged_asset, processed_bridge_data)
+                st.text("""
+This site is moving to https://app.hyperliquid-tools.xyz/ (more features!)
+
+Please migrate to view detailed data as this current site is not being actively maintained. Enjoy!
+                """)
+                st.page_link("https://app.hyperliquid-tools.xyz/", label="New Site", icon=':material/arrow_forward:')
+                # display_bridge_data(
+                #     raw_bridge_data, df_bridging, top_bridged_asset, processed_bridge_data)
 
 # --------------- display ---------------
 def display_summary(df_trade: pd.DataFrame, df_bridging: pd.DataFrame | None, top_bridged_asset: str):
