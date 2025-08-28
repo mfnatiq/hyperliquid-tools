@@ -1,4 +1,4 @@
-from auth.db_utils import init_db, is_premium_user
+from auth.db_utils import init_db, is_premium_user, upgrade_to_premium
 from utils.utils import DATE_FORMAT, format_currency, get_cached_unit_token_mappings, get_current_timestamp_millis
 from datetime import datetime, timedelta, timezone
 import pandas as pd
@@ -14,7 +14,6 @@ from trade.trade_data import get_candlestick_data
 from bridge.unit_bridge_utils import create_bridge_summary, process_bridge_operations
 from consts import unitStartTime, oneDayInS
 import uuid
-import os
 
 # setup and configure logging
 import logging
@@ -36,10 +35,10 @@ st.set_page_config(
     layout="wide",
 )
 
-init_db()
+init_db(logger)
 
 # handle user email login state
-if st.user:
+if st.user and 'email' in st.user:
     # if user is logged in, store their email in session state
     st.session_state["user_email"] = st.user.email
 else:
@@ -408,6 +407,20 @@ def create_volume_df(volume_by_token: dict) -> pd.DataFrame:
             'Total Volume', ascending=False).reset_index(drop=True)
     return df
 
+def display_upgrade_section():
+    st.text(f'You are not subscribed: please subscribe to view this detailed info!')
+    st.text(f"To subscribe and help keep this site running, please transfer at least 10 USDC or 0.25 HYPE to the donation address (on the hyperevm chain only)")
+    with st.form(f"submit_txn_hash_form_{uuid.uuid4()}"):
+        payment_txn_hash = st.text_input("Input your payment transaction hash here")
+        submitted = st.form_submit_button("Submit")     # triggered by click or pressing enter
+    if submitted:
+        error_message = upgrade_to_premium(st.session_state['user_email'], payment_txn_hash, 'hyperevm', logger)
+        if error_message:
+            st.error(error_message)
+        else:
+            st.info("You have successfully subscribed, thank you!")
+            # TODO can auto refresh page or?
+
 # main app logic reruns upon any interaction
 def main():
     # -------- initialisation and caching --------
@@ -435,7 +448,7 @@ def main():
         token_list = st.session_state.token_list
         cumulative_trade_data = st.session_state.cumulative_trade_data
 
-        is_premium = is_premium_user(st.session_state['user_email'])
+        is_premium = is_premium_user(st.session_state['user_email']) if 'user_email' in st.session_state else False
 
         st.metric("Current HYPE Price", format_currency(get_curr_hype_price()))
 
@@ -524,7 +537,7 @@ def main():
                 if not st.user.is_logged_in:
                     show_login_info()
                 elif not is_premium:
-                    st.text(f'You are not subscribed: upgrade to view this detailed info')
+                    display_upgrade_section()
                 else:
                     # only runs for subscribed users
                     display_trade_data(
@@ -540,7 +553,7 @@ def main():
                 if not st.user.is_logged_in:
                     show_login_info()
                 elif not is_premium:
-                    st.text(f'You are not subscribed: upgrade to view this detailed info')
+                    display_upgrade_section()
                 else:
                     # only runs for subscribed users
                     display_bridge_data(
