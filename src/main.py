@@ -409,7 +409,7 @@ def create_volume_df(volume_by_token: dict) -> pd.DataFrame:
 
 def display_upgrade_section():
     st.text(f'You are not subscribed: please subscribe to view this detailed info!')
-    st.text(f"To subscribe and help keep this site running, please transfer at least 10 USDC or 0.25 HYPE to the donation address (on the hyperevm chain only)")
+    st.text(f"To subscribe and help keep this site running, please transfer at least 10 USD₮0 or 0.25 HYPE to the donation address (on hyperevm chain only)")
     with st.form(f"submit_txn_hash_form_{uuid.uuid4()}"):
         payment_txn_hash = st.text_input("Input your payment transaction hash here")
         submitted = st.form_submit_button("Submit")     # triggered by click or pressing enter

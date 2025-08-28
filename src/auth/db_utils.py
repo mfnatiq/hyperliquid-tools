@@ -168,7 +168,9 @@ def verify_valid_payment(
         tx_receipt = w3.eth.get_transaction_receipt(payment_txn_hash)
 
         if tx_receipt:
-            if tx_receipt['logs']:  # SC call i.e. not transferring native HYPE
+            # SC call i.e. not transferring native HYPE
+            # check if transferred correct amount of USD₮0
+            if tx_receipt['logs']:
                 print(f"Found {len(tx_receipt['logs'])} logs in the transaction receipt.")
                 print("\n--- Decoded Events ---")
 
@@ -201,6 +203,14 @@ def verify_valid_payment(
                     print(f"From Address: {tx_receipt['from']}")
                     print(f"To Address: {tx_receipt['to']}")
                     print(f"Transaction Value: {value_formatted} {token_symbol}")
+                    transferred_token_correct_usdt = log['address'].lower() == '0xB8CE59FC3717ada4C02eaDF9682A9e934F625ebb'.lower()
+                    transferred_min_amount = value_formatted >= 10
+                    # TODO make these reference desired amounts
+                    if transferred_token_correct_usdt \
+                        and transferred_min_amount \
+                        and to_address == donation_address:
+                        # TODO check no repeated transactions - or check that later
+                        return None
                     print("-" * 25)
             else:
                 # native token
