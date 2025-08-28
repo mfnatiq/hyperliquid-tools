@@ -8,7 +8,6 @@ from logging import Logger
 from utils.render_utils import donation_address
 from eth_abi import decode
 from eth_utils import to_checksum_address
-from hexbytes import HexBytes
 
 load_dotenv()
 
@@ -16,7 +15,6 @@ load_dotenv()
 db_url = os.getenv("DATABASE_URL", "sqlite:///users.db")  # fallback to sqlite
 engine = create_engine(db_url, echo=False, future=True)
 
-# only stores premium users i.e. logging in without payment doesn't affect this DB
 USERS_TABLE = "users"
 
 
@@ -99,14 +97,16 @@ def upgrade_to_premium(
     acceptedPayments: dict,
     logger: Logger,
 ) -> str | None:  # error message if any (if None, verification was successful)
-    """should be mutually exclusive with is_premium_user() but have check just in case"""
+    # should be mutually exclusive with is_premium_user() but check just in case
     if is_premium_user(email):
-        return  # already premium
+        return
 
     payment_verification_error = verify_valid_payment(
         email, payment_txn_hash, payment_chain, acceptedPayments, logger)
     if payment_verification_error is not None:
         return payment_verification_error
+
+    # TODO then separately verify hash not already stored somewhere
 
     with engine.begin() as conn:
         conn.execute(text(f"""
@@ -159,6 +159,9 @@ def verify_valid_payment(
     acceptedPayments: dict,
     logger: Logger,
 ) -> str | None:  # error message if any (if None, verification was successful)
+    """
+    does not handle checks for repeated txn hash, only checks that a hash is valid
+    """
     HYPERLIQUID_RPC_URL = os.getenv("HYPERLIQUID_RPC_URL")
 
     # initialise and check web3 connection
@@ -168,120 +171,104 @@ def verify_valid_payment(
             "setup connection to hyperliquid endpoint failed, check RPC")
         return "Unable to connect to the Hyperliquid RPC, please refresh or try again later. If this keeps happening, contact me"
 
-    # TODO: implement actual blockchain payment verification
-
-    # TODO verify web3 payment
-    # TODO then separately verify hash not already stored somewhere
-
-    logger.info(f"\nFetching transaction receipt for hash: {payment_txn_hash}")
-
-    # TODO check against acceptedPayments (also store CA to verify)
+    logger.info(f"fetching txn receipt for hash: {payment_txn_hash}")
 
     try:
         tx_receipt = w3.eth.get_transaction_receipt(payment_txn_hash)
 
-        if tx_receipt:
+        if tx_receipt and tx_receipt['logs']:
             # SC call i.e. not transferring native HYPE
             # check if transferred correct amount of USD₮0
-            if tx_receipt['logs']:
-                logger.info(
-                    f"Found {len(tx_receipt['logs'])} logs in the transaction receipt.")
-                logger.info("\n--- Decoded Events ---")
+            logger.info(
+                f"found {len(tx_receipt['logs'])} logs in txn receipt")
 
-                if len(tx_receipt['logs']):  # simple transfer
-                    log = tx_receipt['logs'][0]
+            if len(tx_receipt['logs']):  # check for simple transfer
+                log = tx_receipt['logs'][0]
 
-                    # 1. Extract and decode the indexed topics.
-                    # The 'from' and 'to' addresses are stored as padded hex strings in topics[1] and topics[2].
-                    # # We can slice the last 40 characters (20 bytes) to get the address and then convert it to a checksum address.
-                    from_address = to_checksum_address(
-                        log['topics'][1].hex()[-40:])
-                    recipient_address = to_checksum_address(
-                        log['topics'][2].hex()[-40:])
-                    # TODO do what with this data? ^
+                # extract and decode indexed topics
+                # "from" and "to" addresses are stored as padded hex strings in topics[1] and topics[2]
+                # slice the last 40 chars (20 bytes) to get address, then convert it to a checksum address
+                from_address = to_checksum_address(
+                    log['topics'][1].hex()[-40:])
+                recipient_address = to_checksum_address(
+                    log['topics'][2].hex()[-40:])
+                # TODO do what with this data? ^
 
-                    # 2. Decode the non-indexed data.
-                    # The `value` is a `uint256` and is stored in the `data` field.
-                    # We use `eth_abi.decode` with a list of the data types to decode.
-                    decoded_data = decode(['uint256'], log['data'])
-                    value_wei = decoded_data[0]
+                # decode the non-indexed data
+                # "value" is uint256 and is stored in the `data` field
+                # use eth_abi.decode with a list of the data types to decode.
+                decoded_data = decode(['uint256'], log['data'])
+                value_wei = decoded_data[0]
 
-                    # 3. Get token details from the contract
-                    token_contract = w3.eth.contract(
-                        address=log['address'], abi=ERC20_ABI)
-                    token_name = token_contract.functions.name().call()
-                    token_symbol = token_contract.functions.symbol().call()
-                    token_decimals = token_contract.functions.decimals().call()
+                # get token details from the contract
+                token_contract = w3.eth.contract(
+                    address=log['address'], abi=ERC20_ABI)
+                token_symbol = token_contract.functions.symbol().call()
+                token_decimals = token_contract.functions.decimals().call()
 
-                    # 4. Calculate the final human-readable value.
-                    value_formatted = value_wei / (10 ** token_decimals)
+                # convert to human-readable value
+                value_formatted = value_wei / (10 ** token_decimals)
 
-                    logger.info(
-                        f"Transaction Status: {'Success' if tx_receipt['status'] == 1 else 'Failed'}")
-                    logger.info(f"From Address: {tx_receipt['from']}")
-                    logger.info(f"To Address: {recipient_address}")
-                    logger.info(
-                        f"Transaction Value: {value_formatted} {token_symbol}")
+                logger.info(f"""
+                    txn status: {'success' if tx_receipt['status'] == 1 else 'failed'}
+                    from address: {tx_receipt['from']}
+                    to address: {recipient_address}
+                    txn value: {value_formatted} {token_symbol}
+                """)
 
-                    transferred_token_correct_address = log['address'].lower(
-                    ) == acceptedPayments[token_symbol]['address'].lower()
-                    transferred_min_amount = value_formatted >= acceptedPayments[
-                        token_symbol]['minAmount']
-                    if transferred_token_correct_address \
-                            and transferred_min_amount \
-                            and recipient_address == donation_address:
-                        # TODO check no repeated transactions - or check that later
-                        return None
-                    else:
-                        logger.warning(
-                            f'{email} transferred {value_formatted} {token_symbol}, invalid vs. accepted payments {acceptedPayments}')
-                        return f"The submitted txn shows a transfer of {value_formatted} {token_symbol} to {recipient_address}, which does not fulfill the subscription requirements. If you think there has been an error, contact me"
-            else:   # native hype
-                # native token (value is in txn object)
-                # not hash since no SC i.e. no logs
-                txn = w3.eth.get_transaction(payment_txn_hash)
-
-                # Extract gas and price information for fee calculation
-                gas_used = tx_receipt['gasUsed']
-                effective_gas_price = tx_receipt['effectiveGasPrice']
-
-                # Convert the gas price from wei to gwei for better readability
-                gas_price_gwei = w3.from_wei(effective_gas_price, 'gwei')
-
-                # Calculate the transaction fee in wei and gwei
-                tx_fee_wei = gas_used * effective_gas_price
-                tx_fee_gwei = w3.from_wei(tx_fee_wei, 'gwei')
-
-                # Extract transaction value from the transaction details
-                tx_value_wei = txn['value']
-
-                # Convert the transaction value from wei to ether (or HYPE in this case, since it uses 18 decimals)
-                tx_value_hype = w3.from_wei(tx_value_wei, 'ether')
-
-                logger.info(
-                    f"Transaction Status: {'Success' if tx_receipt['status'] == 1 else 'Failed'}")
-                logger.info(f"From Address: {tx_receipt['from']}")
-                logger.info(f"To Address: {tx_receipt['to']}")
-                logger.info(f"Transaction Value: {tx_value_hype} HYPE")
-                logger.info("-" * 25)
-
-                # TODO compare this to minHypeNeeded + recipient_address then set is_valid_payment
-
-                transferred_min_amount = tx_value_hype >= acceptedPayments['HYPE']['minAmount']
-                recipient_address = tx_receipt['to']
-                if transferred_min_amount \
+                transferred_token_correct_address = log['address'].lower(
+                ) == acceptedPayments[token_symbol]['address'].lower()
+                transferred_min_amount = value_formatted >= acceptedPayments[
+                    token_symbol]['minAmount']
+                if transferred_token_correct_address \
+                        and transferred_min_amount \
                         and recipient_address == donation_address:
-                    # TODO check no repeated transactions - or check that later
                     return None
                 else:
                     logger.warning(
-                        f'{email} transferred {tx_value_hype} HYPE, invalid vs. accepted payments {acceptedPayments}')
-                    return f"The submitted txn shows a transfer of {tx_value_hype} HYPE to {recipient_address}, which does not fulfill the subscription requirements. If you think there has been an error, contact me"
+                        f'{email} transferred {value_formatted} {token_symbol}, invalid vs. accepted payments {acceptedPayments}')
+                    return f"""
+                        The submitted txn shows a transfer of {value_formatted} {token_symbol} to {recipient_address}, which does not fulfill the subscription requirements
+
+                        If you think there has been an error, contact me
+                    """
         else:
-            logger.error("No logs found for this transaction hash.")
+            # for native token (hype), value is in txn object
+            # not in txn hash since no SC i.e. no logs
+            txn = w3.eth.get_transaction(payment_txn_hash)
+
+            # convert txn value of hype from wei to ether (same number of decimals as HYPE)
+            tx_value_wei = txn['value']
+            tx_value_hype = w3.from_wei(tx_value_wei, 'ether')
+
+            recipient_address = tx_receipt['to']
+
+            logger.info(f"""
+                txn status: {'success' if tx_receipt['status'] == 1 else 'failed'}
+                from address: {tx_receipt['from']}
+                to address: {recipient_address}
+                txn value: {tx_value_hype} HYPE
+            """)
+
+            transferred_min_amount = tx_value_hype >= acceptedPayments['HYPE']['minAmount']
+            recipient_address = tx_receipt['to']
+            if transferred_min_amount \
+                    and recipient_address == donation_address:
+                return None
+            else:
+                logger.warning(
+                    f'{email} transferred {tx_value_hype} HYPE, invalid vs. accepted payments {acceptedPayments}')
+                return f"""
+                    The submitted txn shows a transfer of {tx_value_hype} HYPE to {recipient_address}, which does not fulfill the subscription requirements
+
+                    If you think there has been an error, contact me
+                """
 
     except Exception as e:
         # Print a detailed error message to help with debugging
-        logger.error(f"An error occurred: {e}")
-        logger.error(
-            "Please ensure the transaction hash is valid and on the correct network.")
+        logger.error(f"error validating payment hash: {e}")
+        return """
+            You have not entered a valid hyperevm transaction: please ensure the transaction hash is valid and on the correct network
+
+            If you have paid a valid amount but on the wrong network, please contact me!
+        """

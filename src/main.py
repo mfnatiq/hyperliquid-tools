@@ -44,10 +44,12 @@ else:
     if "user_email" in st.session_state:
         del st.session_state["user_email"]
 
+
 def is_logged_in():
     if len(st.user) == 0:
         return False
     return st.user.is_logged_in
+
 
 def show_login_info(show_button_only: bool = False):
     if not show_button_only:
@@ -163,26 +165,30 @@ def get_cached_unit_volumes(
     # account: { remarks (subaccount of another), num fills }
     accounts_mapping: dict[str, dict[str, int]] = dict()
 
-    for account in accounts:
-        accounts_mapping[account] = {
-            "Name": "",
-            "Remarks": "",
-            "Num Trades": 0,
-            "Token Fees": 0.0,
-            "USDC Fees": 0.0,
-        }
-        if not exclude_subaccounts:
-            subaccounts = get_subaccounts_cached(account)
-            for sub in subaccounts:
-                subaccount = sub['subAccountUser']
+    try:
+        for account in accounts:
+            accounts_mapping[account] = {
+                "Name": "",
+                "Remarks": "",
+                "Num Trades": 0,
+                "Token Fees": 0.0,
+                "USDC Fees": 0.0,
+            }
+            if not exclude_subaccounts:
+                subaccounts = get_subaccounts_cached(account)
+                for sub in subaccounts:
+                    subaccount = sub['subAccountUser']
 
-                accounts_mapping[subaccount] = {
-                    "Name": sub['name'],
-                    "Remarks": f"Subaccount of {account[:6]}...",
-                    "Num Trades": 0,
-                    "Token Fees": 0.0,
-                    "USDC Fees": 0.0,
-                }
+                    accounts_mapping[subaccount] = {
+                        "Name": sub['name'],
+                        "Remarks": f"Subaccount of {account[:6]}...",
+                        "Num Trades": 0,
+                        "Token Fees": 0.0,
+                        "USDC Fees": 0.0,
+                    }
+    except Exception as e:
+        logger.error(f'unable to fetch subaccounts of {accounts}: {e}')
+        return dict(), dict(), [], pd.DataFrame, 'Unable to fetch trade history - did you put a valid list of accounts?'
 
     accounts_to_query = accounts_mapping.keys()
 
@@ -235,7 +241,7 @@ def get_cached_unit_volumes(
             while startTime < currTime:  # check back until this date
                 endTime = startTime + \
                     int(timedelta(days=numDaysQuerySpan).total_seconds()) * 1000
-                logging.info(
+                logger.info(
                     f'querying for {account} startTime: {startTime}; endTime: {endTime}')
 
                 fills_result = info.post("/info", {
@@ -245,7 +251,7 @@ def get_cached_unit_volumes(
                     "startTime": startTime,
                     "endTime": endTime,
                 })
-                logging.info(f'num fills: {len(fills_result)}')
+                logger.info(f'num fills: {len(fills_result)}')
 
                 # query again til no more
                 num_fills = len(fills_result)
@@ -265,7 +271,7 @@ def get_cached_unit_volumes(
                 account_fills.extend(fills_result)
             fills[account] = account_fills
     except Exception as e:
-        logging.error(e)
+        logger.error(e)
         return dict(), dict(), [], pd.DataFrame, 'Unable to fetch trade history - did you put a valid list of accounts?'
 
     # 10k - need get from s3
@@ -429,7 +435,8 @@ def create_volume_df(volume_by_token: dict) -> pd.DataFrame:
 def display_upgrade_section(id: str):
     st.text(f'You are not subscribed: please subscribe to view this detailed info!')
 
-    formattedAmounts = [f'{values['minAmount']} {symbol}' for symbol, values in acceptedPayments.items()]
+    formattedAmounts = [
+        f'{values['minAmount']} {symbol}' for symbol, values in acceptedPayments.items()]
     st.text(f"""
         To subscribe and help keep this site running, please transfer at least {' or '.join(formattedAmounts)} to the donation address (on hyperevm chain only)
     """)
@@ -441,7 +448,8 @@ def display_upgrade_section(id: str):
 
     # TODO show loading state
     if submitted:
-        logger.info(f'{st.session_state['user_email']} submitted txn hash {payment_txn_hash}, validating')
+        logger.info(
+            f'{st.session_state['user_email']} submitted txn hash {payment_txn_hash}, validating')
         error_message = upgrade_to_premium(
             st.session_state['user_email'], payment_txn_hash, 'hyperevm', acceptedPayments, logger)
         if error_message:
@@ -481,7 +489,8 @@ def main():
         token_list = st.session_state.token_list
         cumulative_trade_data = st.session_state.cumulative_trade_data
 
-        is_premium = is_premium_user(st.session_state['user_email']) if 'user_email' in st.session_state else False
+        is_premium = is_premium_user(
+            st.session_state['user_email']) if 'user_email' in st.session_state else False
 
         st.metric("Current HYPE Price", format_currency(get_curr_hype_price()))
 
