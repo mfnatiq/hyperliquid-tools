@@ -1,14 +1,15 @@
+donation_address = "0xB17648Ed98C9766B880b5A24eEcAebA19866d1d7"
 
-footer_html = """
+footer_html = f"""
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,600&display=swap">
 <style>
-html, body { margin: 0; padding: 0; background: transparent; }
-/* kill extra bottom padding added by streamlit */
-.block-container {
+html, body {{ margin: 0; padding: 0; background: transparent; }}
+/* Kill extra bottom padding Streamlit adds */
+.block-container {{
     padding-bottom: 1rem !important;
-}
-.footer {
+}}
+.footer {{
     position: fixed;
     left: 0;
     bottom: 0;
@@ -22,24 +23,24 @@ html, body { margin: 0; padding: 0; background: transparent; }
     font-family: 'Source Sans Pro', sans-serif;
     background-color: #0e1117;  /* same as main streamlit background */
     z-index: 9999;
-}
-.footer a { color: #87CEEB; text-decoration: none; }
-.separator { margin: 0 15px; }
-.donation-address {
+}}
+.footer a {{ color: #87CEEB; text-decoration: none; }}
+.separator {{ margin: 0 15px; }}
+.donation-address {{
     background-color: #2C2C2C;
     padding: 4px 8px;
     border-radius: 5px;
     font-family: monospace;
     margin: 8px;
-}
-.icon-container {
+}}
+.icon-container {{
     display: inline-block;
     width: 1.5em;
     text-align: center;
     cursor: pointer;
-}
-.copy-icon { color: #A9A9A9; transition: color 0.2s; }
-.copy-icon:hover { color: #87CEEB; }
+}}
+.copy-icon {{ color: #A9A9A9; transition: color 0.2s; }}
+.copy-icon:hover {{ color: #87CEEB; }}
 </style>
 
 <div class="footer">
@@ -49,7 +50,7 @@ html, body { margin: 0; padding: 0; background: transparent; }
     </span>
     <span class="separator">•</span>
     <span>donations:</span>
-    <span id="donation-address" class="donation-address">0xB17648Ed98C9766B880b5A24eEcAebA19866d1d7</span> 
+    <span id="donation-address" class="donation-address">{donation_address}</span>
     <span class="icon-container" id="copy-btn" title="Copy to clipboard">
         <i id="icon-copy" class="fa-solid fa-copy copy-icon"></i>
         <i id="icon-check" class="fa-solid fa-check copy-icon" style="display:none; color:#7CFC00;"></i>
@@ -58,86 +59,86 @@ html, body { margin: 0; padding: 0; background: transparent; }
 """
 
 # JavaScript component for copy functionality
-copy_script = """
+copy_script = f"""
 <script>
-function copy_to_clipboard() {
-    var copyText = "0xB17648Ed98C9766B880b5A24eEcAebA19866d1d7";
+function copy_to_clipboard() {{
+    var copyText = "{donation_address}";
     var iconCopy = parent.document.getElementById("icon-copy");
     var iconCheck = parent.document.getElementById("icon-check");
 
-    function showTick() {
-        if (iconCopy && iconCheck) {
+    function showTick() {{
+        if (iconCopy && iconCheck) {{
             iconCopy.style.display = 'none';
             iconCheck.style.display = 'inline-block';
-            setTimeout(function() {
+            setTimeout(function() {{
                 iconCheck.style.display = 'none';
                 iconCopy.style.display = 'inline-block';
-            }, 1500);
-        }
-    }
+            }}, 1500);
+        }}
+    }}
 
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(copyText).then(showTick).catch(function() {
+    if (navigator.clipboard && navigator.clipboard.writeText) {{
+        navigator.clipboard.writeText(copyText).then(showTick).catch(function() {{
             fallbackCopy();
-        });
-    } else {
+        }});
+    }} else {{
         fallbackCopy();
-    }
+    }}
 
-    function fallbackCopy() {
+    function fallbackCopy() {{
         var ta = document.createElement('textarea');
         ta.value = copyText;
         ta.style.position = 'fixed';
         ta.style.left = '-9999px';
         document.body.appendChild(ta);
         ta.select();
-        try {
+        try {{
             document.execCommand('copy');
             showTick();
-        } catch (e) {
+        }} catch (e) {{
             alert('Copy failed');
-        }
+        }}
         document.body.removeChild(ta);
-    }
-}
+    }}
+}}
 
 // Function to attach event listener
-function attachCopyEvent() {
+function attachCopyEvent() {{
     var copyBtn = parent.document.getElementById('copy-btn');
-    if (copyBtn && !copyBtn.hasAttribute('data-listener-attached')) {
+    if (copyBtn && !copyBtn.hasAttribute('data-listener-attached')) {{
         copyBtn.addEventListener('click', copy_to_clipboard);
         copyBtn.setAttribute('data-listener-attached', 'true');
         return true;
-    }
+    }}
     return false;
-}
+}}
 
 // Try to attach immediately
-if (document.readyState === 'loading') {
+if (document.readyState === 'loading') {{
     document.addEventListener('DOMContentLoaded', attachCopyEvent);
-} else {
+}} else {{
     attachCopyEvent();
-}
+}}
 
 // Fallback for Streamlit's dynamic content loading
-setTimeout(function() {
-    if (!attachCopyEvent()) {
-        var observer = new MutationObserver(function(mutations) {
-            mutations.forEach(function(mutation) {
-                if (mutation.type === 'childList') {
-                    if (attachCopyEvent()) {
+setTimeout(function() {{
+    if (!attachCopyEvent()) {{
+        var observer = new MutationObserver(function(mutations) {{
+            mutations.forEach(function(mutation) {{
+                if (mutation.type === 'childList') {{
+                    if (attachCopyEvent()) {{
                         observer.disconnect();
-                    }
-                }
-            });
-        });
-        if (parent.document.body) {
-            observer.observe(parent.document.body, { childList: true, subtree: true });
-            setTimeout(function() {
+                    }}
+                }}
+            }});
+        }});
+        if (parent.document.body) {{
+            observer.observe(parent.document.body, {{ childList: true, subtree: true }});
+            setTimeout(function() {{
                 observer.disconnect();
-            }, 5000);
-        }
-    }
-}, 100);
+            }}, 5000);
+        }}
+    }}
+}}, 100);
 </script>
 """
