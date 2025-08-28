@@ -32,3 +32,6 @@ def inject_ga():
         index_path.write_text(new_html)
 
 inject_ga()
+
+# note: GA doesn't work very well, if want to add then update procfile:
+# web: python src/add_ga.py && streamlit run src/main.py --server.port=$PORT --server.address=0.0.0.0

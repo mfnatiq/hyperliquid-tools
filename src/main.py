@@ -22,30 +22,17 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# umami analytics
+components.html("""
+<script defer src="https://cloud.umami.is/script.js" data-website-id="d055b0ff-48a4-4617-a9fd-4124a5346705">
+</script>
+""", height=0)
 
 st.set_page_config(
     'Hyperliquid Tools',
     "🔧",
     layout="wide",
 )
-
-def setup_google_analytics():
-    """add google analytics tracking"""
-    ga_measurement_id = os.getenv("GA_MEASUREMENT_ID")
-
-    if ga_measurement_id:
-        # Inject Google Analytics tracking code
-        ga_html = f"""
-        <script async src="https://www.googletagmanager.com/gtag/js?id={ga_measurement_id}"></script>
-        <script>
-            window.dataLayer = window.dataLayer || [];
-            function gtag(){{dataLayer.push(arguments);}}
-            gtag('js', new Date());
-            gtag('config', '{ga_measurement_id}');
-        </script>
-        """
-        st.markdown(ga_html, unsafe_allow_html=True)
-setup_google_analytics()
 
 # plausible analytics
 components.html("""
