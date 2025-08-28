@@ -1,5 +1,6 @@
 import os
 import json
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 from web3 import Web3
@@ -8,6 +9,8 @@ from utils.render_utils import donation_address
 from eth_abi import decode
 from eth_utils import to_checksum_address
 from hexbytes import HexBytes
+
+load_dotenv()
 
 # db setup
 db_url = os.getenv("DATABASE_URL", "sqlite:///users.db")  # fallback to sqlite

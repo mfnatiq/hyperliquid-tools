@@ -35,8 +35,6 @@ st.set_page_config(
     layout="wide",
 )
 
-init_db(logger)
-
 # handle user email login state
 if st.user and 'email' in st.user:
     # if user is logged in, store their email in session state
@@ -424,19 +422,22 @@ def create_volume_df(volume_by_token: dict) -> pd.DataFrame:
     return df
 
 
-def display_upgrade_section():
+def display_upgrade_section(id: str):
     st.text(f'You are not subscribed: please subscribe to view this detailed info!')
 
     formattedAmounts = [f'{values['minAmount']} {symbol}' for symbol, values in acceptedPayments.items()]
     st.text(f"""
         To subscribe and help keep this site running, please transfer at least {' or '.join(formattedAmounts)} to the donation address (on hyperevm chain only)
     """)
-    with st.form(f"submit_txn_hash_form_{uuid.uuid4()}"):
+    with st.form(f"submit_txn_hash_form_{id}"):
         payment_txn_hash = st.text_input(
             "Input your payment transaction hash here")
         # triggered by click or pressing enter
-        submitted = st.form_submit_button("Submit")
+        submitted = st.form_submit_button("Submit", type="primary")
+
+    # TODO show loading state
     if submitted:
+        logger.info(f'{st.session_state['user_email']} submitted txn hash {payment_txn_hash}, validating')
         error_message = upgrade_to_premium(
             st.session_state['user_email'], payment_txn_hash, 'hyperevm', acceptedPayments, logger)
         if error_message:
@@ -453,6 +454,8 @@ def main():
     try:
         if "init_done" not in st.session_state:
             # first-ever run: initialisation
+            init_db(logger)
+
             with st.spinner("Initialising..."):
                 unit_token_mappings, token_list, cumulative_trade_data = load_data()
 
@@ -565,7 +568,7 @@ def main():
                 if not st.user.is_logged_in:
                     show_login_info()
                 elif not is_premium:
-                    display_upgrade_section()
+                    display_upgrade_section("trade_data")
                 else:
                     # only runs for subscribed users
                     display_trade_data(
@@ -581,7 +584,7 @@ def main():
                 if not st.user.is_logged_in:
                     show_login_info()
                 elif not is_premium:
-                    display_upgrade_section()
+                    display_upgrade_section("bridge_data")
                 else:
                     # only runs for subscribed users
                     display_bridge_data(
