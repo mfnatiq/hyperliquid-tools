@@ -110,26 +110,30 @@ def get_cached_unit_volumes(
     # account: { remarks (subaccount of another), num fills }
     accounts_mapping: dict[str, dict[str, int]] = dict()
 
-    for account in accounts:
-        accounts_mapping[account] = {
-            "Name": "",
-            "Remarks": "",
-            "Num Trades": 0,
-            "Token Fees": 0.0,
-            "USDC Fees": 0.0,
-        }
-        if not exclude_subaccounts:
-            subaccounts = get_subaccounts_cached(account)
-            for sub in subaccounts:
-                subaccount = sub['subAccountUser']
+    try:
+        for account in accounts:
+            accounts_mapping[account] = {
+                "Name": "",
+                "Remarks": "",
+                "Num Trades": 0,
+                "Token Fees": 0.0,
+                "USDC Fees": 0.0,
+            }
+            if not exclude_subaccounts:
+                subaccounts = get_subaccounts_cached(account)
+                for sub in subaccounts:
+                    subaccount = sub['subAccountUser']
 
-                accounts_mapping[subaccount] = {
-                    "Name": sub['name'],
-                    "Remarks": f"Subaccount of {account[:6]}...",
-                    "Num Trades": 0,
-                    "Token Fees": 0.0,
-                    "USDC Fees": 0.0,
-                }
+                    accounts_mapping[subaccount] = {
+                        "Name": sub['name'],
+                        "Remarks": f"Subaccount of {account[:6]}...",
+                        "Num Trades": 0,
+                        "Token Fees": 0.0,
+                        "USDC Fees": 0.0,
+                    }
+    except Exception as e:
+        logger.error(f'unable to fetch subaccounts of {accounts}: {e}')
+        return dict(), dict(), [], pd.DataFrame, 'Unable to fetch trade history - did you put a valid list of accounts?'
 
     accounts_to_query = accounts_mapping.keys()
 
