@@ -534,7 +534,7 @@ def main():
 
         accounts = [a.strip() for a in addresses_input.split(",") if a]
 
-        with st.spinner(f'Loading data for {", ".join(accounts)}...'):
+        with st.spinner(f'Loading data for {", ".join(accounts)}...', show_time=True):
             volume_by_token, accounts_mapping, accounts_hitting_fills_limits, user_trades_df, err = get_cached_unit_volumes(
                 accounts, unit_token_mappings, exclude_subaccounts)
 
