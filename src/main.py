@@ -44,6 +44,10 @@ else:
     if "user_email" in st.session_state:
         del st.session_state["user_email"]
 
+def is_logged_in():
+    if len(st.user) == 0:
+        return False
+    return st.user.is_logged_in
 
 def show_login_info(show_button_only: bool = False):
     if not show_button_only:
@@ -565,7 +569,7 @@ def main():
                 display_summary(df_trade, df_bridging, top_bridged_asset)
 
             with tab2:
-                if not st.user.is_logged_in:
+                if not is_logged_in():
                     show_login_info()
                 elif not is_premium:
                     display_upgrade_section("trade_data")
@@ -581,7 +585,7 @@ def main():
                     )
 
             with tab3:
-                if not st.user.is_logged_in:
+                if not is_logged_in():
                     show_login_info()
                 elif not is_premium:
                     display_upgrade_section("bridge_data")
