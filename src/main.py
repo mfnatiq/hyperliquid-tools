@@ -14,6 +14,7 @@ from trade.trade_data import get_candlestick_data
 from bridge.unit_bridge_utils import create_bridge_summary, process_bridge_operations
 from consts import unitStartTime, oneDayInS
 import uuid
+import os
 
 # setup and configure logging
 import logging
@@ -22,6 +23,12 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
+
+# umami analytics
+components.html("""
+<script defer src="https://cloud.umami.is/script.js" data-website-id="d055b0ff-48a4-4617-a9fd-4124a5346705">
+</script>
+""", height=0)
 
 st.set_page_config(
     'Hyperliquid Tools',
