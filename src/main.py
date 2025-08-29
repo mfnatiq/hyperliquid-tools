@@ -1,3 +1,4 @@
+from auth.db_utils import init_db, is_premium_user, upgrade_to_premium
 from utils.utils import DATE_FORMAT, format_currency, get_cached_unit_token_mappings, get_current_timestamp_millis
 from datetime import datetime, timedelta, timezone
 import pandas as pd
@@ -11,8 +12,8 @@ from bridge.unit_bridge_api import UnitBridgeInfo
 from utils.render_utils import footer_html, copy_script
 from trade.trade_data import get_candlestick_data
 from bridge.unit_bridge_utils import create_bridge_summary, process_bridge_operations
-from consts import unitStartTime, oneDayInS
-import os
+from consts import unitStartTime, oneDayInS, acceptedPayments
+import uuid
 
 # setup and configure logging
 import logging
@@ -34,6 +35,51 @@ st.set_page_config(
     layout="wide",
 )
 
+# handle user email login state
+if st.user and 'email' in st.user:
+    # if user is logged in, store their email in session state
+    st.session_state["user_email"] = st.user.email
+else:
+    # if user logs out, remove their email from session state
+    if "user_email" in st.session_state:
+        del st.session_state["user_email"]
+
+
+def is_logged_in():
+    if len(st.user) == 0:
+        return False
+    return st.user.is_logged_in
+
+
+def show_login_info(show_button_only: bool = False):
+    if not show_button_only:
+        st.markdown("Log in to view more detailed info", width="content")
+    st.button(
+        "Login",
+        key=uuid.uuid4(),
+        on_click=st.login, icon=":material/login:",
+        type="primary"
+    )
+
+
+col1, col2 = st.columns([1, 1], vertical_alignment='center')
+with col1:
+    st.title("Unit Volume Tracker")
+with col2:
+    with st.container(vertical_alignment='center', horizontal=True, horizontal_alignment="right"):
+        if "user_email" in st.session_state:
+            st.markdown(
+                f"Logged in as **{st.session_state['user_email']}**", width="content")
+            st.button(
+                "Logout",
+                key=f"logout_{uuid.uuid4()}",
+                on_click=st.logout,
+                icon=":material/logout:",
+                type="secondary",
+            )
+        else:
+            show_login_info(show_button_only=True)
+
 # plausible analytics
 components.html("""
 <script defer data-domain="app.hyperliquid-tools.xyz"
@@ -41,7 +87,10 @@ components.html("""
 </script>
 """, height=0)
 
-st.title("Unit Volume Tracker")
+################################
+# TODO show this only for new + unsubscribed (show diff message)
+################################
+
 
 @st.dialog("Welcome to hyperliquid-tools!", width="large", on_dismiss="ignore")
 def announcement():
@@ -52,6 +101,8 @@ def announcement():
 
         Enjoy!
     """)
+
+
 # opening modal only upon startup
 if 'startup' not in st.session_state:
     announcement()
@@ -80,10 +131,12 @@ def _get_candlestick_data(_token_ids: list[str], _token_names: list[str]):
     """
     return get_candlestick_data(info, _token_ids, _token_names)
 
+
 @st.cache_data(ttl=60, show_spinner=False)
 def get_curr_hype_price():
     prices = info.all_mids()
     return float(prices['@107'])
+
 
 def load_data():
     unit_token_mappings = _get_cached_unit_token_mappings()
@@ -93,10 +146,12 @@ def load_data():
 
     return unit_token_mappings, token_list, cumulative_trade_data
 
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_subaccounts_cached(account: str) -> list:
     subaccounts = info.query_sub_accounts(account)
     return subaccounts if subaccounts is not None else []
+
 
 @st.cache_data(ttl=60, show_spinner=False)
 def get_cached_unit_volumes(
@@ -186,7 +241,7 @@ def get_cached_unit_volumes(
             while startTime < currTime:  # check back until this date
                 endTime = startTime + \
                     int(timedelta(days=numDaysQuerySpan).total_seconds()) * 1000
-                logging.info(
+                logger.info(
                     f'querying for {account} startTime: {startTime}; endTime: {endTime}')
 
                 fills_result = info.post("/info", {
@@ -196,7 +251,7 @@ def get_cached_unit_volumes(
                     "startTime": startTime,
                     "endTime": endTime,
                 })
-                logging.info(f'num fills: {len(fills_result)}')
+                logger.info(f'num fills: {len(fills_result)}')
 
                 # query again til no more
                 num_fills = len(fills_result)
@@ -216,7 +271,7 @@ def get_cached_unit_volumes(
                 account_fills.extend(fills_result)
             fills[account] = account_fills
     except Exception as e:
-        logging.error(e)
+        logger.error(e)
         return dict(), dict(), [], pd.DataFrame, 'Unable to fetch trade history - did you put a valid list of accounts?'
 
     # 10k - need get from s3
@@ -246,7 +301,8 @@ def get_cached_unit_volumes(
 
                 # keep record of all fills in DF
                 # normalise to day start (UTC midnight)
-                trade_day = trade_time.replace(hour=0, minute=0, second=0, microsecond=0)
+                trade_day = trade_time.replace(
+                    hour=0, minute=0, second=0, microsecond=0)
                 user_fills_rows.append({
                     'start_date': trade_day,
                     'token_name': token_name,
@@ -292,10 +348,12 @@ def get_cached_unit_volumes(
         )
 
         # make sure start_date is datetime (normalized to midnight UTC already)
-        user_trades_df['start_date'] = pd.to_datetime(user_trades_df['start_date'], utc=True)
+        user_trades_df['start_date'] = pd.to_datetime(
+            user_trades_df['start_date'], utc=True)
 
         # sort and compute cumulative by token
-        user_trades_df = user_trades_df.sort_values(['token_name', 'start_date'])
+        user_trades_df = user_trades_df.sort_values(
+            ['token_name', 'start_date'])
         user_trades_df['cumulative_volume_usd'] = (
             user_trades_df
             .groupby('token_name', group_keys=False)['volume_usd']
@@ -305,6 +363,8 @@ def get_cached_unit_volumes(
     return volume_by_token, accounts_mapping, accounts_hitting_fills_limits, user_trades_df, None
 
 # --- data processing and display functions ---
+
+
 def get_earliest_txn_datetime(earliest_buy: datetime | None, earliest_sell: datetime | None):
     if earliest_buy is None:
         return earliest_sell
@@ -372,12 +432,42 @@ def create_volume_df(volume_by_token: dict) -> pd.DataFrame:
     return df
 
 
+def display_upgrade_section(id: str):
+    st.text(f'You are not subscribed: please subscribe to view this detailed info!')
+
+    formattedAmounts = [
+        f'{values['minAmount']} {symbol}' for symbol, values in acceptedPayments.items()]
+    st.text(f"""
+        To subscribe and help keep this site running, please transfer at least {' or '.join(formattedAmounts)} to the donation address (on hyperevm chain only)
+    """)
+    with st.form(f"submit_txn_hash_form_{id}"):
+        payment_txn_hash = st.text_input(
+            "Input your payment transaction hash here")
+        # triggered by click or pressing enter
+        submitted = st.form_submit_button("Submit", type="primary")
+
+    # TODO show loading state
+    if submitted:
+        logger.info(
+            f'{st.session_state['user_email']} submitted txn hash {payment_txn_hash}, validating')
+        error_message = upgrade_to_premium(
+            st.session_state['user_email'], payment_txn_hash, 'hyperevm', acceptedPayments, logger)
+        if error_message:
+            st.error(error_message)
+        else:
+            st.info("You have successfully subscribed, thank you!")
+            # TODO can auto refresh page or?
+
 # main app logic reruns upon any interaction
+
+
 def main():
     # -------- initialisation and caching --------
     try:
         if "init_done" not in st.session_state:
             # first-ever run: initialisation
+            init_db(logger)
+
             with st.spinner("Initialising..."):
                 unit_token_mappings, token_list, cumulative_trade_data = load_data()
 
@@ -399,25 +489,26 @@ def main():
         token_list = st.session_state.token_list
         cumulative_trade_data = st.session_state.cumulative_trade_data
 
+        is_premium = is_premium_user(
+            st.session_state['user_email']) if 'user_email' in st.session_state else False
+
         st.metric("Current HYPE Price", format_currency(get_curr_hype_price()))
 
-        col1, col2, col3 = st.columns([10, 2, 1])
-        with col1:
+        with st.container(vertical_alignment='center', horizontal=True):
             addresses_input: str = st.text_input(
                 "Enter 1 or more hyperliquid accounts (comma-separated)",
                 placeholder="Enter 1 or more hyperliquid accounts (comma-separated)",
                 label_visibility='collapsed',
                 key='hyperliquid_address_input',
             )
-        with col2:
             exclude_subaccounts = st.checkbox("Exclude Subaccounts")
-        with col3:
             submitted = st.button("Run", type="primary")
     except ClientError as e:
         status_code = e.status_code
         if status_code == 429:
             logger.error(f'client error occured: {e}')
-            st.error("Hyperliquid API rate limit reached, please try again in a short while")
+            st.error(
+                "Hyperliquid API rate limit reached, please try again in a short while")
         else:
             logger.error(f'client error occured: {e}')
             st.error("Unknown error occurred, please try again in a short while")
@@ -426,7 +517,8 @@ def main():
         status_code = e.status_code
         if status_code == 429:
             logger.error(f'server error occured: {e}')
-            st.error("Hyperliquid API rate limit reached, please try again in a short while")
+            st.error(
+                "Hyperliquid API rate limit reached, please try again in a short while")
         else:
             logger.error(f'server error occured: {e}')
             st.error("Unknown error occurred, please try again in a short while")
@@ -442,7 +534,7 @@ def main():
 
         accounts = [a.strip() for a in addresses_input.split(",") if a]
 
-        with st.spinner(f'Loading data for {", ".join(accounts)}...'):
+        with st.spinner(f'Loading data for {", ".join(accounts)}...', show_time=True):
             volume_by_token, accounts_mapping, accounts_hitting_fills_limits, user_trades_df, err = get_cached_unit_volumes(
                 accounts, unit_token_mappings, exclude_subaccounts)
 
@@ -486,20 +578,38 @@ def main():
                 display_summary(df_trade, df_bridging, top_bridged_asset)
 
             with tab2:
-                display_trade_data(
-                    df_trade,
-                    volume_data['accounts_mapping'],
-                    volume_data['accounts_hitting_fills_limits'],
-                    volume_data['user_trades_df'],
-                    cumulative_trade_data,
-                    token_list,
-                )
+                if not is_logged_in():
+                    show_login_info()
+                elif not is_premium:
+                    display_upgrade_section("trade_data")
+                else:
+                    # only runs for subscribed users
+                    display_trade_data(
+                        df_trade,
+                        volume_data['accounts_mapping'],
+                        volume_data['accounts_hitting_fills_limits'],
+                        volume_data['user_trades_df'],
+                        cumulative_trade_data,
+                        token_list,
+                    )
 
             with tab3:
-                display_bridge_data(
-                    raw_bridge_data, df_bridging, top_bridged_asset, processed_bridge_data)
+                if not is_logged_in():
+                    show_login_info()
+                elif not is_premium:
+                    display_upgrade_section("bridge_data")
+                else:
+                    # only runs for subscribed users
+                    display_bridge_data(
+                        raw_bridge_data,
+                        df_bridging,
+                        top_bridged_asset,
+                        processed_bridge_data
+                    )
 
 # --------------- display ---------------
+
+
 def display_summary(df_trade: pd.DataFrame, df_bridging: pd.DataFrame | None, top_bridged_asset: str):
     # trade data
     if df_trade.empty:
@@ -541,7 +651,8 @@ def display_trade_volume_table(df: pd.DataFrame, num_accounts: int):
     # display metrics at top
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Total Trade Volume", format_currency(df['Total Volume'].sum()))
+        st.metric("Total Trade Volume", format_currency(
+            df['Total Volume'].sum()))
     with col2:
         most_traded = df.iloc[0]['Token']
         st.metric("Top Traded Token", most_traded)
@@ -653,7 +764,8 @@ def display_trade_volume_info(
     for token in token_list:
         user_volume = 0
         try:
-            user_volume = trade_df[trade_df['Token'] == token].iloc[0]['Total Volume']
+            user_volume = trade_df[trade_df['Token']
+                                   == token].iloc[0]['Total Volume']
         except:
             logger.info(
                 f'no volume found for {", ".join(accounts)} for {token}; skipping')
@@ -661,7 +773,7 @@ def display_trade_volume_info(
         exchange_volume = 0
         try:
             exchange_volume = final_cumulative_volume[final_cumulative_volume['token_name']
-                                                        == token].iloc[0]['final_cumulative_volume']
+                                                      == token].iloc[0]['final_cumulative_volume']
         except:
             # no cumulative volume found for this unit token, ignoring
             continue
@@ -695,10 +807,11 @@ That means that actual trade volume is half of total fill volume, so the percent
     with col1:
         st.metric("Your Volume (Total)", format_currency(total_user_volume))
     with col2:
-        st.metric("Total Exchange Unit Trading Volume", format_currency(total_exchange_volume))
+        st.metric("Total Exchange Unit Trading Volume",
+                  format_currency(total_exchange_volume))
     with col3:
         st.metric("Share of Total Exchange Unit Trading Volume",
-                f"{(total_user_volume / total_exchange_volume / 2.0 * 100):.10f}%")
+                  f"{(total_user_volume / total_exchange_volume / 2.0 * 100):.10f}%")
 
     df_cumulative = pd.DataFrame(rows)
     df_cumulative = df_cumulative.sort_values(
@@ -816,7 +929,8 @@ def display_trade_data(
     else:
         display_trade_volume_table(df_trade, len(accounts_mapping))
 
-        display_trade_volume_info(df_trade, cumulative_trade_data, list(accounts_mapping.keys()), user_trades_df, token_list)
+        display_trade_volume_info(df_trade, cumulative_trade_data, list(
+            accounts_mapping.keys()), user_trades_df, token_list)
 
         with st.expander("Raw Data"):
             st.json(accounts_mapping)

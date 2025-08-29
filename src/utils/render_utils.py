@@ -50,7 +50,7 @@ html, body {{ margin: 0; padding: 0; background: transparent; }}
     </span>
     <span class="separator">•</span>
     <span>donations:</span>
-    <span id="donation-address" class="donation-address">{donation_address}</span> 
+    <span id="donation-address" class="donation-address">{donation_address}</span>
     <span class="icon-container" id="copy-btn" title="Copy to clipboard">
         <i id="icon-copy" class="fa-solid fa-copy copy-icon"></i>
         <i id="icon-check" class="fa-solid fa-check copy-icon" style="display:none; color:#7CFC00;"></i>
