@@ -968,7 +968,7 @@ That means that actual trade volume is half of total fill volume, so the percent
 
 
 def display_trade_data(
-    df_trade,
+    df_trade: pd.DataFrame,
     accounts_mapping: dict,
     accounts_hitting_fills_limits,
     user_trades_df: pd.DataFrame,
@@ -991,7 +991,7 @@ def display_trade_data(
 
         with st.expander("Raw Data"):
             st.json(accounts_mapping)
-            st.json(df_trade)
+            st.dataframe(df_trade)
 
 
 def format_bridge_data(
