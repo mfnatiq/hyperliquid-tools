@@ -103,16 +103,16 @@ with col2:
             user = get_user(st.session_state['user_email'], logger)
             status_message = ""
             if user:
-                is_paid = user.payment_txn_hash is not None
+                is_premium = is_premium_user(st.session_state['user_email'], logger)
                 is_trial_active = user.trial_expires_at and user.trial_expires_at > datetime.now(timezone.utc)
 
-                if is_paid:
-                    status_message = "<span style='color: #28a745;'>(Premium)</span>" # Green
+                if is_premium:
+                    status_message = "<span style='color: #28a745;'>(Premium)</span>" # green
                 elif is_trial_active:
                     expires_str = user.trial_expires_at.strftime('%Y-%m-%d')
-                    status_message = f"<span style='color: #ffc107;'>(Trial ends {expires_str})</span>" # Yellow
+                    status_message = f"<span style='color: #ffc107;'>(Trial ends {expires_str})</span>" # yellow
                 else:
-                    status_message = "<span style='color: #dc3545;'>(Trial Expired)</span>" # Red
+                    status_message = "<span style='color: #dc3545;'>(Trial Expired)</span>" # red
 
             st.markdown(
                 f"Logged in as **{st.session_state['user_email']}** {status_message}",
