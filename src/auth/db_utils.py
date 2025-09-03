@@ -169,7 +169,7 @@ def upgrade_to_premium(
     user = get_user(email)
     if user and user.payment_txn_hash:
         logger.warning(f"user {email} attempted to upgrade but is already a premium user")
-        return # TODO return a message like "You are already a premium member."
+        return # TODO return a message like "You are already a premium member"
     ### MODIFICATION END ###
 
     payment_verification_error = verify_valid_payment(
@@ -186,7 +186,7 @@ def upgrade_to_premium(
             ).first()
 
             if existing_user_row and existing_user_row.email != email:
-                logger.error(f"Transaction hash {payment_txn_hash} already used by {existing_user_row.email}.")
+                logger.error(f"txn hash {payment_txn_hash} already used by {existing_user_row.email}")
                 return "This payment transaction has already been registered by another user, please use a unique transaction. If you think someone sniped your transaction hash submission, please contact me"
 
             # insert or update user record
@@ -209,18 +209,18 @@ def upgrade_to_premium(
         # check successful upgrade
         updated_user = get_user(email)
         if updated_user and updated_user.payment_txn_hash == payment_txn_hash:
-            logger.info(f"successfully upgraded {email} to premium with txn {payment_txn_hash}.")
+            logger.info(f"successfully upgraded {email} to premium with txn {payment_txn_hash}")
             return None # Success
         else:
-            logger.error(f"Failed to verify database update for {email} after premium upgrade.")
-            return "An unexpected error occurred while updating your account: [lease contact me"
+            logger.error(f"Failed to verify database update for {email} after premium upgrade")
+            return "An unexpected error occurred while updating your account: please contact me"
 
     except IntegrityError:
         logger.error(f"IntegrityError: txn hash {payment_txn_hash} is likely already in use")
         return "This payment transaction has already been registered by another user, please use a unique transaction. If you think someone sniped your transaction hash submission, please contact me"
     except SQLAlchemyError as e:
         logger.error(f"Database error during premium upgrade for {email} with txn hash {payment_txn_hash}: {e}")
-        return "A backend error occurred, please try again later"
+        return "A backend error occurred, please try again later or contact me"
 
 
 # ABI snippet for getting erc20 token details
