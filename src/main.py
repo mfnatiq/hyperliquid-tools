@@ -1,3 +1,4 @@
+import time
 from auth.db_utils import init_db, is_premium_user, upgrade_to_premium, start_trial_if_new_user, get_user
 from utils.utils import DATE_FORMAT, format_currency, get_cached_unit_token_mappings, get_current_timestamp_millis
 from datetime import datetime, timedelta, timezone
@@ -34,6 +35,12 @@ st.set_page_config(
     "🔧",
     layout="wide",
 )
+
+# ensure db is ready, will only run once per user session
+if "db_initialized" not in st.session_state:
+    init_db(logger)
+    st.session_state["db_initialized"] = True
+
 
 # robust logic to handle user login/logout and initiate trials.
 # runs only once when user's state changes
@@ -73,7 +80,7 @@ with col2:
     with st.container(vertical_alignment='center', horizontal=True, horizontal_alignment="right"):
         if "user_email" in st.session_state:
             # display dynamic user status (premium, trial, expired)
-            user = get_user(st.session_state['user_email'])
+            user = get_user(st.session_state['user_email'], logger)
             status_message = ""
             if user:
                 is_paid = user.payment_txn_hash is not None
@@ -109,9 +116,7 @@ components.html("""
 </script>
 """, height=0)
 
-################################
-# TODO show this only for new + unsubscribed (show diff message)
-################################
+
 @st.dialog("Welcome to hyperliquid-tools!", width="large", on_dismiss="ignore")
 def announcement():
     st.write("""
@@ -453,19 +458,34 @@ def create_volume_df(volume_by_token: dict) -> pd.DataFrame:
 
 
 def display_upgrade_section(id: str):
-    st.subheader("Your trial has expired!")
-    st.text("Please subscribe to regain access to premium features")
+    st.subheader("Your free trial has expired!")
+
+    # update based on current hype market price
+    stables_amount = acceptedPayments['USD₮0']['minAmount']
+    hype_amt_override = round(stables_amount / get_curr_hype_price(), 1)
+    acceptedPayments['HYPE']['minAmount'] = hype_amt_override
 
     formattedAmounts = [
         f'{values['minAmount']} {symbol}' for symbol, values in acceptedPayments.items()]
+
     st.text(f"""
-        To subscribe and help keep this site running, please transfer at least {' or '.join(formattedAmounts)} to the donation address (on hyperevm chain only)
+        You've seen what detailed analytics this dashboard has to offer. Ready to keep the insights coming?
     """)
+    st.text(f"""
+        With a one-time payment (no recurring charges!), you can continue accessing:
+        📊 Complete transaction and bridging history
+        💼 Advanced breakdowns and comparisons by various metrics
+        🎯 Raw data (if you'd like to look through them)
+        ✨ And all other future premium features!
+    """)
+    st.markdown(f"**One-time payment:** {' or '.join(formattedAmounts)} to the donation address below on the HyperEVM chain")
+    st.text("Simply send your payment and submit the transaction hash below for instant reactivation!")
+
     with st.form(f"submit_txn_hash_form_{id}"):
         payment_txn_hash = st.text_input(
             "Input your payment transaction hash here")
         # triggered by click or pressing enter
-        submitted = st.form_submit_button("Submit", type="primary")
+        submitted = st.form_submit_button("Reactivate Premium Access", type="primary")
 
     if submitted:
         logger.info(
@@ -475,7 +495,8 @@ def display_upgrade_section(id: str):
         if error_message:
             st.error(error_message)
         else:
-            st.success("You have successfully subscribed, thank you! The page will now refresh")
+            st.toast("You have successfully subscribed, enjoy the premium features! Reloading the page now...", icon="🔥")
+            time.sleep(1)
             # auto-refresh on successful upgrade
             st.rerun()
 
@@ -486,8 +507,6 @@ def main():
     try:
         if "init_done" not in st.session_state:
             # first-ever run: initialisation
-            init_db(logger)
-
             with st.spinner("Initialising..."):
                 unit_token_mappings, token_list, cumulative_trade_data = load_data()
 
@@ -510,7 +529,7 @@ def main():
         cumulative_trade_data = st.session_state.cumulative_trade_data
 
         is_premium = is_premium_user(
-            st.session_state['user_email']) if 'user_email' in st.session_state else False
+            st.session_state['user_email'], logger) if 'user_email' in st.session_state else False
 
         st.metric("Current HYPE Price", format_currency(get_curr_hype_price()))
 

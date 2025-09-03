@@ -20,6 +20,7 @@ engine = create_engine(db_url, echo=False, future=True)
 
 USERS_TABLE = "users"
 
+
 @dataclass
 class User:
     """represents a user record from DB"""
@@ -31,20 +32,56 @@ class User:
     remarks: Optional[str]
     created_at: datetime
 
-def _row_to_user_object(row: Optional[Row]) -> Optional[User]:
-    """deserialises an SQLAlchemy row object to a User dataclass object"""
+
+def _to_datetime(value, logger: Logger) -> Optional[datetime]:
+    """
+    safely converts a value from the database (str, int, float, or datetime)
+    to a timezone-aware datetime object
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        # if already datetime, ensure timezone aware
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+    if isinstance(value, str):
+        try:
+            # handle ISO 8601 format strings, common for many DBs
+            return datetime.fromisoformat(value.replace('Z', '+00:00')).replace(tzinfo=timezone.utc)
+        except ValueError:
+            logger.error(f"could not parse datetime string: {value}")
+            return None
+    if isinstance(value, (int, float)):
+        try:
+            # handle unix timestamps
+            return datetime.fromtimestamp(value, tz=timezone.utc)
+        except (ValueError, OSError):
+            logger.error(f"could not convert timestamp to datetime: {value}")
+            return None
+    logger.warning(f"unhandled type for datetime conversion: {type(value)}")
+    return None
+
+def _row_to_user_object(row: Optional[Row], logger: Logger) -> Optional[User]:
+    """
+    safely converts a SQLAlchemy Row object to a User dataclass object,
+    handling potential type mismatches from DB
+    """
     if row is None:
         return None
-    return User(
-        email=row.email,
-        payment_txn_hash=row.payment_txn_hash,
-        payment_chain=row.payment_chain,
-        trial_expires_at=row.trial_expires_at,
-        bypass_payment=row.bypass_payment,
-        remarks=row.remarks,
-        created_at=row.created_at
-    )
-### MODIFICATION END ###
+    try:
+        return User(
+            email=row.email,
+            payment_txn_hash=row.payment_txn_hash,
+            payment_chain=row.payment_chain,
+            trial_expires_at=_to_datetime(row.trial_expires_at, logger),
+            # explicitly cast to boolean to handle integers (0/1)
+            bypass_payment=bool(row.bypass_payment),
+            remarks=row.remarks,
+            created_at=_to_datetime(row.created_at, logger)
+        )
+    except (TypeError, AttributeError, ValueError) as e:
+        logger.error(
+            f"Failed to deserialize database row to User object. Row: {dict(row._mapping)}. Error: {e}")
+        return None
 
 
 def init_db(logger: Logger):
@@ -74,7 +111,7 @@ def init_db(logger: Logger):
                 if not isinstance(seed_data, list):
                     raise ValueError("seed data must be a list of dicts")
             except (json.JSONDecodeError, ValueError) as e:
-                logger.error(f"error decoding INITIAL_USERS secret: {e}")
+                logger.error(f"error decoding INITIAL_USERS: {e}")
                 return
 
             # check if table already has data
@@ -90,15 +127,17 @@ def init_db(logger: Logger):
                     conn.execute(
                         text(f"""
                             INSERT INTO {USERS_TABLE}
-                            (email, payment_txn_hash, payment_chain, bypass_payment, remarks)
-                            VALUES (:email, :txn, :chain, :bypass, :remarks)
+                            (email, payment_txn_hash, payment_chain, trial_expires_at, bypass_payment, remarks, created_at)
+                            VALUES (:email, :txn, :chain,  :trial_expires_at, :bypass, :remarks, :created_at)
                         """),
                         {
                             "email": row["email"],
                             "txn": row.get("payment_txn_hash"),
                             "chain": row.get("payment_chain"),
+                            "trial_expires_at": row.get("trial_expires_at"),
                             "bypass": row.get("bypass_payment", False),
-                            "remarks": row.get("remarks")
+                            "remarks": row.get("remarks"),
+                            "created_at": datetime.now(tz=timezone.utc),
                         }
                     )
                 except SQLAlchemyError as e:
@@ -111,23 +150,26 @@ def init_db(logger: Logger):
         logger.error(f"DB initialisation error: {e}")
 
 
-def get_user(email: str) -> Optional[User]:
+def get_user(email: str, logger: Logger) -> Optional[User]:
     """fetches a user record from the database and returns it as a User object"""
     with engine.connect() as conn:
         result_row = conn.execute(
             text(f"SELECT * FROM {USERS_TABLE} WHERE email = :email"),
             {"email": email}
         ).first()
-        return _row_to_user_object(result_row)
+        return _row_to_user_object(result_row, logger)
+
 
 NUM_TRIAL_DAYS = 7
 
+
 def start_trial_if_new_user(email: str, logger: Logger):
-    """If a user does not exist, creates a new record with a limited-time trial"""
-    if get_user(email) is None:
+    """if a user does not exist, create a new record with a limited-time trial"""
+    if get_user(email, logger) is None:
         try:
             with engine.begin() as conn:
-                trial_end_date = datetime.now(timezone.utc) + timedelta(days=NUM_TRIAL_DAYS)
+                trial_end_date = datetime.now(
+                    timezone.utc) + timedelta(days=NUM_TRIAL_DAYS)
                 conn.execute(
                     text(f"""
                         INSERT INTO {USERS_TABLE} (email, trial_expires_at)
@@ -135,25 +177,28 @@ def start_trial_if_new_user(email: str, logger: Logger):
                     """),
                     {"email": email, "trial_expires": trial_end_date}
                 )
-                logger.info(f"Started {NUM_TRIAL_DAYS}-day trial for new user: {email}")
+                logger.info(
+                    f"started {NUM_TRIAL_DAYS}-day trial for new user: {email}")
         except IntegrityError:
             # race condition: another process inserted the user just now
-            logger.warning(f"user {email} was created by another process concurrently")
+            logger.warning(
+                f"user {email} was created by another process concurrently")
         except SQLAlchemyError as e:
             logger.error(f"failed to start trial for {email}: {e}")
             # TODO return some error to try again later
 
 
-def is_premium_user(email: str) -> bool:
+def is_premium_user(email: str, logger: Logger) -> bool:
     """
     check if a user is premium, either by having a valid payment or an active trial period
     """
-    user = get_user(email)
+    user = get_user(email, logger)
     if not user:
         return False
 
     is_paid = user.payment_txn_hash is not None
-    is_trial_active = user.trial_expires_at is not None and user.trial_expires_at > datetime.now(timezone.utc)
+    is_trial_active = user.trial_expires_at is not None and user.trial_expires_at > datetime.now(
+        timezone.utc)
 
     return is_paid or is_trial_active
 
@@ -166,13 +211,13 @@ def upgrade_to_premium(
     logger: Logger,
 ) -> str | None:  # error message if any (if None, verification was successful)
     # should be mutually exclusive with is_premium_user() but check just in case
-    user = get_user(email)
+    user = get_user(email, logger)
     if user and user.payment_txn_hash:
-        logger.warning(f"user {email} attempted to upgrade but is already a premium user")
-        return # TODO return a message like "You are already a premium member"
-    ### MODIFICATION END ###
+        logger.warning(
+            f"user {email} attempted to upgrade but is already a premium user")
+        return  # TODO return a message like "You are already a premium member"
 
-    payment_verification_error = verify_valid_payment(
+    payment_verification_error = _verify_valid_payment(
         email, payment_txn_hash, payment_chain, acceptedPayments, logger)
     if payment_verification_error is not None:
         return payment_verification_error
@@ -181,12 +226,14 @@ def upgrade_to_premium(
         with engine.begin() as conn:
             # check if txn hash has already been used by another user
             existing_user_row = conn.execute(
-                text(f"SELECT email FROM {USERS_TABLE} WHERE payment_txn_hash = :txn"),
+                text(
+                    f"SELECT email FROM {USERS_TABLE} WHERE payment_txn_hash = :txn"),
                 {"txn": payment_txn_hash}
             ).first()
 
             if existing_user_row and existing_user_row.email != email:
-                logger.error(f"txn hash {payment_txn_hash} already used by {existing_user_row.email}")
+                logger.error(
+                    f"txn hash {payment_txn_hash} already used by {existing_user_row.email}")
                 return "This payment transaction has already been registered by another user, please use a unique transaction. If you think someone sniped your transaction hash submission, please contact me"
 
             # insert or update user record
@@ -207,19 +254,24 @@ def upgrade_to_premium(
             })
 
         # check successful upgrade
-        updated_user = get_user(email)
+        updated_user = get_user(email, logger)
         if updated_user and updated_user.payment_txn_hash == payment_txn_hash:
-            logger.info(f"successfully upgraded {email} to premium with txn {payment_txn_hash}")
-            return None # Success
+            # TODO update remarks column to say when upgraded instead
+            logger.info(
+                f"successfully upgraded {email} to premium with txn {payment_txn_hash}")
+            return None  # Success
         else:
-            logger.error(f"Failed to verify database update for {email} after premium upgrade")
+            logger.error(
+                f"failed to verify database update for {email} after premium upgrade")
             return "An unexpected error occurred while updating your account: please contact me"
 
     except IntegrityError:
-        logger.error(f"IntegrityError: txn hash {payment_txn_hash} is likely already in use")
+        logger.error(
+            f"IntegrityError: txn hash {payment_txn_hash} is likely already in use")
         return "This payment transaction has already been registered by another user, please use a unique transaction. If you think someone sniped your transaction hash submission, please contact me"
     except SQLAlchemyError as e:
-        logger.error(f"Database error during premium upgrade for {email} with txn hash {payment_txn_hash}: {e}")
+        logger.error(
+            f"Database error during premium upgrade for {email} with txn hash {payment_txn_hash}: {e}")
         return "A backend error occurred, please try again later or contact me"
 
 
@@ -249,7 +301,7 @@ ERC20_ABI = [
 ]
 
 
-def verify_valid_payment(
+def _verify_valid_payment(
     email: str,
     payment_txn_hash: str,
     payment_chain: str,
