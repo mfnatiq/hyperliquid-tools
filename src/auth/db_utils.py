@@ -101,7 +101,29 @@ def init_db(logger: Logger):
                 )
             """))
 
-            # load seed data
+            # insert/update admin emails with full privileges (bypass)
+            admin_emails_str = os.getenv("ADMIN_EMAILS", "")
+            admin_emails = [email.strip().lower() for email in admin_emails_str.split(",") if email.strip()]
+            for admin_email in admin_emails:
+                try:
+                    conn.execute(text(f"""
+                        INSERT INTO {USERS_TABLE}
+                        (email, bypass_payment, remarks, created_at)
+                        VALUES (:email, :bypass, :remarks, :created_at)
+                        ON CONFLICT (email) DO UPDATE
+                        SET bypass_payment = TRUE,
+                            remarks = 'Admin account - bypass payment'
+                    """), {
+                        "email": admin_email,
+                        "bypass": True,
+                        "remarks": "Admin account - bypass payment",
+                        "created_at": datetime.now(tz=timezone.utc),
+                    })
+                    logger.info(f"Ensured admin bypass for: {admin_email}")
+                except SQLAlchemyError as e:
+                    logger.error(f"Failed to setup admin account for {admin_email}: {e}")
+
+            # load seed data, then check if table already has initial data; if not, seed
             seed_json = os.getenv("INITIAL_USERS")
             if not seed_json:
                 logger.info("no initial seed data provided")
@@ -113,15 +135,11 @@ def init_db(logger: Logger):
             except (json.JSONDecodeError, ValueError) as e:
                 logger.error(f"error decoding INITIAL_USERS: {e}")
                 return
-
-            # check if table already has data
             count = conn.execute(
                 text(f"SELECT COUNT(*) FROM {USERS_TABLE}")).scalar()
             if count > 0:
                 logger.info("users table already has data, skipping seeding")
                 return
-
-            # insert seed data
             for row in seed_data:
                 try:
                     conn.execute(
