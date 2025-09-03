@@ -31,24 +31,24 @@ components.html("""
 </script>
 """, height=0)
 
-# set up secrets manually as secrets.toml seems only readable in streamlit community cloud
-try:
-    # check if the 'auth' key already exists in st.secrets
-    auth_config_exists = 'auth' in st.secrets
-except Exception as e:  # streamlit.errors.StreamlitSecretNotFoundError: No secrets found
-    # error is thrown if no secrets file is found at all
-    auth_config_exists = False
-
-if not auth_config_exists:
-    logger.info("auth config not found in st.secrets. Populating from environment variables...")
-    # create the 'auth' dictionary within st.secrets.
-    st.secrets['auth'] = {
-        'client_id': os.getenv('AUTH_CLIENT_ID'),
-        'client_secret': os.getenv('AUTH_CLIENT_SECRET'),
-        'redirect_uri': os.getenv('AUTH_REDIRECT_URI'),
-        'cookie_secret': os.getenv('AUTH_COOKIE_SECRET'),
-        'server_metadata_url': os.getenv('AUTH_SERVER_METADATA_URL')
-    }
+# # set up secrets manually as secrets.toml seems only readable in streamlit community cloud
+# TODO doesn't work, st.secrets seems to be read-only
+# try:
+#     # check if the 'auth' key already exists in st.secrets
+#     auth_config_exists = 'auth' in st.secrets
+# except Exception as e:  # streamlit.errors.StreamlitSecretNotFoundError: No secrets found
+#     # error is thrown if no secrets file is found at all
+#     auth_config_exists = False
+# if not auth_config_exists:
+#     logger.info("auth config not found in st.secrets. Populating from environment variables...")
+#     # create the 'auth' dictionary within st.secrets.
+#     st.secrets['auth'] = {
+#         'client_id': os.getenv('AUTH_CLIENT_ID'),
+#         'client_secret': os.getenv('AUTH_CLIENT_SECRET'),
+#         'redirect_uri': os.getenv('AUTH_REDIRECT_URI'),
+#         'cookie_secret': os.getenv('AUTH_COOKIE_SECRET'),
+#         'server_metadata_url': os.getenv('AUTH_SERVER_METADATA_URL')
+#     }
 
 st.set_page_config(
     'Hyperliquid Tools',
