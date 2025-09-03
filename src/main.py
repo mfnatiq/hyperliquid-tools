@@ -1,3 +1,4 @@
+import os
 import time
 from auth.db_utils import init_db, is_premium_user, upgrade_to_premium, start_trial_if_new_user, get_user
 from utils.utils import DATE_FORMAT, format_currency, get_cached_unit_token_mappings, get_current_timestamp_millis
@@ -29,6 +30,16 @@ components.html("""
 <script defer src="https://cloud.umami.is/script.js" data-website-id="d055b0ff-48a4-4617-a9fd-4124a5346705">
 </script>
 """, height=0)
+
+# set up secrets manually as secrets.toml seems only readable in streamlit community cloud
+if 'auth' not in st.secrets:
+    st.secrets['auth'] = {
+        'client_id': os.getenv('AUTH_CLIENT_ID'),
+        'client_secret': os.getenv('AUTH_CLIENT_SECRET'),
+        'redirect_uri': os.getenv('AUTH_REDIRECT_URI'),
+        'cookie_secret': os.getenv('AUTH_COOKIE_SECRET'),
+        'server_metadata_url': os.getenv('AUTH_SERVER_METADATA_URL'),
+    }
 
 st.set_page_config(
     'Hyperliquid Tools',
