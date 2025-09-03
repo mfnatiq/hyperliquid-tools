@@ -19,8 +19,4 @@ cookie_secret = \"$AUTH_COOKIE_SECRET\"
 server_metadata_url = \"$AUTH_SERVER_METADATA_URL\"
 " > .streamlit/secrets.toml
 
-echo "✅ .streamlit/secrets.toml created successfully"
-
-# executes the command that was passed to this script
-# "streamlit run main.py ..."
-exec "$@"
+echo ".streamlit/secrets.toml created successfully"

@@ -1,1 +1,1 @@
-web: ./setup_secrets.sh streamlit run src/main.py --server.port=$PORT --server.address=0.0.0.0
+web: ./setup_secrets.sh && streamlit run src/main.py --server.port=$PORT --server.address=0.0.0.0
