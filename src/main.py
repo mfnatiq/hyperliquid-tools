@@ -1,4 +1,4 @@
-from auth.db_utils import init_db, is_premium_user, upgrade_to_premium
+from auth.db_utils import init_db, is_premium_user, upgrade_to_premium, start_trial_if_new_user, get_user
 from utils.utils import DATE_FORMAT, format_currency, get_cached_unit_token_mappings, get_current_timestamp_millis
 from datetime import datetime, timedelta, timezone
 import pandas as pd
@@ -35,14 +35,18 @@ st.set_page_config(
     layout="wide",
 )
 
-# handle user email login state
-if st.user and 'email' in st.user:
-    # if user is logged in, store their email in session state
+# robust logic to handle user login/logout and initiate trials.
+# runs only once when user's state changes
+if 'user_email' not in st.session_state and st.user and 'email' in st.user:
+    # runs only when the user has just logged in
     st.session_state["user_email"] = st.user.email
-else:
-    # if user logs out, remove their email from session state
-    if "user_email" in st.session_state:
-        del st.session_state["user_email"]
+    # start a trial for the user if they are new to the system
+    start_trial_if_new_user(st.session_state["user_email"], logger)
+elif 'user_email' in st.session_state and not (st.user and 'email' in st.user):
+    # runs when the user has just logged out.
+    del st.session_state["user_email"]
+    if "user_object" in st.session_state:
+        del st.session_state["user_object"]
 
 
 def is_logged_in():
@@ -68,8 +72,26 @@ with col1:
 with col2:
     with st.container(vertical_alignment='center', horizontal=True, horizontal_alignment="right"):
         if "user_email" in st.session_state:
+            # display dynamic user status (premium, trial, expired)
+            user = get_user(st.session_state['user_email'])
+            status_message = ""
+            if user:
+                is_paid = user.payment_txn_hash is not None
+                is_trial_active = user.trial_expires_at and user.trial_expires_at > datetime.now(timezone.utc)
+
+                if is_paid:
+                    status_message = "<span style='color: #28a745;'>(Premium)</span>" # Green
+                elif is_trial_active:
+                    expires_str = user.trial_expires_at.strftime('%Y-%m-%d')
+                    status_message = f"<span style='color: #ffc107;'>(Trial ends {expires_str})</span>" # Yellow
+                else:
+                    status_message = "<span style='color: #dc3545;'>(Trial Expired)</span>" # Red
+
             st.markdown(
-                f"Logged in as **{st.session_state['user_email']}**", width="content")
+                f"Logged in as **{st.session_state['user_email']}** {status_message}",
+                width="content",
+                unsafe_allow_html=True
+            )
             st.button(
                 "Logout",
                 key=f"logout_{uuid.uuid4()}",
@@ -90,8 +112,6 @@ components.html("""
 ################################
 # TODO show this only for new + unsubscribed (show diff message)
 ################################
-
-
 @st.dialog("Welcome to hyperliquid-tools!", width="large", on_dismiss="ignore")
 def announcement():
     st.write("""
@@ -433,7 +453,8 @@ def create_volume_df(volume_by_token: dict) -> pd.DataFrame:
 
 
 def display_upgrade_section(id: str):
-    st.text(f'You are not subscribed: please subscribe to view this detailed info!')
+    st.subheader("Your trial has expired!")
+    st.text("Please subscribe to regain access to premium features")
 
     formattedAmounts = [
         f'{values['minAmount']} {symbol}' for symbol, values in acceptedPayments.items()]
@@ -446,7 +467,6 @@ def display_upgrade_section(id: str):
         # triggered by click or pressing enter
         submitted = st.form_submit_button("Submit", type="primary")
 
-    # TODO show loading state
     if submitted:
         logger.info(
             f'{st.session_state['user_email']} submitted txn hash {payment_txn_hash}, validating')
@@ -455,12 +475,12 @@ def display_upgrade_section(id: str):
         if error_message:
             st.error(error_message)
         else:
-            st.info("You have successfully subscribed, thank you!")
-            # TODO can auto refresh page or?
+            st.success("You have successfully subscribed, thank you! The page will now refresh")
+            # auto-refresh on successful upgrade
+            st.rerun()
+
 
 # main app logic reruns upon any interaction
-
-
 def main():
     # -------- initialisation and caching --------
     try:
