@@ -190,15 +190,18 @@ def start_trial_if_new_user(email: str, logger: Logger):
 
 def is_premium_user(email: str, logger: Logger) -> bool:
     """
-    check if a user is premium, either by having a valid payment or an active trial period
+    check if a user is premium, either by having a valid payment, bypass_payment flag, or an active trial period
     """
     user = get_user(email, logger)
     if not user:
         return False
 
+    # check bypass_payment first for infinite access
+    if user.bypass_payment:
+        return True
+
     is_paid = user.payment_txn_hash is not None
-    is_trial_active = user.trial_expires_at is not None and user.trial_expires_at > datetime.now(
-        timezone.utc)
+    is_trial_active = user.trial_expires_at is not None and user.trial_expires_at > datetime.now(timezone.utc)
 
     return is_paid or is_trial_active
 
