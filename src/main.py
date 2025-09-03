@@ -286,8 +286,6 @@ def get_cached_unit_volumes(
             while startTime < currTime:  # check back until this date
                 endTime = startTime + \
                     int(timedelta(days=numDaysQuerySpan).total_seconds()) * 1000
-                logger.info(
-                    f'querying for {account} startTime: {startTime}; endTime: {endTime}')
 
                 fills_result = info.post("/info", {
                     "type": "userFillsByTime",  # up to 10k total, then need to query from s3
@@ -296,7 +294,6 @@ def get_cached_unit_volumes(
                     "startTime": startTime,
                     "endTime": endTime,
                 })
-                logger.info(f'num fills: {len(fills_result)}')
 
                 # query again til no more
                 num_fills = len(fills_result)
@@ -316,7 +313,7 @@ def get_cached_unit_volumes(
                 account_fills.extend(fills_result)
             fills[account] = account_fills
     except Exception as e:
-        logger.error(e)
+        logging.error(f'error fetching fills for some account(s) in {accounts_to_query}: {e}')
         return dict(), dict(), [], pd.DataFrame, 'Unable to fetch trade history - did you put a valid list of accounts?'
 
     # 10k - need get from s3

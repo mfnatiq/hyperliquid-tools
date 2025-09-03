@@ -20,12 +20,13 @@ def process_bridge_operations(
 
     # parse dates
     df['opCreatedAt'] = pd.to_datetime(df['opCreatedAt'])
-    df['broadcastAt'] = pd.to_datetime(df['broadcastAt'], errors='coerce')
 
     # convert amounts to float from wei
     df['sourceAmount'] = pd.to_numeric(df['sourceAmount'], errors='coerce')
-    df['destinationFeeAmount'] = pd.to_numeric(
-        df['destinationFeeAmount'], errors='coerce')
+
+    # TODO handle fees?
+    # df['destinationFeeAmount'] = pd.to_numeric(
+    #     df['destinationFeeAmount'], errors='coerce')
 
     # determine txn direction (deposit vs withdraw)
     df['direction'] = df['destinationChain'].apply(
