@@ -627,8 +627,8 @@ def main():
                 f"Last updated: {volume_data['last_updated'].strftime(DATE_FORMAT)}")
 
             # create tabs
-            tab1, tab2, tab3 = st.tabs(
-                ["📋 Summary", "📊 Trade Analysis", "🌉 Bridge Analysis"])
+            tab1, tab2, tab3, tab4 = st.tabs(
+                ["📋 Summary", "📊 Trade Analysis", "🌉 Bridge Analysis", "🏆 Leaderboard (W.I.P!)"])
 
             with tab1:
                 display_summary(df_trade, df_bridging, top_bridged_asset)
@@ -663,9 +663,10 @@ def main():
                         processed_bridge_data
                     )
 
+            with tab4:
+                st.text("🚧 Under development, stay tuned!")
+
 # --------------- display ---------------
-
-
 def display_summary(df_trade: pd.DataFrame, df_bridging: pd.DataFrame | None, top_bridged_asset: str):
     # trade data
     if df_trade.empty:
