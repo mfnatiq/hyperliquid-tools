@@ -1,3 +1,4 @@
+import os
 import time
 import requests
 from auth.db_utils import init_db, is_premium_user, upgrade_to_premium, start_trial_if_new_user, get_user
@@ -84,22 +85,29 @@ def is_logged_in():
 
 # track umami analytics
 UMAMI_API = "https://cloud.umami.is/api/send"
-UMAMI_API_KEY = st.secrets["UMAMI_API_KEY"]
-def track_event(event_name, url=""):
+def track_event(event_name, additional_data: dict = {}):
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {UMAMI_API_KEY}"
+        "User-Agent": "Hyperliquid-Tools/1.0",
     }
     payload = {
         "type": "event",
         "payload": {
-            "website": umami_website_id,
             "name": event_name,
-            "url": url,
+            "url": "/",
+            "hostname": os.getenv("HOSTNAME"),
+            "language": "",
+            "referrer": "",
+            "screen": "",
+            "title": "Hyperliquid Tools",
         }
     }
+    if additional_data and isinstance(additional_data, dict):
+        payload["payload"]["data"] = additional_data
+
     try:
         requests.post(UMAMI_API, json=payload, headers=headers, timeout=5)
+        logger.info(f'successfully tracked event {event_name} to umami')
     except requests.RequestException as e:
         logger.warning(f"umami analytics tracking failed for {event_name}: {e}")
 
@@ -613,7 +621,7 @@ def main():
     output_placeholder = st.empty()
 
     if submitted and addresses_input:
-        track_event('run_analysis', addresses_input)
+        track_event('run_analysis', { 'addresses_input': addresses_input })
 
         # upon account(es) update, clear the placeholder immediately
         # so that loading spinner only shows up after
@@ -666,14 +674,14 @@ def main():
 
             with tab1:
                 if st.session_state.last_tab != "summary":
-                    track_event("summary", addresses_input)
+                    track_event("summary", { 'addresses_input': addresses_input })
                     st.session_state.last_tab = "summary"
 
                 display_summary(df_trade, df_bridging, top_bridged_asset)
 
             with tab2:
                 if st.session_state.last_tab != "view_trade_details":
-                    track_event("view_trade_details", addresses_input)
+                    track_event("view_trade_details", { 'addresses_input': addresses_input })
                     st.session_state.last_tab = "view_trade_details"
 
                 if not is_logged_in():
@@ -693,7 +701,7 @@ def main():
 
             with tab3:
                 if st.session_state.last_tab != "view_bridge_details":
-                    track_event("view_bridge_details", addresses_input)
+                    track_event("view_bridge_details", { 'addresses_input': addresses_input })
                     st.session_state.last_tab = "view_bridge_details"
 
                 if not is_logged_in():
@@ -711,7 +719,7 @@ def main():
 
             with tab4:
                 if st.session_state.last_tab != "view_trade_leaderboard":
-                    track_event("view_trade_leaderboard", addresses_input)
+                    track_event("view_trade_leaderboard", { 'addresses_input': addresses_input })
                     st.session_state.last_tab = "view_trade_leaderboard"
 
                 st.text("🚧 Under development, stay tuned!")
