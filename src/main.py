@@ -1,5 +1,5 @@
-import os
 import time
+import requests
 from auth.db_utils import init_db, is_premium_user, upgrade_to_premium, start_trial_if_new_user, get_user
 from utils.utils import DATE_FORMAT, format_currency, get_cached_unit_token_mappings, get_current_timestamp_millis
 from datetime import datetime, timedelta, timezone
@@ -26,8 +26,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # umami analytics
-components.html("""
-<script defer src="https://cloud.umami.is/script.js" data-website-id="d055b0ff-48a4-4617-a9fd-4124a5346705">
+umami_website_id = "d055b0ff-48a4-4617-a9fd-4124a5346705"
+components.html(f"""
+<script defer src="https://cloud.umami.is/script.js" data-website-id="{umami_website_id}">
 </script>
 """, height=0)
 
@@ -81,6 +82,30 @@ def is_logged_in():
         return False
     return st.user.is_logged_in
 
+# track umami analytics
+UMAMI_API = "https://cloud.umami.is/api/send"
+UMAMI_API_KEY = st.secrets["UMAMI_API_KEY"]
+def track_event(event_name, url=""):
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {UMAMI_API_KEY}"
+    }
+    payload = {
+        "type": "event",
+        "payload": {
+            "website": umami_website_id,
+            "name": event_name,
+            "url": url,
+        }
+    }
+    try:
+        requests.post(UMAMI_API, json=payload, headers=headers, timeout=5)
+    except requests.RequestException as e:
+        logger.warning(f"umami analytics tracking failed for {event_name}: {e}")
+
+def handle_login_click():
+    track_event('login')
+    st.login()
 
 def show_login_info(show_button_only: bool = False):
     if not show_button_only:
@@ -88,7 +113,8 @@ def show_login_info(show_button_only: bool = False):
     st.button(
         "Login",
         key=uuid.uuid4(),
-        on_click=st.login, icon=":material/login:",
+        on_click=handle_login_click,
+        icon=":material/login:",
         type="primary"
     )
 
@@ -545,6 +571,9 @@ def main():
         token_list = st.session_state.token_list
         cumulative_trade_data = st.session_state.cumulative_trade_data
 
+        if "last_tab" not in st.session_state:
+            st.session_state.last_tab = None
+
         is_premium = is_premium_user(
             st.session_state['user_email'], logger) if 'user_email' in st.session_state else False
 
@@ -584,6 +613,8 @@ def main():
     output_placeholder = st.empty()
 
     if submitted and addresses_input:
+        track_event('run_analysis', addresses_input)
+
         # upon account(es) update, clear the placeholder immediately
         # so that loading spinner only shows up after
         output_placeholder.empty()
@@ -630,10 +661,21 @@ def main():
             tab1, tab2, tab3, tab4 = st.tabs(
                 ["📋 Summary", "📊 Trade Analysis", "🌉 Bridge Analysis", "🏆 Leaderboard (W.I.P!)"])
 
+            # default starting, so don't fire any event for it
+            st.session_state.last_tab = "summary"
+
             with tab1:
+                if st.session_state.last_tab != "summary":
+                    track_event("summary", addresses_input)
+                    st.session_state.last_tab = "summary"
+
                 display_summary(df_trade, df_bridging, top_bridged_asset)
 
             with tab2:
+                if st.session_state.last_tab != "view_trade_details":
+                    track_event("view_trade_details", addresses_input)
+                    st.session_state.last_tab = "view_trade_details"
+
                 if not is_logged_in():
                     show_login_info()
                 elif not is_premium:
@@ -650,6 +692,10 @@ def main():
                     )
 
             with tab3:
+                if st.session_state.last_tab != "view_bridge_details":
+                    track_event("view_bridge_details", addresses_input)
+                    st.session_state.last_tab = "view_bridge_details"
+
                 if not is_logged_in():
                     show_login_info()
                 elif not is_premium:
@@ -664,6 +710,10 @@ def main():
                     )
 
             with tab4:
+                if st.session_state.last_tab != "view_trade_leaderboard":
+                    track_event("view_trade_leaderboard", addresses_input)
+                    st.session_state.last_tab = "view_trade_leaderboard"
+
                 st.text("🚧 Under development, stay tuned!")
 
 # --------------- display ---------------
