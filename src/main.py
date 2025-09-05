@@ -70,7 +70,9 @@ if 'user_email' not in st.session_state and st.user and 'email' in st.user:
     # runs only when the user has just logged in
     st.session_state["user_email"] = st.user.email
     # start a trial for the user if they are new to the system
-    start_trial_if_new_user(st.session_state["user_email"], logger)
+    err = start_trial_if_new_user(st.session_state["user_email"], logger)
+    if err:
+        st.error(err)
 elif 'user_email' in st.session_state and not (st.user and 'email' in st.user):
     # runs when the user has just logged out.
     del st.session_state["user_email"]

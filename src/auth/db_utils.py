@@ -28,6 +28,7 @@ class User:
     payment_txn_hash: Optional[str]
     payment_chain: Optional[str]
     trial_expires_at: Optional[datetime]
+    upgraded_at: Optional[datetime]
     bypass_payment: bool
     remarks: Optional[str]
     created_at: datetime
@@ -74,6 +75,7 @@ def _row_to_user_object(row: Optional[Row], logger: Logger) -> Optional[User]:
             payment_chain=row.payment_chain,
             trial_expires_at=_to_datetime(row.trial_expires_at, logger),
             # explicitly cast to boolean to handle integers (0/1)
+            upgraded_at=_to_datetime(row.upgraded_at, logger),
             bypass_payment=bool(row.bypass_payment),
             remarks=row.remarks,
             created_at=_to_datetime(row.created_at, logger)
@@ -95,6 +97,7 @@ def init_db(logger: Logger):
                     payment_txn_hash TEXT UNIQUE,
                     payment_chain TEXT,
                     trial_expires_at TIMESTAMP,
+                    upgraded_at TIMESTAMP,
                     bypass_payment BOOLEAN DEFAULT FALSE,
                     remarks TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -145,17 +148,18 @@ def init_db(logger: Logger):
                     conn.execute(
                         text(f"""
                             INSERT INTO {USERS_TABLE}
-                            (email, payment_txn_hash, payment_chain, trial_expires_at, bypass_payment, remarks, created_at)
-                            VALUES (:email, :txn, :chain,  :trial_expires_at, :bypass, :remarks, :created_at)
+                            (email, payment_txn_hash, payment_chain, trial_expires_at, upgraded_at, bypass_payment, remarks, created_at)
+                            VALUES (:email, :txn, :chain,  :trial_expires_at, :upgraded_at, :bypass, :remarks, :created_at)
                         """),
                         {
                             "email": row["email"],
                             "txn": row.get("payment_txn_hash"),
                             "chain": row.get("payment_chain"),
                             "trial_expires_at": row.get("trial_expires_at"),
+                            "upgraded_at": row.get("upgraded_at"),
                             "bypass": row.get("bypass_payment", False),
                             "remarks": row.get("remarks"),
-                            "created_at": datetime.now(tz=timezone.utc),
+                            "created_at": row.get("created_at", datetime.now(tz=timezone.utc)),
                         }
                     )
                 except SQLAlchemyError as e:
@@ -181,8 +185,12 @@ def get_user(email: str, logger: Logger) -> Optional[User]:
 NUM_TRIAL_DAYS = 7
 
 
-def start_trial_if_new_user(email: str, logger: Logger):
-    """if a user does not exist, create a new record with a limited-time trial"""
+def start_trial_if_new_user(email: str, logger: Logger) -> str | None:
+    """
+    if a user does not exist, create a new record with a limited-time trial
+
+    returns error message if any
+    """
     if get_user(email, logger) is None:
         try:
             with engine.begin() as conn:
@@ -201,9 +209,15 @@ def start_trial_if_new_user(email: str, logger: Logger):
             # race condition: another process inserted the user just now
             logger.warning(
                 f"user {email} was created by another process concurrently")
+            return f"Failed to start trial for {email} as {email} was already created, please try another email"
         except SQLAlchemyError as e:
             logger.error(f"failed to start trial for {email}: {e}")
-            # TODO return some error to try again later
+            return f"Failed to start trial for {email} due to a database error, please try again later"
+        except Exception as e:
+            logger.error(f'failed to start free trial with unknown error {e}')
+            return f"Failed to start trial for {email} due to an unknown error, please try again later"
+
+    return None
 
 
 def is_premium_user(email: str, logger: Logger) -> bool:
@@ -218,7 +232,7 @@ def is_premium_user(email: str, logger: Logger) -> bool:
     if user.bypass_payment:
         return True
 
-    is_paid = user.payment_txn_hash is not None
+    is_paid = user.payment_txn_hash is not None and user.upgraded_at is not None
     is_trial_active = user.trial_expires_at is not None and user.trial_expires_at > datetime.now(timezone.utc)
 
     return is_paid or is_trial_active
@@ -231,13 +245,8 @@ def upgrade_to_premium(
     acceptedPayments: dict,
     logger: Logger,
 ) -> str | None:  # error message if any (if None, verification was successful)
-    # should be mutually exclusive with is_premium_user() but check just in case
+    # must be mutually exclusive with is_premium_user()
     user = get_user(email, logger)
-    if user and user.payment_txn_hash:
-        logger.warning(
-            f"user {email} attempted to upgrade but is already a premium user")
-        return  # TODO return a message like "You are already a premium member"
-
     payment_verification_error = _verify_valid_payment(
         email, user, payment_txn_hash, payment_chain, acceptedPayments, logger)
     if payment_verification_error is not None:
@@ -260,16 +269,18 @@ def upgrade_to_premium(
             # ON CONFLICT handles new users and trial users upgrading
             # UPDATE sets payment info and nullifies trial expiration
             conn.execute(text(f"""
-                INSERT INTO {USERS_TABLE} (email, payment_txn_hash, payment_chain, bypass_payment, trial_expires_at)
-                VALUES (:email, :txn, :chain, :bypass, NULL)
+                INSERT INTO {USERS_TABLE} (email, payment_txn_hash, payment_chain, upgraded_at, bypass_payment, trial_expires_at)
+                VALUES (:email, :txn, :chain, :upgraded_at, :bypass, NULL)
                 ON CONFLICT (email) DO UPDATE
                 SET payment_txn_hash = EXCLUDED.payment_txn_hash,
+                    upgraded_at = EXCLUDED.upgraded_at,
                     payment_chain = EXCLUDED.payment_chain,
                     trial_expires_at = NULL
             """), {
                 "email": email,
                 "txn": payment_txn_hash,
                 "chain": payment_chain,
+                'upgraded_at': datetime.now(tz=timezone.utc),
                 "bypass": False
             })
 

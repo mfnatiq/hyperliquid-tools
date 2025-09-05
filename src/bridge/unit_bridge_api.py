@@ -55,7 +55,6 @@ class UnitBridgeInfo():
         except requests.RequestException as e:
             raise Exception(f"Request failed for {url}: {e}")
 
-    # TODO better exception handling?
     def _handle_exception(self, response):
         status_code = response.status_code
         if status_code < 400:
