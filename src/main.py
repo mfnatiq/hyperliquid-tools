@@ -526,7 +526,7 @@ def display_upgrade_section(id: str):
         With a one-time payment (no recurring charges!), you can continue accessing:
         📊 Complete transaction and bridging history
         💼 Advanced breakdowns and comparisons by various metrics
-        🎯 Raw data (if you'd like to look through them)
+        🎯 Raw data
         ✨ And all other future premium features!
     """)
     st.markdown(f"**One-time payment:** {' or '.join(formattedAmounts)} to the donation address below on the HyperEVM chain")

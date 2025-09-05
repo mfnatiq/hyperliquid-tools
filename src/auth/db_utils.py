@@ -239,7 +239,7 @@ def upgrade_to_premium(
         return  # TODO return a message like "You are already a premium member"
 
     payment_verification_error = _verify_valid_payment(
-        email, payment_txn_hash, payment_chain, acceptedPayments, logger)
+        email, user, payment_txn_hash, payment_chain, acceptedPayments, logger)
     if payment_verification_error is not None:
         return payment_verification_error
 
@@ -251,7 +251,6 @@ def upgrade_to_premium(
                     f"SELECT email FROM {USERS_TABLE} WHERE payment_txn_hash = :txn"),
                 {"txn": payment_txn_hash}
             ).first()
-
             if existing_user_row and existing_user_row.email != email:
                 logger.error(
                     f"txn hash {payment_txn_hash} already used by {existing_user_row.email}")
@@ -324,6 +323,7 @@ ERC20_ABI = [
 
 def _verify_valid_payment(
     email: str,
+    user: User,
     payment_txn_hash: str,
     payment_chain: str,
     acceptedPayments: dict,
@@ -345,6 +345,18 @@ def _verify_valid_payment(
 
     try:
         tx_receipt = w3.eth.get_transaction_receipt(payment_txn_hash)
+
+        # sanity check that payment was after trial started
+        block = w3.eth.get_block(tx_receipt['blockNumber'])
+        tx_timestamp = datetime.fromtimestamp(block['timestamp'], tz=timezone.utc)
+        if tx_timestamp < user.created_at:
+            logger.warning(
+                f"txn {payment_txn_hash} for user {email} is too old: {tx_timestamp} vs. user created date {user.created_at}")
+            return f"""
+                This transaction is invalid, please make a new payment
+
+                If you have previously already donated, please contact me for manual access!
+            """
 
         if tx_receipt and tx_receipt['logs']:
             # SC call i.e. not transferring native HYPE
