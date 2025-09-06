@@ -668,8 +668,15 @@ def main():
                 f"Last updated: {volume_data['last_updated'].strftime(DATE_FORMAT)}")
 
             # create tabs
-            tab1, tab2, tab3, tab4 = st.tabs(
-                ["📋 Summary", "📊 Trade Analysis", "🌉 Bridge Analysis", "🏆 Leaderboard (W.I.P!)"])
+            tab1, tab2, tab3, tab4, tab5 = st.tabs(
+                [
+                    "💡 Summary",
+                    "⚡ Trade Analysis",
+                    "🌉 Bridge Analysis",
+                    "🔗 HyperEVM Trades (W.I.P)",
+                    "🏆 Leaderboard (W.I.P)",
+                ]
+            )
 
             # default starting, so don't fire any event for it
             st.session_state.last_tab = "summary"
@@ -723,6 +730,13 @@ def main():
                 if st.session_state.last_tab != "view_trade_leaderboard":
                     track_event("view_trade_leaderboard", { 'addresses_input': addresses_input })
                     st.session_state.last_tab = "view_trade_leaderboard"
+
+                st.text("🚧 Under development, stay tuned!")
+
+            with tab5:
+                if st.session_state.last_tab != "view_hyperevm_analysis":
+                    track_event("view_hyperevm_analysis", { 'addresses_input': addresses_input })
+                    st.session_state.last_tab = "view_hyperevm_analysis"
 
                 st.text("🚧 Under development, stay tuned!")
 
