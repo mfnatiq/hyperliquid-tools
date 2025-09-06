@@ -7,7 +7,6 @@ annotated-types==0.7.0
 anyio==4.10.0
 attrs==25.3.0
 Authlib==1.6.2
-beautifulsoup4==4.13.5
 bitarray==3.6.0
 blinker==1.9.0
 cachetools==6.1.0
@@ -60,7 +59,6 @@ pillow==11.3.0
 plotly==6.2.0
 propcache==0.3.2
 protobuf==6.31.1
-psycopg2==2.9.10
 pyarrow==21.0.0
 pycares==4.10.0
 pycparser==2.22
