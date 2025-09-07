@@ -642,6 +642,8 @@ def main():
     # placeholder that can be cleared and rewritten
     output_placeholder = st.empty()
 
+    accounts = []
+
     if submitted and addresses_input:
         track_event('run_analysis', { 'addresses_input': addresses_input })
 
