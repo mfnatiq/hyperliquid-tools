@@ -2,7 +2,7 @@ import os
 import time
 import requests
 from auth.db_utils import init_db, PremiumType, get_user_premium_type, upgrade_to_premium, start_trial_if_new_user, get_user
-from leaderboard.leaderboard_utils import get_leaderboard_last_updated
+from leaderboard.leaderboard_utils import get_leaderboard_last_updated, get_leaderboard
 from utils.utils import DATE_FORMAT, format_currency, get_cached_unit_token_mappings, get_current_timestamp_millis
 from datetime import datetime, timedelta, timezone
 import pandas as pd
@@ -736,10 +736,39 @@ def main():
                 elif user_premium_type == PremiumType.NONE:
                     display_upgrade_section("bridge_data")
                 else:
-                    st.info('🚧 In Beta: if you see any issues, contact me!')
-                    st.info('Note that leaderboard data is only recaculated every few hours')
+                    st.info('🚧 This feature is in beta')
                     leaderboard_last_updated = _get_leaderboard_last_updated()
-                    st.text(f'Last Updated: {leaderboard_last_updated}')
+                    st.markdown(f'Last Updated: **{leaderboard_last_updated}** (data is only recalculated every few hours)')
+
+                    leaderboard = _get_leaderboard()
+                    leaderboard['total_volume_usd'] = leaderboard['total_volume_usd'].apply(lambda x: format_currency(x))
+                    leaderboard_formatted = leaderboard[['user_rank', 'user_address', 'total_volume_usd']]
+
+                    # if searched addresses within leaderboard, display them separately
+                    leaderboard_searched_addresses = leaderboard_formatted[leaderboard_formatted['user_address'].isin(accounts)]
+                    if not leaderboard_searched_addresses.empty:
+                        st.subheader('Searched Addresses')
+                        st.dataframe(
+                            leaderboard_searched_addresses,
+                            hide_index=True,
+                            column_config={
+                                'user_rank': st.column_config.TextColumn('Rank'),
+                                'user_address': st.column_config.TextColumn('Address'),
+                                'total_volume_usd': st.column_config.TextColumn('Total Volume (USD)'),
+                            },
+                        )
+
+                    # display overall leaderboard
+                    st.subheader('Overall Leaderboard')
+                    st.dataframe(
+                        leaderboard_formatted,
+                        hide_index=True,
+                        column_config={
+                            'user_rank': st.column_config.TextColumn('Rank'),
+                            'user_address': st.column_config.TextColumn('Address'),
+                            'total_volume_usd': st.column_config.TextColumn('Total Volume (USD)'),
+                        },
+                    )
 
             with tab5:
                 if st.session_state.last_tab != "view_hyperevm_analysis":
@@ -752,6 +781,10 @@ def main():
 @st.cache_data(ttl=3600, show_spinner=False)
 def _get_leaderboard_last_updated():
     return get_leaderboard_last_updated(logger)
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _get_leaderboard():
+    return get_leaderboard(logger)
 # endregion
 
 # --------------- display ---------------

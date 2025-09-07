@@ -1,8 +1,9 @@
 
 import logging
 import os
-
+from logging import Logger
 from dotenv import load_dotenv
+import pandas as pd
 from sqlalchemy import TIMESTAMP, Column, DateTime, Float, Integer, MetaData, String, Table, create_engine, inspect
 
 
@@ -45,7 +46,19 @@ metadata_table = Table(
 )
 # endregion
 
-def get_leaderboard_last_updated(logger: logging.Logger):
+def get_leaderboard(logger: Logger) -> pd.DataFrame | None:
+    try:
+        with engine.connect() as conn:
+            results = conn.execute(leaderboard_table.select())
+            leaderboard_rows = results.fetchall()
+            column_names = results.keys()
+            leaderboard_df = pd.DataFrame(leaderboard_rows, columns=column_names)
+            return leaderboard_df
+    except Exception as e:
+        logger.error(f'unable to fetchleaderboard: {e}')
+    return None
+
+def get_leaderboard_last_updated(logger: Logger):
     try:
         with engine.connect() as conn:
             results = conn.execute(metadata_table.select())
