@@ -204,7 +204,12 @@ if 'startup' not in st.session_state:
         announcement()
     st.session_state['startup'] = True
 
-info = Info(constants.MAINNET_API_URL, skip_ws=True)
+try:
+    info = Info(constants.MAINNET_API_URL, skip_ws=True)
+except Exception as e:
+    logger.error(f'client error occured: {e}')
+    st.error(
+        "Hyperliquid API rate limit reached, please try again in a short while")
 unit_bridge_info = UnitBridgeInfo()
 
 
