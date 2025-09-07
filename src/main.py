@@ -1,7 +1,7 @@
 import os
 import time
 import requests
-from auth.db_utils import init_db, is_premium_user, upgrade_to_premium, start_trial_if_new_user, get_user
+from auth.db_utils import init_db, PremiumType, get_user_premium_type, upgrade_to_premium, start_trial_if_new_user, get_user
 from leaderboard.leaderboard_utils import get_leaderboard_last_updated
 from utils.utils import DATE_FORMAT, format_currency, get_cached_unit_token_mappings, get_current_timestamp_millis
 from datetime import datetime, timedelta, timezone
@@ -140,12 +140,11 @@ with col2:
             user = get_user(st.session_state['user_email'], logger)
             status_message = ""
             if user:
-                is_premium = is_premium_user(st.session_state['user_email'], logger)
-                is_trial_active = user.trial_expires_at and user.trial_expires_at > datetime.now(timezone.utc)
+                user_premium_type = get_user_premium_type(st.session_state['user_email'], logger)
 
-                if is_premium:
+                if user_premium_type == PremiumType.FULL:
                     status_message = "<span style='color: #28a745;'>(Premium)</span>" # green
-                elif is_trial_active:
+                elif user_premium_type == PremiumType.TRIAL:
                     expires_str = user.trial_expires_at.strftime('%Y-%m-%d')
                     status_message = f"<span style='color: #ffc107;'>(Trial ends {expires_str})</span>" # yellow
                 else:
@@ -585,9 +584,8 @@ def main():
         if "last_tab" not in st.session_state:
             st.session_state.last_tab = None
 
-        is_premium = is_premium_user(
+        user_premium_type = get_user_premium_type(
             st.session_state['user_email'], logger) if 'user_email' in st.session_state else False
-        is_full_premium = is_full_premium_user()
 
         st.metric("Current HYPE Price", format_currency(get_curr_hype_price()))
 
@@ -697,7 +695,7 @@ def main():
 
                 if not is_logged_in():
                     show_login_info()
-                elif not is_premium:
+                elif user_premium_type == PremiumType.NONE:
                     display_upgrade_section("trade_data")
                 else:
                     # only runs for subscribed users
@@ -717,7 +715,7 @@ def main():
 
                 if not is_logged_in():
                     show_login_info()
-                elif not is_premium:
+                elif user_premium_type == PremiumType.NONE:
                     display_upgrade_section("bridge_data")
                 else:
                     # only runs for subscribed users
@@ -735,10 +733,9 @@ def main():
 
                 if not is_logged_in():
                     show_login_info()
-                elif not is_premium:
+                elif user_premium_type == PremiumType.NONE:
                     display_upgrade_section("bridge_data")
                 else:
-                    # TODO fully lock down for premium only?
                     st.info('🚧 In Beta: if you see any issues, contact me!')
                     st.info('Note that leaderboard data is only recaculated every few hours')
                     leaderboard_last_updated = _get_leaderboard_last_updated()

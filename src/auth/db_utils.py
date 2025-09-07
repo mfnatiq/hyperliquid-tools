@@ -1,3 +1,4 @@
+from enum import Enum
 import os
 import json
 from datetime import datetime, timedelta, timezone
@@ -61,6 +62,7 @@ def _to_datetime(value, logger: Logger) -> Optional[datetime]:
     logger.warning(f"unhandled type for datetime conversion: {type(value)}")
     return None
 
+
 def _row_to_user_object(row: Optional[Row], logger: Logger) -> Optional[User]:
     """
     safely converts a SQLAlchemy Row object to a User dataclass object,
@@ -106,7 +108,8 @@ def init_db(logger: Logger):
 
             # insert/update admin emails with full privileges (bypass)
             admin_emails_str = os.getenv("ADMIN_EMAILS", "")
-            admin_emails = [email.strip().lower() for email in admin_emails_str.split(",") if email.strip()]
+            admin_emails = [email.strip().lower()
+                            for email in admin_emails_str.split(",") if email.strip()]
             for admin_email in admin_emails:
                 try:
                     conn.execute(text(f"""
@@ -124,7 +127,8 @@ def init_db(logger: Logger):
                     })
                     logger.info(f"Ensured admin bypass for: {admin_email}")
                 except SQLAlchemyError as e:
-                    logger.error(f"Failed to setup admin account for {admin_email}: {e}")
+                    logger.error(
+                        f"Failed to setup admin account for {admin_email}: {e}")
 
             # load seed data, then check if table already has initial data; if not, seed
             seed_json = os.getenv("INITIAL_USERS")
@@ -220,7 +224,13 @@ def start_trial_if_new_user(email: str, logger: Logger) -> str | None:
     return None
 
 
-def is_full_premium_user(user: User) -> bool:
+class PremiumType(Enum):
+    FULL = 1
+    TRIAL = 2
+    NONE = 3
+
+
+def _is_full_premium_user(user: User) -> bool:
     """
     check if a user is fully premium, either by having a valid payment or bypass_payment flag (excl. trial)
     """
@@ -232,17 +242,24 @@ def is_full_premium_user(user: User) -> bool:
 
     return user.bypass_payment or is_paid
 
-def is_premium_user(email: str, logger: Logger) -> bool:
+
+def get_user_premium_type(email: str, logger: Logger) -> PremiumType:
     """
     check if a user is premium (includes trial)
     """
     user = get_user(email, logger)
     if not user:
-        return False
+        return PremiumType.NONE
 
-    is_trial_active = user.trial_expires_at is not None and user.trial_expires_at > datetime.now(timezone.utc)
+    if _is_full_premium_user(user):
+        return PremiumType.FULL
 
-    return is_trial_active or is_full_premium_user(user)
+    is_trial_active = user.trial_expires_at is not None and user.trial_expires_at > datetime.now(
+        timezone.utc)
+    if is_trial_active:
+        return PremiumType.TRIAL
+
+    return PremiumType.NONE
 
 
 def upgrade_to_premium(
@@ -252,7 +269,7 @@ def upgrade_to_premium(
     acceptedPayments: dict,
     logger: Logger,
 ) -> str | None:  # error message if any (if None, verification was successful)
-    # must be mutually exclusive with is_premium_user()
+    # must be mutually exclusive with get_user_premium_type()
     user = get_user(email, logger)
     payment_verification_error = _verify_valid_payment(
         email, user, payment_txn_hash, payment_chain, acceptedPayments, logger)
@@ -366,7 +383,8 @@ def _verify_valid_payment(
 
         # sanity check that payment was after trial started
         block = w3.eth.get_block(tx_receipt['blockNumber'])
-        tx_timestamp = datetime.fromtimestamp(block['timestamp'], tz=timezone.utc)
+        tx_timestamp = datetime.fromtimestamp(
+            block['timestamp'], tz=timezone.utc)
         if tx_timestamp < user.created_at:
             logger.warning(
                 f"txn {payment_txn_hash} for user {email} is too old: {tx_timestamp} vs. user created date {user.created_at}")
