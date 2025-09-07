@@ -673,7 +673,7 @@ def main():
                     "💡 Summary",
                     "⚡ Trade Analysis",
                     "🌉 Bridge Analysis",
-                    "🏆 Leaderboard (New!)",
+                    "🏆 Leaderboard (Beta!)",
                     "🔗 HyperEVM Trades (W.I.P)",
                 ]
             )
@@ -685,6 +685,8 @@ def main():
                 if st.session_state.last_tab != "summary":
                     track_event("summary", { 'addresses_input': addresses_input })
                     st.session_state.last_tab = "summary"
+
+                st.info('There is a known issue with trade data not showing everything for users with >10k trades')
 
                 display_summary(df_trade, df_bridging, top_bridged_asset)
 
