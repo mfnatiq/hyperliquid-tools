@@ -2,6 +2,7 @@ import os
 import time
 import requests
 from auth.db_utils import init_db, is_premium_user, upgrade_to_premium, start_trial_if_new_user, get_user
+from leaderboard.leaderboard_utils import get_leaderboard_last_updated
 from utils.utils import DATE_FORMAT, format_currency, get_cached_unit_token_mappings, get_current_timestamp_millis
 from datetime import datetime, timedelta, timezone
 import pandas as pd
@@ -586,6 +587,7 @@ def main():
 
         is_premium = is_premium_user(
             st.session_state['user_email'], logger) if 'user_email' in st.session_state else False
+        is_full_premium = is_full_premium_user()
 
         st.metric("Current HYPE Price", format_currency(get_curr_hype_price()))
 
@@ -673,8 +675,8 @@ def main():
                     "💡 Summary",
                     "⚡ Trade Analysis",
                     "🌉 Bridge Analysis",
+                    "🏆 Leaderboard (New!)",
                     "🔗 HyperEVM Trades (W.I.P)",
-                    "🏆 Leaderboard (W.I.P)",
                 ]
             )
 
@@ -731,7 +733,16 @@ def main():
                     track_event("view_trade_leaderboard", { 'addresses_input': addresses_input })
                     st.session_state.last_tab = "view_trade_leaderboard"
 
-                st.text("🚧 Under development, stay tuned!")
+                if not is_logged_in():
+                    show_login_info()
+                elif not is_premium:
+                    display_upgrade_section("bridge_data")
+                else:
+                    # TODO fully lock down for premium only?
+                    st.info('🚧 In Beta: if you see any issues, contact me!')
+                    st.info('Note that leaderboard data is only recaculated every few hours')
+                    leaderboard_last_updated = _get_leaderboard_last_updated()
+                    st.text(f'Last Updated: {leaderboard_last_updated}')
 
             with tab5:
                 if st.session_state.last_tab != "view_hyperevm_analysis":
@@ -739,6 +750,12 @@ def main():
                     st.session_state.last_tab = "view_hyperevm_analysis"
 
                 st.text("🚧 Under development, stay tuned!")
+
+# region leaderboard data cached
+@st.cache_data(ttl=3600, show_spinner=False)
+def _get_leaderboard_last_updated():
+    return get_leaderboard_last_updated(logger)
+# endregion
 
 # --------------- display ---------------
 def display_summary(df_trade: pd.DataFrame, df_bridging: pd.DataFrame | None, top_bridged_asset: str):
