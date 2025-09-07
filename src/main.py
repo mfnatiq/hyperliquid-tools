@@ -192,11 +192,16 @@ def updates_announcement():
         Enjoy!
     """)
 if 'startup' not in st.session_state:
-    user_premium_type = get_user_premium_type(st.session_state['user_email'], logger)
-    if user_premium_type != PremiumType.FULL:
-        announcement()
-    else:
+    is_full_premium = False
+    if 'user_email' in st.session_state:
+        user_premium_type = get_user_premium_type(st.session_state['user_email'], logger)
+        if user_premium_type == PremiumType.FULL:
+            is_full_premium = True
+
+    if is_full_premium:
         updates_announcement()
+    else:
+        announcement()
     st.session_state['startup'] = True
 
 info = Info(constants.MAINNET_API_URL, skip_ws=True)
