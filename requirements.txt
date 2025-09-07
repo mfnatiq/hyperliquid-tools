@@ -59,6 +59,7 @@ pillow==11.3.0
 plotly==6.2.0
 propcache==0.3.2
 protobuf==6.31.1
+psycopg2-binary==2.9.10
 pyarrow==21.0.0
 pycares==4.10.0
 pycparser==2.22
