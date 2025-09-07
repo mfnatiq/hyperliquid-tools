@@ -173,20 +173,30 @@ components.html("""
 """, height=0)
 
 
+# announcement shows only upon startup
+# main prompt modal only shows for non-premium users
 @st.dialog("Welcome to hyperliquid-tools!", width="large", on_dismiss="ignore")
 def announcement():
     st.write("""
         This site lets you view your HyperUnit trading / bridging volume, along with some other metrics.
 
-        If you like what you see, please consider making a little donation as I'm doing this for free :)
+        If you like what you see, please consider subscribing to help support! :)
 
         Enjoy!
     """)
+@st.dialog("Latest Updates", width="large", on_dismiss="ignore")
+def updates_announcement():
+    st.write("""
+        🚨 2025-09-07: Added leaderboard data (in beta)
 
-
-# opening modal only upon startup
+        Enjoy!
+    """)
 if 'startup' not in st.session_state:
-    announcement()
+    user_premium_type = get_user_premium_type(st.session_state['user_email'], logger)
+    if user_premium_type != PremiumType.FULL:
+        announcement()
+    else:
+        updates_announcement()
     st.session_state['startup'] = True
 
 info = Info(constants.MAINNET_API_URL, skip_ws=True)
