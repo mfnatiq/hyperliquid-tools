@@ -1,7 +1,8 @@
 import os
 import time
 import requests
-from auth.db_utils import init_db, is_premium_user, upgrade_to_premium, start_trial_if_new_user, get_user
+from auth.db_utils import init_db, PremiumType, get_user_premium_type, upgrade_to_premium, start_trial_if_new_user, get_user
+from leaderboard.leaderboard_utils import get_leaderboard_last_updated, get_leaderboard
 from utils.utils import DATE_FORMAT, format_currency, get_cached_unit_token_mappings, get_current_timestamp_millis
 from datetime import datetime, timedelta, timezone
 import pandas as pd
@@ -139,12 +140,11 @@ with col2:
             user = get_user(st.session_state['user_email'], logger)
             status_message = ""
             if user:
-                is_premium = is_premium_user(st.session_state['user_email'], logger)
-                is_trial_active = user.trial_expires_at and user.trial_expires_at > datetime.now(timezone.utc)
+                user_premium_type = get_user_premium_type(st.session_state['user_email'], logger)
 
-                if is_premium:
+                if user_premium_type == PremiumType.FULL:
                     status_message = "<span style='color: #28a745;'>(Premium)</span>" # green
-                elif is_trial_active:
+                elif user_premium_type == PremiumType.TRIAL:
                     expires_str = user.trial_expires_at.strftime('%Y-%m-%d')
                     status_message = f"<span style='color: #ffc107;'>(Trial ends {expires_str})</span>" # yellow
                 else:
@@ -173,20 +173,30 @@ components.html("""
 """, height=0)
 
 
+# announcement shows only upon startup
+# main prompt modal only shows for non-premium users
 @st.dialog("Welcome to hyperliquid-tools!", width="large", on_dismiss="ignore")
 def announcement():
     st.write("""
         This site lets you view your HyperUnit trading / bridging volume, along with some other metrics.
 
-        If you like what you see, please consider making a little donation as I'm doing this for free :)
+        If you like what you see, please consider subscribing to help support! :)
 
         Enjoy!
     """)
+@st.dialog("Latest Updates", width="large", on_dismiss="ignore")
+def updates_announcement():
+    st.write("""
+        🚨 2025-09-07: Added leaderboard data (in beta)
 
-
-# opening modal only upon startup
+        Enjoy!
+    """)
 if 'startup' not in st.session_state:
-    announcement()
+    user_premium_type = get_user_premium_type(st.session_state['user_email'], logger)
+    if user_premium_type != PremiumType.FULL:
+        announcement()
+    else:
+        updates_announcement()
     st.session_state['startup'] = True
 
 info = Info(constants.MAINNET_API_URL, skip_ws=True)
@@ -584,7 +594,7 @@ def main():
         if "last_tab" not in st.session_state:
             st.session_state.last_tab = None
 
-        is_premium = is_premium_user(
+        user_premium_type = get_user_premium_type(
             st.session_state['user_email'], logger) if 'user_email' in st.session_state else False
 
         st.metric("Current HYPE Price", format_currency(get_curr_hype_price()))
@@ -673,8 +683,8 @@ def main():
                     "💡 Summary",
                     "⚡ Trade Analysis",
                     "🌉 Bridge Analysis",
+                    "🏆 Leaderboard (Beta!)",
                     "🔗 HyperEVM Trades (W.I.P)",
-                    "🏆 Leaderboard (W.I.P)",
                 ]
             )
 
@@ -686,6 +696,8 @@ def main():
                     track_event("summary", { 'addresses_input': addresses_input })
                     st.session_state.last_tab = "summary"
 
+                st.info('There is a known issue with trade data not showing everything for users with >10k trades')
+
                 display_summary(df_trade, df_bridging, top_bridged_asset)
 
             with tab2:
@@ -695,7 +707,7 @@ def main():
 
                 if not is_logged_in():
                     show_login_info()
-                elif not is_premium:
+                elif user_premium_type == PremiumType.NONE:
                     display_upgrade_section("trade_data")
                 else:
                     # only runs for subscribed users
@@ -715,7 +727,7 @@ def main():
 
                 if not is_logged_in():
                     show_login_info()
-                elif not is_premium:
+                elif user_premium_type == PremiumType.NONE:
                     display_upgrade_section("bridge_data")
                 else:
                     # only runs for subscribed users
@@ -731,7 +743,44 @@ def main():
                     track_event("view_trade_leaderboard", { 'addresses_input': addresses_input })
                     st.session_state.last_tab = "view_trade_leaderboard"
 
-                st.text("🚧 Under development, stay tuned!")
+                if not is_logged_in():
+                    show_login_info()
+                elif user_premium_type == PremiumType.NONE:
+                    display_upgrade_section("bridge_data")
+                else:
+                    st.info('🚧 This feature is in beta')
+                    leaderboard_last_updated = _get_leaderboard_last_updated()
+                    st.markdown(f'Last Updated: **{leaderboard_last_updated}** (data is only recalculated every few hours)')
+
+                    leaderboard = _get_leaderboard()
+                    leaderboard['total_volume_usd'] = leaderboard['total_volume_usd'].apply(lambda x: format_currency(x))
+                    leaderboard_formatted = leaderboard[['user_rank', 'user_address', 'total_volume_usd']]
+
+                    # if searched addresses within leaderboard, display them separately
+                    leaderboard_searched_addresses = leaderboard_formatted[leaderboard_formatted['user_address'].isin(accounts)]
+                    if not leaderboard_searched_addresses.empty:
+                        st.subheader('Searched Addresses')
+                        st.dataframe(
+                            leaderboard_searched_addresses,
+                            hide_index=True,
+                            column_config={
+                                'user_rank': st.column_config.TextColumn('Rank'),
+                                'user_address': st.column_config.TextColumn('Address'),
+                                'total_volume_usd': st.column_config.TextColumn('Total Volume (USD)'),
+                            },
+                        )
+
+                    # display overall leaderboard
+                    st.subheader('Overall Leaderboard')
+                    st.dataframe(
+                        leaderboard_formatted,
+                        hide_index=True,
+                        column_config={
+                            'user_rank': st.column_config.TextColumn('Rank'),
+                            'user_address': st.column_config.TextColumn('Address'),
+                            'total_volume_usd': st.column_config.TextColumn('Total Volume (USD)'),
+                        },
+                    )
 
             with tab5:
                 if st.session_state.last_tab != "view_hyperevm_analysis":
@@ -739,6 +788,16 @@ def main():
                     st.session_state.last_tab = "view_hyperevm_analysis"
 
                 st.text("🚧 Under development, stay tuned!")
+
+# region leaderboard data cached
+@st.cache_data(ttl=3600, show_spinner=False)
+def _get_leaderboard_last_updated():
+    return get_leaderboard_last_updated(logger)
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _get_leaderboard():
+    return get_leaderboard(logger)
+# endregion
 
 # --------------- display ---------------
 def display_summary(df_trade: pd.DataFrame, df_bridging: pd.DataFrame | None, top_bridged_asset: str):
