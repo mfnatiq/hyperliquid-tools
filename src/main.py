@@ -131,6 +131,11 @@ def show_login_info(show_button_only: bool = False):
     )
 
 
+@st.dialog("Refer a friend!")
+def show_ref_code(user):
+    st.write("Enjoying the dashboard? Share your referral code to get 10%% off!")
+    st.code("")
+
 col1, col2 = st.columns([1, 1], vertical_alignment='center')
 with col1:
     st.title("Unit Volume Tracker")
@@ -156,6 +161,10 @@ with col2:
                 width="content",
                 unsafe_allow_html=True
             )
+            if user and user_premium_type == PremiumType.FULL:
+                if st.button("Refer a friend"):
+                    show_ref_code(user)
+                st.text("|")
             st.button(
                 "Logout",
                 key=f"logout_{uuid.uuid4()}",
@@ -536,6 +545,8 @@ def display_upgrade_section(id: str):
 
     st.info("If you have previously donated, please DM me to get your full access!")
 
+    earlybird_discount = 20
+
     # update based on current hype market price
     stables_amount = acceptedPayments['USD₮0']['minAmount']
     hype_amt_override = round(stables_amount / get_curr_hype_price(), 2)
@@ -547,6 +558,10 @@ def display_upgrade_section(id: str):
     uniqueAcceptedPayments = deepcopy(acceptedPayments)
     for k, v in uniqueAcceptedPayments.items():
         existingAmt = v['minAmount']
+
+        # TODO limited-time early bird discount
+        existingAmt *= (1 - earlybird_discount / 100)
+
         if int(existingAmt) == existingAmt: # no decimals (USDT), add after decimals
             uniqueAcceptedPayments[k]['minAmount'] = existingAmt + millis / 1000
         else:   # append decimals as suffix
@@ -568,6 +583,8 @@ def display_upgrade_section(id: str):
     st.markdown(f"**One-time payment: {' or '.join(formattedAmounts)}** to the donation address below on the HyperEVM chain (not Hyperliquid L1!)")
     st.text("Simply send your payment (please pay exact amounts - this is unique to your trial) then submit the transaction hash below for instant reactivation!")
     st.text("P.S. if you wish to pay on another chain / to another wallet, please DM me (no automated access atm)")
+
+    st.info(f'P.P.S. for a limited time only, input "EARLYBIRD" for {earlybird_discount}%% off!')
 
     with st.form(f"submit_txn_hash_form_{id}"):
         payment_txn_hash = st.text_input(
