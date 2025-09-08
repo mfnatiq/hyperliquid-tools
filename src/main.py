@@ -567,6 +567,7 @@ def display_upgrade_section(id: str):
     """)
     st.markdown(f"**One-time payment: {' or '.join(formattedAmounts)}** to the donation address below on the HyperEVM chain (not Hyperliquid L1!)")
     st.text("Simply send your payment (please pay exact amounts - this is unique to your trial) then submit the transaction hash below for instant reactivation!")
+    st.text("If you wish to pay on another chain / to another wallet, please DM me (no automated access atm)")
 
     with st.form(f"submit_txn_hash_form_{id}"):
         payment_txn_hash = st.text_input(
