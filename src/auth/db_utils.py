@@ -1,3 +1,4 @@
+from decimal import Decimal
 from enum import Enum
 import os
 import json
@@ -438,11 +439,15 @@ def _verify_valid_payment(
 
                 transferred_token_correct_address = log['address'].lower(
                 ) == acceptedPayments[token_symbol]['address'].lower()
-                transferred_min_amount = value_formatted >= acceptedPayments[
+
+                # no need conversion as value_formatted is float
+                transferred_exact_amount = value_formatted == acceptedPayments[
                     token_symbol]['minAmount']
+                donation_address = '0x8d6f070e5e3f73758426007da680324c10c2869c'
+                recipient_address_correct = recipient_address.lower() == donation_address.lower()
                 if transferred_token_correct_address \
-                        and transferred_min_amount \
-                        and recipient_address == donation_address:
+                    and transferred_exact_amount \
+                    and recipient_address_correct:
                     return None
                 else:
                     logger.warning(
@@ -450,7 +455,7 @@ def _verify_valid_payment(
                     return f"""
                         The submitted txn shows a transfer of {value_formatted} {token_symbol} to {recipient_address}, which does not fulfill the subscription requirements
 
-                        If you think there has been an error, contact me
+                        If you think there has been an error, please DM me!
                     """
         else:
             # for native token (hype), value is in txn object
@@ -470,10 +475,13 @@ def _verify_valid_payment(
                 txn value: {tx_value_hype} HYPE
             """)
 
-            transferred_min_amount = tx_value_hype >= acceptedPayments['HYPE']['minAmount']
+            # need exact decimal string comparison
+            transferred_exact_amount = tx_value_hype == Decimal(str(acceptedPayments['HYPE']['minAmount']))
             recipient_address = tx_receipt['to']
-            if transferred_min_amount \
-                    and recipient_address == donation_address:
+            donation_address = '0x8d6f070e5e3f73758426007da680324c10c2869c'
+            recipient_address_correct = recipient_address.lower() == donation_address.lower()
+            if transferred_exact_amount \
+                and recipient_address_correct:
                 return None
             else:
                 logger.warning(
@@ -481,7 +489,7 @@ def _verify_valid_payment(
                 return f"""
                     The submitted txn shows a transfer of {tx_value_hype} HYPE to {recipient_address}, which does not fulfill the subscription requirements
 
-                    If you think there has been an error, contact me
+                    If you think there has been an error, please DM me!
                 """
 
     except Exception as e:

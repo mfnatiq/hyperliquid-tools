@@ -1,3 +1,4 @@
+from copy import deepcopy
 import os
 import time
 import requests
@@ -533,13 +534,26 @@ def create_volume_df(volume_by_token: dict) -> pd.DataFrame:
 def display_upgrade_section(id: str):
     st.subheader("Your free trial has expired!")
 
+    st.info("If you have previously donated, please DM me to get your full access!")
+
     # update based on current hype market price
     stables_amount = acceptedPayments['USD₮0']['minAmount']
-    hype_amt_override = round(stables_amount / get_curr_hype_price(), 1)
+    hype_amt_override = round(stables_amount / get_curr_hype_price(), 2)
     acceptedPayments['HYPE']['minAmount'] = hype_amt_override
+    user = get_user(st.session_state['user_email'], logger)
+    millis = user.trial_expires_at.microsecond // 1000
+
+    # add user-specific trial expiry date to accepted payments to ensure uniqueness
+    uniqueAcceptedPayments = deepcopy(acceptedPayments)
+    for k, v in uniqueAcceptedPayments.items():
+        existingAmt = v['minAmount']
+        if int(existingAmt) == existingAmt: # no decimals (USDT), add after decimals
+            uniqueAcceptedPayments[k]['minAmount'] = existingAmt + millis / 1000
+        else:   # append decimals as suffix
+            uniqueAcceptedPayments[k]['minAmount'] = float(f'{str(existingAmt)}{millis}')
 
     formattedAmounts = [
-        f'{values['minAmount']} {symbol}' for symbol, values in acceptedPayments.items()]
+        f'{values['minAmount']} {symbol}' for symbol, values in uniqueAcceptedPayments.items()]
 
     st.text(f"""
         You've seen what detailed analytics this dashboard has to offer. Ready to keep the insights coming?
@@ -551,8 +565,8 @@ def display_upgrade_section(id: str):
         🎯 Raw data
         ✨ And all other future premium features!
     """)
-    st.markdown(f"**One-time payment:** {' or '.join(formattedAmounts)} to the donation address below on the HyperEVM chain")
-    st.text("Simply send your payment and submit the transaction hash below for instant reactivation!")
+    st.markdown(f"**One-time payment: {' or '.join(formattedAmounts)}** to the donation address below on the HyperEVM chain (not Hyperliquid L1!)")
+    st.text("Simply send your payment (please pay exact amounts - this is unique to your trial) then submit the transaction hash below for instant reactivation!")
 
     with st.form(f"submit_txn_hash_form_{id}"):
         payment_txn_hash = st.text_input(
@@ -564,7 +578,7 @@ def display_upgrade_section(id: str):
         logger.info(
             f'{st.session_state['user_email']} submitted txn hash {payment_txn_hash}, validating')
         error_message = upgrade_to_premium(
-            st.session_state['user_email'], payment_txn_hash, 'hyperevm', acceptedPayments, logger)
+            st.session_state['user_email'], payment_txn_hash, 'hyperevm', uniqueAcceptedPayments, logger)
         if error_message:
             st.error(error_message)
         else:
@@ -758,7 +772,7 @@ def main():
                 if not is_logged_in():
                     show_login_info()
                 elif user_premium_type == PremiumType.NONE:
-                    display_upgrade_section("bridge_data")
+                    display_upgrade_section("leaderboard_data")
                 else:
                     st.info('🚧 This feature is in beta')
                     leaderboard_last_updated = _get_leaderboard_last_updated()
