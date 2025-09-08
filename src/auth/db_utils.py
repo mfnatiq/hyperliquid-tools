@@ -443,7 +443,6 @@ def _verify_valid_payment(
                 # no need conversion as value_formatted is float
                 transferred_exact_amount = value_formatted == acceptedPayments[
                     token_symbol]['minAmount']
-                donation_address = '0x8d6f070e5e3f73758426007da680324c10c2869c'
                 recipient_address_correct = recipient_address.lower() == donation_address.lower()
                 if transferred_token_correct_address \
                     and transferred_exact_amount \
@@ -478,7 +477,6 @@ def _verify_valid_payment(
             # need exact decimal string comparison
             transferred_exact_amount = tx_value_hype == Decimal(str(acceptedPayments['HYPE']['minAmount']))
             recipient_address = tx_receipt['to']
-            donation_address = '0x8d6f070e5e3f73758426007da680324c10c2869c'
             recipient_address_correct = recipient_address.lower() == donation_address.lower()
             if transferred_exact_amount \
                 and recipient_address_correct:
