@@ -2,9 +2,9 @@ from copy import deepcopy
 import os
 import time
 import requests
-from auth.db_utils import init_db, PremiumType, get_user_premium_type, upgrade_to_premium, start_trial_if_new_user, get_user
-from leaderboard.leaderboard_utils import get_leaderboard_last_updated, get_leaderboard
-from utils.utils import DATE_FORMAT, format_currency, get_cached_unit_token_mappings, get_current_timestamp_millis
+from src.auth.db_utils import init_db, PremiumType, get_user_premium_type, upgrade_to_premium, start_trial_if_new_user, get_user
+from src.leaderboard.leaderboard_utils import get_leaderboard_last_updated, get_leaderboard
+from src.utils.utils import DATE_FORMAT, format_currency, get_cached_unit_token_mappings, get_current_timestamp_millis
 from datetime import datetime, timedelta, timezone
 import pandas as pd
 from hyperliquid.info import Info
@@ -13,11 +13,11 @@ from hyperliquid.utils.error import ClientError, ServerError
 import streamlit as st
 import streamlit.components.v1 as components
 import plotly.express as px
-from bridge.unit_bridge_api import UnitBridgeInfo
-from utils.render_utils import footer_html, copy_script
-from trade.trade_data import get_candlestick_data
-from bridge.unit_bridge_utils import create_bridge_summary, process_bridge_operations
-from consts import unitStartTime, oneDayInS, acceptedPayments
+from src.bridge.unit_bridge_api import UnitBridgeInfo
+from src.utils.render_utils import footer_html, copy_script
+from src.trade.trade_data import get_candlestick_data
+from src.bridge.unit_bridge_utils import create_bridge_summary, process_bridge_operations
+from src.consts import unitStartTime, oneDayInS, acceptedPayments
 import uuid
 
 # setup and configure logging
@@ -131,11 +131,6 @@ def show_login_info(show_button_only: bool = False):
     )
 
 
-@st.dialog("Refer a friend!")
-def show_ref_code(user):
-    st.write("Enjoying the dashboard? Share your referral code to get 10%% off!")
-    st.code("")
-
 col1, col2 = st.columns([1, 1], vertical_alignment='center')
 with col1:
     st.title("Unit Volume Tracker")
@@ -161,10 +156,6 @@ with col2:
                 width="content",
                 unsafe_allow_html=True
             )
-            if user and user_premium_type == PremiumType.FULL:
-                if st.button("Refer a friend"):
-                    show_ref_code(user)
-                st.text("|")
             st.button(
                 "Logout",
                 key=f"logout_{uuid.uuid4()}",

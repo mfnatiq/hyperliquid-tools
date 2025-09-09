@@ -10,7 +10,7 @@ from sqlalchemy import create_engine, text, Row
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from web3 import Web3
 from logging import Logger
-from utils.render_utils import donation_address
+from src.utils.render_utils import donation_address
 from eth_abi import decode
 from eth_utils import to_checksum_address
 
