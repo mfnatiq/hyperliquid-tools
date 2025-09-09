@@ -8,7 +8,7 @@ oneDayInS = 60 * 60 * 24
 acceptedPayments = {
     'USD₮0': {
         'address': '0xB8CE59FC3717ada4C02eaDF9682A9e934F625ebb',
-        'minAmount': 20,
+        'minAmount': 15,    # TODO change to 20 after earlybird period
     },
     # handle specially (no SC calls needed so simply fetching value from txn)
     'HYPE': {

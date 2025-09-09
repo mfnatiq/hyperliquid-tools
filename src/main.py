@@ -534,7 +534,7 @@ def create_volume_df(volume_by_token: dict) -> pd.DataFrame:
 def display_upgrade_section(id: str):
     st.subheader("Your free trial has expired!")
 
-    st.info("If you have previously donated, please DM me to get your full access!")
+    st.info("If you have previously donated, DM me to get your full access!")
 
     # update based on current hype market price
     stables_amount = acceptedPayments['USD₮0']['minAmount']
@@ -558,16 +558,18 @@ def display_upgrade_section(id: str):
     st.text(f"""
         You've seen what detailed analytics this dashboard has to offer. Ready to keep the insights coming?
     """)
-    st.text(f"""
-        With a one-time payment (no recurring charges!), you can continue accessing:
+    st.markdown("""
+        As an early user, you get a :green[25% discount] (already applied)!
+    """)
+    st.text("""
+        For a one-time payment, you get full access to:
         📊 Complete transaction and bridging history
         💼 Advanced breakdowns and comparisons by various metrics
-        🎯 Raw data
         ✨ And all other future premium features!
     """)
-    st.markdown(f"**One-time payment: {' or '.join(formattedAmounts)}** to the donation address below on the HyperEVM chain (not Hyperliquid L1!)")
-    st.text("Simply send your payment (please pay exact amounts - this is unique to your trial) then submit the transaction hash below for instant reactivation!")
-    st.text("P.S. if you wish to pay on another chain / to another wallet, please DM me (no automated access atm)")
+    st.markdown(f"One-time payment: :green[{' or '.join(formattedAmounts)}] to the donation address below on the HyperEVM chain")
+    st.markdown("Please send the :green[exact amount] shown (unique to your trial). Once done, submit the transaction hash below for instant reactivation!")
+    st.markdown("*P.S. if you wish to pay in another way, DM me (no automated access atm)*")
 
     with st.form(f"submit_txn_hash_form_{id}"):
         payment_txn_hash = st.text_input(
