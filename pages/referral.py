@@ -1,4 +1,3 @@
-import uuid
 import streamlit as st
 
 from src.auth.db_utils import PremiumType, get_user, get_user_premium_type
@@ -55,5 +54,5 @@ if "user_email" in st.session_state:
         st.text("Sign up for premium to get a referral code and enjoy discounts when referring others!")
 
 else:
-    st.text("This page is only relevant for logged-in users")
+    st.text("Please log in to view this page")
     show_login_info(show_button_only=True)
