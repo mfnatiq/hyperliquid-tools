@@ -2,7 +2,7 @@
 
 ### Running
 
-`streamlit run src/main.py`
+`streamlit run src/main.py` or `streamlit run home.py` (if migrated)
 
 Tested with python 3.13
 

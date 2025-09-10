@@ -551,6 +551,9 @@ def display_upgrade_section(id: str):
         existingAmt = v['minAmount']
 
         # TODO limited-time early bird discount
+
+        ########## TODO
+        check rounding errors - how to update
         existingAmt *= (1 - earlybird_discount / 100)
 
         if int(existingAmt) == existingAmt: # no decimals (USDT), add after decimals

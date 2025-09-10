@@ -1,9 +1,9 @@
-from main import display_upgrade_section
+from pages.dashboard import display_upgrade_section
 from src.consts import acceptedPayments
 import streamlit as st
 
 from src.auth.db_utils import PremiumType, get_user, get_user_premium_type
-from pages.main import show_login_info
+from pages.dashboard import show_login_info
 
 st.set_page_config(
     'Trial Details',
