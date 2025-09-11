@@ -1,5 +1,10 @@
+import json
+from logging import Logger
+import os
+from dotenv import load_dotenv
 from hyperliquid.info import Info
 import pandas as pd
+import requests
 from consts import unitStartTime
 from utils.utils import get_today_timestamp_millis
 
@@ -32,3 +37,26 @@ def get_candlestick_data(info: Info, token_ids: list[str], token_names: list[str
         'volume_usd'].cumsum()
 
     return candlestick_data
+
+# error handling done externally
+def get_user_fills(account: str, startTime: int, endTime: int, logger: Logger):
+    load_dotenv()
+
+    fills_result = requests.post(
+        "https://api.hydromancer.xyz/info",
+        data=json.dumps({
+            "type": "userFillsByTime",  # up to 10k total, then need to query from s3
+            "user": account,
+            "aggregateByTime": True,
+            "startTime": startTime,
+            "endTime": endTime,
+        }),
+        headers={
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {os.getenv("HYDROMANCER_API_KEY")}'
+        },
+    )
+
+    fills_result.raise_for_status()
+
+    return fills_result.json()

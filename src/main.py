@@ -1,7 +1,7 @@
 from copy import deepcopy
-import json
 import os
 import time
+from dotenv import load_dotenv
 import requests
 from auth.db_utils import init_db, PremiumType, get_user_premium_type, upgrade_to_premium, start_trial_if_new_user, get_user
 from leaderboard.leaderboard_utils import get_leaderboard_last_updated, get_leaderboard
@@ -16,7 +16,7 @@ import streamlit.components.v1 as components
 import plotly.express as px
 from bridge.unit_bridge_api import UnitBridgeInfo
 from utils.render_utils import footer_html, copy_script
-from trade.trade_data import get_candlestick_data
+from trade.trade_data import get_candlestick_data, get_user_fills
 from bridge.unit_bridge_utils import create_bridge_summary, process_bridge_operations
 from consts import unitStartTime, oneDayInS, acceptedPayments
 import uuid
@@ -87,6 +87,8 @@ def is_logged_in():
     if len(st.user) == 0:
         return False
     return st.user.is_logged_in
+
+load_dotenv()
 
 # track umami analytics
 UMAMI_API = "https://cloud.umami.is/api/send"
@@ -346,20 +348,7 @@ def get_cached_unit_volumes(
                 endTime = min(currTime, startTime + \
                     int(timedelta(days=numDaysQuerySpan).total_seconds()) * 1000)
 
-                fills_result = requests.post(
-                    "https://api.hydromancer.xyz/info",
-                    data=json.dumps({
-                        "type": "userFillsByTime",  # up to 10k total, then need to query from s3
-                        "user": account,
-                        "aggregateByTime": True,
-                        "startTime": startTime,
-                        "endTime": endTime,
-                    }),
-                    headers={
-                        'Content-Type': 'application/json',
-                        'Authorization': f'Bearer {os.getenv("HYDROMANCER_API_KEY")}'
-                    },
-                ).json()
+                fills_result = get_user_fills(account, startTime, endTime, logger)
 
                 # query again til no more
                 num_fills = len(fills_result)
@@ -384,7 +373,7 @@ def get_cached_unit_volumes(
             fills[account] = account_fills
     except Exception as e:
         logging.error(f'error fetching fills for some account(s) in {accounts_to_query}: {e}')
-        return dict(), dict(), [], pd.DataFrame, 'Unable to fetch trade history - did you put a valid list of accounts?'
+        return dict(), dict(), [], pd.DataFrame, 'Error fetching fills: did you put a valid list of accounts?'
 
     # 10k - need get from s3
     accounts_hitting_fills_limits = []
