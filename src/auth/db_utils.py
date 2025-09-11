@@ -239,7 +239,8 @@ def _is_full_premium_user(user: User) -> bool:
     if user.bypass_payment:
         return True
 
-    is_paid = user.payment_txn_hash is not None and user.upgraded_at is not None
+    # in case of manually updating DB (e.g. payment issues), user.upgraded_at will be none
+    is_paid = user.payment_txn_hash is not None or user.upgraded_at is not None
 
     return user.bypass_payment or is_paid
 
