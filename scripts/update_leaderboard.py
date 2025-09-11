@@ -114,7 +114,7 @@ def update_leaderboard_data():
             response.raise_for_status()
             data = response.json()
             status = data['status']
-            logger.debug(f"query results polling status: {status}")
+            logger.info(f"query results polling status: {status}")
 
         if status == 'failed':
             logger.error(f"query failed: {data.get('error', 'Unknown error')}")

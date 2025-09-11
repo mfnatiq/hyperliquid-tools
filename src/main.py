@@ -1,6 +1,7 @@
 from copy import deepcopy
 import os
 import time
+from dotenv import load_dotenv
 import requests
 from auth.db_utils import init_db, PremiumType, get_user_premium_type, upgrade_to_premium, start_trial_if_new_user, get_user
 from leaderboard.leaderboard_utils import get_leaderboard_last_updated, get_leaderboard
@@ -15,7 +16,7 @@ import streamlit.components.v1 as components
 import plotly.express as px
 from bridge.unit_bridge_api import UnitBridgeInfo
 from utils.render_utils import footer_html, copy_script
-from trade.trade_data import get_candlestick_data
+from trade.trade_data import get_candlestick_data, get_user_fills
 from bridge.unit_bridge_utils import create_bridge_summary, process_bridge_operations
 from consts import unitStartTime, oneDayInS, acceptedPayments
 import uuid
@@ -86,6 +87,8 @@ def is_logged_in():
     if len(st.user) == 0:
         return False
     return st.user.is_logged_in
+
+load_dotenv()
 
 # track umami analytics
 UMAMI_API = "https://cloud.umami.is/api/send"
@@ -242,6 +245,7 @@ def get_curr_hype_price():
 
 def load_data():
     unit_token_mappings = _get_cached_unit_token_mappings()
+    logger.info(f'unit token mappings: {unit_token_mappings}')
     token_list = [t for t, _ in unit_token_mappings.values()]
     cumulative_trade_data = _get_candlestick_data(
         [k for k in unit_token_mappings.keys()], token_list)
@@ -341,20 +345,16 @@ def get_cached_unit_volumes(
             # seems like 2k limit for endpoint counts from the start
             # so start from overall start time then move up til currtime
             while startTime < currTime:  # check back until this date
-                endTime = startTime + \
-                    int(timedelta(days=numDaysQuerySpan).total_seconds()) * 1000
+                endTime = min(currTime, startTime + \
+                    int(timedelta(days=numDaysQuerySpan).total_seconds()) * 1000)
 
-                fills_result = info.post("/info", {
-                    "type": "userFillsByTime",  # up to 10k total, then need to query from s3
-                    "user": account,
-                    "aggregateByTime": True,
-                    "startTime": startTime,
-                    "endTime": endTime,
-                })
+                fills_result = get_user_fills(account, startTime, endTime, logger)
 
                 # query again til no more
                 num_fills = len(fills_result)
                 num_fills_total += num_fills
+
+                logger.info(f'{num_fills} trades for {account} made from {startTime} to {endTime}')
 
                 # logic:
                 # 1) if hit limit (2k fills per api call), set start = latest fill timestamp + 1
@@ -364,14 +364,16 @@ def get_cached_unit_volumes(
                     latest_fill_timestamp = max(
                         f['time'] for f in fills_result)
                     startTime = latest_fill_timestamp + 1
+                    logger.info(f'hit max fills within range, setting next starttime to {startTime}')
                 else:
                     startTime = endTime + 1
 
                 account_fills.extend(fills_result)
+
             fills[account] = account_fills
     except Exception as e:
         logging.error(f'error fetching fills for some account(s) in {accounts_to_query}: {e}')
-        return dict(), dict(), [], pd.DataFrame, 'Unable to fetch trade history - did you put a valid list of accounts?'
+        return dict(), dict(), [], pd.DataFrame, 'Error fetching fills: did you put a valid list of accounts?'
 
     # 10k - need get from s3
     accounts_hitting_fills_limits = []
@@ -786,7 +788,7 @@ def main():
                     leaderboard_formatted = leaderboard[['user_rank', 'user_address', 'total_volume_usd']]
 
                     # if searched addresses within leaderboard, display them separately
-                    leaderboard_searched_addresses = leaderboard_formatted[leaderboard_formatted['user_address'].isin(accounts)]
+                    leaderboard_searched_addresses = leaderboard_formatted[leaderboard_formatted['user_address'].str.lower().isin([a.lower() for a in accounts])]
                     if not leaderboard_searched_addresses.empty:
                         st.subheader('Searched Addresses')
                         st.dataframe(
