@@ -727,8 +727,6 @@ def main():
                     track_event("summary", { 'addresses_input': addresses_input })
                     st.session_state.last_tab = "summary"
 
-                st.info('There is a known issue with trade data not showing everything for users with >10k trades')
-
                 display_summary(df_trade, df_bridging, top_bridged_asset)
 
             with tab2:
