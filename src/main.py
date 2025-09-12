@@ -191,6 +191,8 @@ def announcement():
 @st.dialog("Latest Updates", width="large", on_dismiss="ignore")
 def updates_announcement():
     st.write("""
+        🚨 2025-09-11: Updated trade data to match leaderboard data
+
         🚨 2025-09-07: Added leaderboard data (in beta)
 
         Enjoy!
