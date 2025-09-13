@@ -535,8 +535,6 @@ def display_upgrade_section(id: str):
 
     st.info("If you have previously donated, DM me to get your full access!")
 
-    earlybird_discount = 20
-
     # update based on current hype market price
     stables_amount = acceptedPayments['USD₮0']['minAmount']
     hype_amt_override = round(stables_amount / get_curr_hype_price(), 2)
@@ -548,12 +546,6 @@ def display_upgrade_section(id: str):
     uniqueAcceptedPayments = deepcopy(acceptedPayments)
     for k, v in uniqueAcceptedPayments.items():
         existingAmt = v['minAmount']
-
-        # TODO limited-time early bird discount
-
-        ########## TODO
-        check rounding errors - how to update
-        existingAmt *= (1 - earlybird_discount / 100)
 
         if int(existingAmt) == existingAmt: # no decimals (USDT), add after decimals
             uniqueAcceptedPayments[k]['minAmount'] = existingAmt + millis / 1000
@@ -578,8 +570,6 @@ def display_upgrade_section(id: str):
     st.markdown(f"One-time payment: :green[{' or '.join(formattedAmounts)}] to the donation address below on the HyperEVM chain")
     st.markdown("Please send the :green[exact amount] shown (unique to your trial). Once done, submit the transaction hash below for instant reactivation!")
     st.markdown("*P.S. if you wish to pay in another way, DM me (no automated access atm)*")
-
-    st.info(f'P.P.S. for a limited time only, input "EARLYBIRD" for {earlybird_discount}%% off!')
 
     with st.form(f"submit_txn_hash_form_{id}"):
         payment_txn_hash = st.text_input(
