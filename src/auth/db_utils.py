@@ -413,7 +413,7 @@ def _verify_valid_payment(
                     log['topics'][2].hex()[-40:])
 
                 # Logging the from_address is useful for debugging and tracking payments.
-                logger.info(f"Decoded ERC20 transfer from: {from_address}")
+                logger.info(f"decoded ERC20 transfer from: {from_address}")
 
                 # decode the non-indexed data
                 # "value" is uint256 and is stored in the `data` field
@@ -441,7 +441,7 @@ def _verify_valid_payment(
                 ) == acceptedPayments[token_symbol]['address'].lower()
 
                 # no need conversion as value_formatted is float
-                transferred_exact_amount = value_formatted == acceptedPayments[
+                transferred_exact_amount = value_formatted >= acceptedPayments[
                     token_symbol]['minAmount']
                 recipient_address_correct = recipient_address.lower() == donation_address.lower()
                 if transferred_token_correct_address \
@@ -475,7 +475,7 @@ def _verify_valid_payment(
             """)
 
             # need exact decimal string comparison
-            transferred_exact_amount = tx_value_hype == Decimal(str(acceptedPayments['HYPE']['minAmount']))
+            transferred_exact_amount = tx_value_hype >= Decimal(str(acceptedPayments['HYPE']['minAmount']))
             recipient_address = tx_receipt['to']
             recipient_address_correct = recipient_address.lower() == donation_address.lower()
             if transferred_exact_amount \
