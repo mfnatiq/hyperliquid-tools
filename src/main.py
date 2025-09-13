@@ -296,7 +296,7 @@ def get_cached_unit_volumes(
                     }
     except Exception as e:
         logger.error(f'unable to fetch subaccounts of {accounts}: {e}')
-        return dict(), dict(), [], pd.DataFrame, 'Unable to fetch trade history - did you put a valid list of accounts?'
+        return dict(), dict(), pd.DataFrame, 'Unable to fetch trade history - did you put a valid list of accounts?'
 
     accounts_to_query = accounts_mapping.keys()
 
@@ -434,7 +434,7 @@ def get_cached_unit_volumes(
     except Exception as e:
         logging.error(f'error fetching fills for some account(s) in {accounts_to_query}: {e}')
         # TODO need clearer error message
-        return dict(), dict(), [], pd.DataFrame, 'Error fetching fills: did you put a valid list of accounts?'
+        return dict(), dict(), pd.DataFrame, 'Error fetching fills: did you put a valid list of accounts?'
 
     user_trades_df = pd.DataFrame(user_fills_rows)
     if not user_trades_df.empty:
