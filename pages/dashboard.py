@@ -16,7 +16,7 @@ import streamlit.components.v1 as components
 import plotly.express as px
 from src.bridge.unit_bridge_api import UnitBridgeInfo
 from src.utils.render_utils import footer_html, copy_script
-from src.trade.trade_data import get_candlestick_data
+from src.trade.trade_data import get_candlestick_data, get_user_fills
 from src.bridge.unit_bridge_utils import create_bridge_summary, process_bridge_operations
 from src.consts import unitStartTime, oneDayInS, acceptedPayments
 import uuid
@@ -184,16 +184,16 @@ def announcement():
     st.write("""
         This site lets you view your HyperUnit trading / bridging volume, along with some other metrics.
 
-        If you like what you see, please consider subscribing to help support! :)
+        If you like what you see, please consider subscribing :)
 
         Enjoy!
     """)
 @st.dialog("Latest Updates", width="large", on_dismiss="ignore")
 def updates_announcement():
     st.write("""
-        🚨 2025-09-11: Updated trade data to match leaderboard data
+        🚨 2025-09-11: Updated trade data (previously missing some fills)
 
-        🚨 2025-09-07: Added leaderboard data (in beta)
+        🚨 2025-09-07: Added leaderboard data
 
         Enjoy!
     """)

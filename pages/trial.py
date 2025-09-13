@@ -21,6 +21,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# same logic as dashboard.py
+
+# robust logic to handle user login/logout and initiate trials.
+# runs only once when user's state changes
+if 'user_email' not in st.session_state and st.user and 'email' in st.user:
+    # runs only when the user has just logged in
+    st.session_state["user_email"] = st.user.email
+elif 'user_email' in st.session_state and not (st.user and 'email' in st.user):
+    # runs when the user has just logged out.
+    del st.session_state["user_email"]
+    if "user_object" in st.session_state:
+        del st.session_state["user_object"]
+
 if "user_email" in st.session_state:
     # display dynamic user status (premium, trial, expired)
     user = get_user(st.session_state['user_email'], logger)
@@ -40,12 +53,11 @@ if "user_email" in st.session_state:
         if user_premium_type == PremiumType.FULL:
             st.text("Thanks for subscribing!")
         elif user_premium_type == PremiumType.TRIAL:
-            st.text(f'Your trial ends at {user.trial_expires_at.strftime('%Y-%m-%d')}')
-            st.text(f"""
-                After the trial ends, you can maintain premium access forever with a :green[one-time payment] of
-
-                :green[{stablesAmountToPay} USD₮0] (or approximate equivalent in HYPE)
+            st.markdown(f'Your trial ends at **{user.trial_expires_at}**')
+            st.markdown(f"""
+                After the trial ends, you can maintain premium access forever with a :green[one-time payment] of :green[{stablesAmountToPay} USD₮0] (or approximate equivalent in HYPE)
             """)
+            st.markdown("Subscription cost will go up to :red[20 USD₮0] after **2025-09-30** - if you would like to subscribe early to lock in this discounted price, please DM me!")
         else:
             display_upgrade_section('trial_page')
 
