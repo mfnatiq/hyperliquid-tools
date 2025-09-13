@@ -778,6 +778,7 @@ def main():
 
                     leaderboard = _get_leaderboard()
                     leaderboard['total_volume_usd'] = leaderboard['total_volume_usd'].apply(lambda x: format_currency(x))
+                    leaderboard['user_address'] = leaderboard['user_address'].apply(lambda x: x[:6] + '...' + x[-6:])
                     leaderboard_formatted = leaderboard[['user_rank', 'user_address', 'total_volume_usd']]
 
                     # if searched addresses within leaderboard, display them separately

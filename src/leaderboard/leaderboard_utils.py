@@ -46,7 +46,7 @@ metadata_table = Table(
 )
 # endregion
 
-def get_leaderboard(logger: Logger) -> pd.DataFrame | None:
+def get_leaderboard(logger: Logger) -> pd.DataFrame:
     try:
         with engine.connect() as conn:
             results = conn.execute(leaderboard_table.select())
@@ -56,7 +56,7 @@ def get_leaderboard(logger: Logger) -> pd.DataFrame | None:
             return leaderboard_df
     except Exception as e:
         logger.error(f'unable to fetchleaderboard: {e}')
-    return None
+    return pd.DataFrame()
 
 def get_leaderboard_last_updated(logger: Logger):
     try:
