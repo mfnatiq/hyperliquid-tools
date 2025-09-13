@@ -2,6 +2,12 @@ from logging import Logger
 import numpy as np
 import pandas as pd
 
+def _bridge_asset_name_in_token_list(unit_asset_name: str, bridge_asset_name: str):
+    # some tokens need manual checks
+    # TODO do manual mapping instead?
+    return unit_asset_name.lower().endswith(bridge_asset_name) \
+            or (unit_asset_name == 'UFART' and bridge_asset_name == 'fartcoin') \
+            or (unit_asset_name == 'UUUSPX' and bridge_asset_name == 'spxs')
 
 def process_bridge_operations(
     data_dict: dict,
@@ -49,8 +55,7 @@ def process_bridge_operations(
         # convert to token name
         found_key = ""
         for key in unique_tokens:
-            if key.lower().endswith(asset) \
-                    or (key == 'UFART' and asset == 'fartcoin'):    # TODO FART must be fartcoin?
+            if _bridge_asset_name_in_token_list(key, asset):
                 found_key = key
                 break
         if found_key == "":
@@ -80,13 +85,12 @@ def process_bridge_operations(
         decimal_places = 18
         found_decimals = False
         for asset_name, decimals in unit_token_mappings.values():
-            if asset_name.lower().endswith(asset):
+            if _bridge_asset_name_in_token_list(asset_name, asset):
                 decimal_places = decimals
                 found_decimals = True
                 break
         if not found_decimals:
-            logger.warning(
-                f"error: decimal places not found for {asset}: setting to default {decimal_places}")
+            logger.warning(f"error: decimal places not found for {asset}, ignoring txns")
             return pd.Series([np.nan, np.nan], index=amt_cols)
 
         amount_formatted = amount / (10 ** decimal_places)

@@ -1,6 +1,7 @@
 from copy import deepcopy
 import os
 import time
+from dotenv import load_dotenv
 import requests
 from src.auth.db_utils import init_db, PremiumType, get_user_premium_type, upgrade_to_premium, start_trial_if_new_user, get_user
 from src.leaderboard.leaderboard_utils import get_leaderboard_last_updated, get_leaderboard
@@ -86,6 +87,8 @@ def is_logged_in():
     if len(st.user) == 0:
         return False
     return st.user.is_logged_in
+
+load_dotenv()
 
 # track umami analytics
 UMAMI_API = "https://cloud.umami.is/api/send"
@@ -188,6 +191,8 @@ def announcement():
 @st.dialog("Latest Updates", width="large", on_dismiss="ignore")
 def updates_announcement():
     st.write("""
+        🚨 2025-09-11: Updated trade data to match leaderboard data
+
         🚨 2025-09-07: Added leaderboard data (in beta)
 
         Enjoy!
@@ -242,6 +247,7 @@ def get_curr_hype_price():
 
 def load_data():
     unit_token_mappings = _get_cached_unit_token_mappings()
+    logger.info(f'unit token mappings: {unit_token_mappings}')
     token_list = [t for t, _ in unit_token_mappings.values()]
     cumulative_trade_data = _get_candlestick_data(
         [k for k in unit_token_mappings.keys()], token_list)
@@ -290,7 +296,7 @@ def get_cached_unit_volumes(
                     }
     except Exception as e:
         logger.error(f'unable to fetch subaccounts of {accounts}: {e}')
-        return dict(), dict(), [], pd.DataFrame, 'Unable to fetch trade history - did you put a valid list of accounts?'
+        return dict(), dict(), pd.DataFrame, 'Unable to fetch trade history - did you put a valid list of accounts?'
 
     accounts_to_query = accounts_mapping.keys()
 
@@ -330,6 +336,7 @@ def get_cached_unit_volumes(
     fills = dict()  # { account: list of fills }
     currTime = get_current_timestamp_millis()
     numDaysQuerySpan = 30
+    user_fills_rows = []
     try:
         for account in accounts_to_query:
             num_fills_total = 0
@@ -341,20 +348,16 @@ def get_cached_unit_volumes(
             # seems like 2k limit for endpoint counts from the start
             # so start from overall start time then move up til currtime
             while startTime < currTime:  # check back until this date
-                endTime = startTime + \
-                    int(timedelta(days=numDaysQuerySpan).total_seconds()) * 1000
+                endTime = min(currTime, startTime + \
+                    int(timedelta(days=numDaysQuerySpan).total_seconds()) * 1000)
 
-                fills_result = info.post("/info", {
-                    "type": "userFillsByTime",  # up to 10k total, then need to query from s3
-                    "user": account,
-                    "aggregateByTime": True,
-                    "startTime": startTime,
-                    "endTime": endTime,
-                })
+                fills_result = get_user_fills(account, startTime, endTime, logger)
 
                 # query again til no more
                 num_fills = len(fills_result)
                 num_fills_total += num_fills
+
+                logger.info(f'{num_fills} trades for {account} made from {startTime} to {endTime}')
 
                 # logic:
                 # 1) if hit limit (2k fills per api call), set start = latest fill timestamp + 1
@@ -364,78 +367,74 @@ def get_cached_unit_volumes(
                     latest_fill_timestamp = max(
                         f['time'] for f in fills_result)
                     startTime = latest_fill_timestamp + 1
+                    logger.info(f'hit max fills within range, setting next starttime to {startTime}')
                 else:
                     startTime = endTime + 1
 
+                # process fills immediately to bin by start date
+                # so as to not store too many individual fills in memory to prevent OOM
+                for f in fills_result:
+                    coin = f['coin']
+                    direction = f['dir']
+                    if coin in unit_token_mappings.keys() and direction in ['Buy', 'Sell']:
+                        token_name, _ = unit_token_mappings[coin]
+
+                        # only count unit fills
+                        volume_by_token[token_name]['Num Trades'] += 1
+                        accounts_mapping[account]['Num Trades'] += 1
+
+                        price = float(f['px'])
+
+                        trade_volume = float(f['sz']) * price
+                        trade_time = datetime.fromtimestamp(
+                            f['time'] / 1000, tz=timezone.utc)
+
+                        # keep record of all fills in DF
+                        # normalise to day start (UTC midnight)
+                        trade_day = trade_time.replace(
+                            hour=0, minute=0, second=0, microsecond=0)
+                        user_fills_rows.append({
+                            'start_date': trade_day,
+                            'token_name': token_name,
+                            'volume_usd': trade_volume,
+                        })
+
+                        # direction
+                        prev_first_txn = volume_by_token[token_name]['Direction'][direction]['First Txn']
+                        if prev_first_txn is None or trade_time < prev_first_txn:
+                            volume_by_token[token_name]['Direction'][direction]['First Txn'] = trade_time
+                        prev_last_txn = volume_by_token[token_name]['Direction'][direction]['Last Txn']
+                        if prev_last_txn is None or trade_time > prev_last_txn:
+                            volume_by_token[token_name]['Direction'][direction]['Last Txn'] = trade_time
+                        volume_by_token[token_name]['Direction'][direction]['Volume'] += trade_volume
+
+                        # trade type (maker / taker)
+                        trade_type = 'Taker' if f['crossed'] is True else 'Maker'
+                        prev_first_txn = volume_by_token[token_name]['Type'][trade_type]['First Txn']
+                        if prev_first_txn is None or trade_time < prev_first_txn:
+                            volume_by_token[token_name]['Type'][trade_type]['First Txn'] = trade_time
+                        prev_last_txn = volume_by_token[token_name]['Type'][trade_type]['Last Txn']
+                        if prev_last_txn is None or trade_time > prev_last_txn:
+                            volume_by_token[token_name]['Type'][trade_type]['Last Txn'] = trade_time
+                        volume_by_token[token_name]['Type'][trade_type]['Volume'] += trade_volume
+
+                        fee_in_quote = f['feeToken'] == 'USDC'
+                        if fee_in_quote:
+                            fee_amt = float(f['fee'])
+                            accounts_mapping[account]['USDC Fees'] += fee_amt
+                            volume_by_token[token_name]['USDC Fees'] += fee_amt
+                        else:
+                            fee_amt = float(f['fee']) * price
+                            accounts_mapping[account]['Token Fees'] += fee_amt
+                            volume_by_token[token_name]['Token Fees'] += fee_amt
+
                 account_fills.extend(fills_result)
+
             fills[account] = account_fills
     except Exception as e:
         logging.error(f'error fetching fills for some account(s) in {accounts_to_query}: {e}')
-        return dict(), dict(), [], pd.DataFrame, 'Unable to fetch trade history - did you put a valid list of accounts?'
-
-    # 10k - need get from s3
-    accounts_hitting_fills_limits = []
-
-    user_fills_rows = []
-
-    for account, fills_list in fills.items():
-        if len(fills_list) == 10000:
-            accounts_hitting_fills_limits.append(account)
-
-        for f in fills_list:
-            coin = f['coin']
-            direction = f['dir']
-            if coin in unit_token_mappings.keys() and direction in ['Buy', 'Sell']:
-                token_name, _ = unit_token_mappings[coin]
-
-                # only count unit fills
-                volume_by_token[token_name]['Num Trades'] += 1
-                accounts_mapping[account]['Num Trades'] += 1
-
-                price = float(f['px'])
-
-                trade_volume = float(f['sz']) * price
-                trade_time = datetime.fromtimestamp(
-                    f['time'] / 1000, tz=timezone.utc)
-
-                # keep record of all fills in DF
-                # normalise to day start (UTC midnight)
-                trade_day = trade_time.replace(
-                    hour=0, minute=0, second=0, microsecond=0)
-                user_fills_rows.append({
-                    'start_date': trade_day,
-                    'token_name': token_name,
-                    'volume_usd': trade_volume,
-                })
-
-                # direction
-                prev_first_txn = volume_by_token[token_name]['Direction'][direction]['First Txn']
-                if prev_first_txn is None or trade_time < prev_first_txn:
-                    volume_by_token[token_name]['Direction'][direction]['First Txn'] = trade_time
-                prev_last_txn = volume_by_token[token_name]['Direction'][direction]['Last Txn']
-                if prev_last_txn is None or trade_time > prev_last_txn:
-                    volume_by_token[token_name]['Direction'][direction]['Last Txn'] = trade_time
-                volume_by_token[token_name]['Direction'][direction]['Volume'] += trade_volume
-
-                # trade type (maker / taker)
-                trade_type = 'Taker' if f['crossed'] is True else 'Maker'
-                prev_first_txn = volume_by_token[token_name]['Type'][trade_type]['First Txn']
-                if prev_first_txn is None or trade_time < prev_first_txn:
-                    volume_by_token[token_name]['Type'][trade_type]['First Txn'] = trade_time
-                prev_last_txn = volume_by_token[token_name]['Type'][trade_type]['Last Txn']
-                if prev_last_txn is None or trade_time > prev_last_txn:
-                    volume_by_token[token_name]['Type'][trade_type]['Last Txn'] = trade_time
-                volume_by_token[token_name]['Type'][trade_type]['Volume'] += trade_volume
-
-                fee_in_quote = f['feeToken'] == 'USDC'
-                if fee_in_quote:
-                    fee_amt = float(f['fee'])
-                    accounts_mapping[account]['USDC Fees'] += fee_amt
-                    volume_by_token[token_name]['USDC Fees'] += fee_amt
-                else:
-                    fee_amt = float(f['fee']) * price
-                    accounts_mapping[account]['Token Fees'] += fee_amt
-                    volume_by_token[token_name]['Token Fees'] += fee_amt
+        # TODO need clearer error message
+        return dict(), dict(), pd.DataFrame, 'Error fetching fills: did you put a valid list of accounts?'
 
     user_trades_df = pd.DataFrame(user_fills_rows)
     if not user_trades_df.empty:
@@ -459,7 +458,7 @@ def get_cached_unit_volumes(
             .cumsum()
         )
 
-    return volume_by_token, accounts_mapping, accounts_hitting_fills_limits, user_trades_df, None
+    return volume_by_token, accounts_mapping, user_trades_df, None
 
 # --- data processing and display functions ---
 
@@ -534,7 +533,7 @@ def create_volume_df(volume_by_token: dict) -> pd.DataFrame:
 def display_upgrade_section(id: str):
     st.subheader("Your free trial has expired!")
 
-    st.info("If you have previously donated, please DM me to get your full access!")
+    st.info("If you have previously donated, DM me to get your full access!")
 
     earlybird_discount = 20
 
@@ -567,16 +566,18 @@ def display_upgrade_section(id: str):
     st.text(f"""
         You've seen what detailed analytics this dashboard has to offer. Ready to keep the insights coming?
     """)
-    st.text(f"""
-        With a one-time payment (no recurring charges!), you can continue accessing:
+    st.markdown("""
+        As an early user, you get a :green[25% discount] (already applied)!
+    """)
+    st.text("""
+        For a one-time payment, you get full access to:
         📊 Complete transaction and bridging history
         💼 Advanced breakdowns and comparisons by various metrics
-        🎯 Raw data
         ✨ And all other future premium features!
     """)
-    st.markdown(f"**One-time payment: {' or '.join(formattedAmounts)}** to the donation address below on the HyperEVM chain (not Hyperliquid L1!)")
-    st.text("Simply send your payment (please pay exact amounts - this is unique to your trial) then submit the transaction hash below for instant reactivation!")
-    st.text("P.S. if you wish to pay on another chain / to another wallet, please DM me (no automated access atm)")
+    st.markdown(f"One-time payment: :green[{' or '.join(formattedAmounts)}] to the donation address below on the HyperEVM chain")
+    st.markdown("Please send the :green[exact amount] shown (unique to your trial). Once done, submit the transaction hash below for instant reactivation!")
+    st.markdown("*P.S. if you wish to pay in another way, DM me (no automated access atm)*")
 
     st.info(f'P.P.S. for a limited time only, input "EARLYBIRD" for {earlybird_discount}%% off!')
 
@@ -680,7 +681,7 @@ def main():
         accounts = [a.strip() for a in addresses_input.split(",") if a]
 
         with st.spinner(f'Loading data for {", ".join(accounts)}...', show_time=True):
-            volume_by_token, accounts_mapping, accounts_hitting_fills_limits, user_trades_df, err = get_cached_unit_volumes(
+            volume_by_token, accounts_mapping, user_trades_df, err = get_cached_unit_volumes(
                 accounts, unit_token_mappings, exclude_subaccounts)
 
             raw_bridge_data = unit_bridge_info.get_operations(accounts)
@@ -693,7 +694,6 @@ def main():
                 st.session_state['volume_data'] = {
                     'volume_by_token': volume_by_token,
                     'accounts_mapping': accounts_mapping,
-                    'accounts_hitting_fills_limits': accounts_hitting_fills_limits,
                     'user_trades_df': user_trades_df,
                     'last_updated': datetime.now(timezone.utc),
                     'accounts': accounts,
@@ -734,8 +734,6 @@ def main():
                     track_event("summary", { 'addresses_input': addresses_input })
                     st.session_state.last_tab = "summary"
 
-                st.info('There is a known issue with trade data not showing everything for users with >10k trades')
-
                 display_summary(df_trade, df_bridging, top_bridged_asset)
 
             with tab2:
@@ -752,7 +750,6 @@ def main():
                     display_trade_data(
                         df_trade,
                         volume_data['accounts_mapping'],
-                        volume_data['accounts_hitting_fills_limits'],
                         volume_data['user_trades_df'],
                         cumulative_trade_data,
                         token_list,
@@ -792,10 +789,11 @@ def main():
 
                     leaderboard = _get_leaderboard()
                     leaderboard['total_volume_usd'] = leaderboard['total_volume_usd'].apply(lambda x: format_currency(x))
+                    leaderboard['user_address'] = leaderboard['user_address'].apply(lambda x: x[:6] + '...' + x[-6:])
                     leaderboard_formatted = leaderboard[['user_rank', 'user_address', 'total_volume_usd']]
 
                     # if searched addresses within leaderboard, display them separately
-                    leaderboard_searched_addresses = leaderboard_formatted[leaderboard_formatted['user_address'].isin(accounts)]
+                    leaderboard_searched_addresses = leaderboard_formatted[leaderboard_formatted['user_address'].str.lower().isin([a.lower() for a in accounts])]
                     if not leaderboard_searched_addresses.empty:
                         st.subheader('Searched Addresses')
                         st.dataframe(
@@ -1141,15 +1139,10 @@ That means that actual trade volume is half of total fill volume, so the percent
 def display_trade_data(
     df_trade: pd.DataFrame,
     accounts_mapping: dict,
-    accounts_hitting_fills_limits,
     user_trades_df: pd.DataFrame,
     cumulative_trade_data,
     token_list: list[str],
 ):
-    if len(accounts_hitting_fills_limits) > 0:
-        st.warning(
-            f'Unable to fetch all fills for accounts due to hitting API limits (contact me to check): {', '.join(accounts_hitting_fills_limits)}')
-
     # show raw data in expander
     if df_trade.empty:
         st.warning(

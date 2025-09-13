@@ -239,7 +239,8 @@ def _is_full_premium_user(user: User) -> bool:
     if user.bypass_payment:
         return True
 
-    is_paid = user.payment_txn_hash is not None and user.upgraded_at is not None
+    # in case of manually updating DB (e.g. payment issues), user.upgraded_at will be none
+    is_paid = user.payment_txn_hash is not None or user.upgraded_at is not None
 
     return user.bypass_payment or is_paid
 
@@ -292,15 +293,14 @@ def upgrade_to_premium(
 
             # insert or update user record
             # ON CONFLICT handles new users and trial users upgrading
-            # UPDATE sets payment info and nullifies trial expiration
+            # UPDATE sets payment info
             conn.execute(text(f"""
-                INSERT INTO {USERS_TABLE} (email, payment_txn_hash, payment_chain, upgraded_at, bypass_payment, trial_expires_at)
-                VALUES (:email, :txn, :chain, :upgraded_at, :bypass, NULL)
+                INSERT INTO {USERS_TABLE} (email, payment_txn_hash, payment_chain, upgraded_at, bypass_payment)
+                VALUES (:email, :txn, :chain, :upgraded_at, :bypass)
                 ON CONFLICT (email) DO UPDATE
                 SET payment_txn_hash = EXCLUDED.payment_txn_hash,
                     upgraded_at = EXCLUDED.upgraded_at,
                     payment_chain = EXCLUDED.payment_chain,
-                    trial_expires_at = NULL
             """), {
                 "email": email,
                 "txn": payment_txn_hash,
