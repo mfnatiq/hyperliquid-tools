@@ -169,13 +169,6 @@ with col2:
         else:
             show_login_info(show_button_only=True)
 
-# plausible analytics
-components.html("""
-<script defer data-domain="app.hyperliquid-tools.xyz"
-    src="https://plausible-analytics-ce-production-441d.up.railway.app/js/script.js">
-</script>
-""", height=0)
-
 
 # announcement shows only upon startup
 # main prompt modal only shows for non-premium users
