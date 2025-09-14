@@ -116,13 +116,13 @@ def init_db(logger: Logger):
                     conn.execute(text(f"""
                         INSERT INTO {USERS_TABLE}
                         (email, bypass_payment, remarks, created_at)
-                        VALUES (:email, :bypass, :remarks, :created_at)
+                        VALUES (:email, :bypass_payment, :remarks, :created_at)
                         ON CONFLICT (email) DO UPDATE
                         SET bypass_payment = TRUE,
                             remarks = 'Admin account - bypass payment'
                     """), {
                         "email": admin_email,
-                        "bypass": True,
+                        "bypass_payment": True,
                         "remarks": "Admin account - bypass payment",
                         "created_at": datetime.now(tz=timezone.utc),
                     })
@@ -154,7 +154,7 @@ def init_db(logger: Logger):
                         text(f"""
                             INSERT INTO {USERS_TABLE}
                             (email, payment_txn_hash, payment_chain, trial_expires_at, upgraded_at, bypass_payment, remarks, created_at)
-                            VALUES (:email, :txn, :chain,  :trial_expires_at, :upgraded_at, :bypass, :remarks, :created_at)
+                            VALUES (:email, :txn, :chain,  :trial_expires_at, :upgraded_at, :bypass_payment, :remarks, :created_at)
                         """),
                         {
                             "email": row["email"],
@@ -162,7 +162,7 @@ def init_db(logger: Logger):
                             "chain": row.get("payment_chain"),
                             "trial_expires_at": row.get("trial_expires_at"),
                             "upgraded_at": row.get("upgraded_at"),
-                            "bypass": row.get("bypass_payment", False),
+                            "bypass_payment": row.get("bypass_payment", False),
                             "remarks": row.get("remarks"),
                             "created_at": row.get("created_at", datetime.now(tz=timezone.utc)),
                         }
@@ -296,17 +296,18 @@ def upgrade_to_premium(
             # UPDATE sets payment info
             conn.execute(text(f"""
                 INSERT INTO {USERS_TABLE} (email, payment_txn_hash, payment_chain, upgraded_at, bypass_payment)
-                VALUES (:email, :txn, :chain, :upgraded_at, :bypass)
+                VALUES (:email, :txn, :chain, :upgraded_at, :bypass_payment)
                 ON CONFLICT (email) DO UPDATE
                 SET payment_txn_hash = EXCLUDED.payment_txn_hash,
                     upgraded_at = EXCLUDED.upgraded_at,
                     payment_chain = EXCLUDED.payment_chain,
+                    bypass_payment = EXCLUDED.bypass_payment;
             """), {
                 "email": email,
                 "txn": payment_txn_hash,
                 "chain": payment_chain,
                 'upgraded_at': datetime.now(tz=timezone.utc),
-                "bypass": False
+                "bypass_payment": False
             })
 
         # check successful upgrade
