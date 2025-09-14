@@ -5,8 +5,8 @@ from dotenv import load_dotenv
 from hyperliquid.info import Info
 import pandas as pd
 import requests
-from consts import unitStartTime
-from utils.utils import get_today_timestamp_millis
+from src.consts import unitStartTime
+from src.utils.utils import get_today_timestamp_millis
 
 def get_candlestick_data(info: Info, token_ids: list[str], token_names: list[str]) -> pd.DataFrame:
     rows = []

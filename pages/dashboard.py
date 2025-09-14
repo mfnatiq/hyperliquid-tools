@@ -3,9 +3,9 @@ import os
 import time
 from dotenv import load_dotenv
 import requests
-from auth.db_utils import init_db, PremiumType, get_user_premium_type, upgrade_to_premium, start_trial_if_new_user, get_user
-from leaderboard.leaderboard_utils import get_leaderboard_last_updated, get_leaderboard
-from utils.utils import DATE_FORMAT, format_currency, get_cached_unit_token_mappings, get_current_timestamp_millis
+from src.auth.db_utils import init_db, PremiumType, get_user_premium_type, upgrade_to_premium, start_trial_if_new_user, get_user
+from src.leaderboard.leaderboard_utils import get_leaderboard_last_updated, get_leaderboard
+from src.utils.utils import DATE_FORMAT, format_currency, get_cached_unit_token_mappings, get_current_timestamp_millis
 from datetime import datetime, timedelta, timezone
 import pandas as pd
 from hyperliquid.info import Info
@@ -14,11 +14,11 @@ from hyperliquid.utils.error import ClientError, ServerError
 import streamlit as st
 import streamlit.components.v1 as components
 import plotly.express as px
-from bridge.unit_bridge_api import UnitBridgeInfo
-from utils.render_utils import footer_html, copy_script
-from trade.trade_data import get_candlestick_data, get_user_fills
-from bridge.unit_bridge_utils import create_bridge_summary, process_bridge_operations
-from consts import unitStartTime, oneDayInS, acceptedPayments
+from src.bridge.unit_bridge_api import UnitBridgeInfo
+from src.utils.render_utils import footer_html, copy_script
+from src.trade.trade_data import get_candlestick_data, get_user_fills
+from src.bridge.unit_bridge_utils import create_bridge_summary, process_bridge_operations
+from src.consts import unitStartTime, oneDayInS, acceptedPayments
 import uuid
 
 # setup and configure logging
@@ -184,16 +184,16 @@ def announcement():
     st.write("""
         This site lets you view your HyperUnit trading / bridging volume, along with some other metrics.
 
-        If you like what you see, please consider subscribing to help support! :)
+        If you like what you see, please consider subscribing :)
 
         Enjoy!
     """)
 @st.dialog("Latest Updates", width="large", on_dismiss="ignore")
 def updates_announcement():
     st.write("""
-        🚨 2025-09-11: Updated trade data to match leaderboard data
+        🚨 2025-09-11: Updated trade data (previously missing some fills)
 
-        🚨 2025-09-07: Added leaderboard data (in beta)
+        🚨 2025-09-07: Added leaderboard data
 
         Enjoy!
     """)
@@ -546,6 +546,7 @@ def display_upgrade_section(id: str):
     uniqueAcceptedPayments = deepcopy(acceptedPayments)
     for k, v in uniqueAcceptedPayments.items():
         existingAmt = v['minAmount']
+
         if int(existingAmt) == existingAmt: # no decimals (USDT), add after decimals
             uniqueAcceptedPayments[k]['minAmount'] = existingAmt + millis / 1000
         else:   # append decimals as suffix

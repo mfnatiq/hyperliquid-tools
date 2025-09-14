@@ -2,7 +2,7 @@
 
 ### Running
 
-`streamlit run src/main.py`
+`streamlit run home.py`
 
 Tested with python 3.13
 
@@ -10,4 +10,4 @@ Tested with python 3.13
 
 Currently deployed with Railway (referral code: https://railway.com?referralCode=_uracj)
 
-Last Updated: 2025-09-07
+Last Updated: 2025-09-14
