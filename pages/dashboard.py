@@ -382,16 +382,6 @@ def get_cached_unit_volumes(
                         trade_time = datetime.fromtimestamp(
                             f['time'] / 1000, tz=timezone.utc)
 
-                        # keep record of all fills in DF
-                        # normalise to day start (UTC midnight)
-                        trade_day = trade_time.replace(
-                            hour=0, minute=0, second=0, microsecond=0)
-                        user_fills_rows.append({
-                            'start_date': trade_day,
-                            'token_name': token_name,
-                            'volume_usd': trade_volume,
-                        })
-
                         # direction
                         prev_first_txn = volume_by_token[token_name]['Direction'][direction]['First Txn']
                         if prev_first_txn is None or trade_time < prev_first_txn:
@@ -421,6 +411,17 @@ def get_cached_unit_volumes(
                             accounts_mapping[account]['Token Fees'] += fee_amt
                             volume_by_token[token_name]['Token Fees'] += fee_amt
 
+                        # keep record of all fills in DF
+                        # normalise to day start (UTC midnight)
+                        trade_day = trade_time.replace(
+                            hour=0, minute=0, second=0, microsecond=0)
+                        user_fills_rows.append({
+                            'start_date': trade_day,
+                            'token_name': token_name,
+                            'volume_usd': trade_volume,
+                            'fees_usd': fee_amt,
+                        })
+
                 account_fills.extend(fills_result)
 
             fills[account] = account_fills
@@ -435,27 +436,53 @@ def get_cached_unit_volumes(
         user_trades_df = (
             user_trades_df
             .groupby(['start_date', 'token_name'], as_index=False)
-            .agg(volume_usd=('volume_usd', 'sum'))
+            .agg(volume_usd=('volume_usd', 'sum'), fees_usd=('fees_usd', 'sum'))
         )
 
         # make sure start_date is datetime (normalized to midnight UTC already)
         user_trades_df['start_date'] = pd.to_datetime(
             user_trades_df['start_date'], utc=True)
 
-        # sort and compute cumulative by token
-        user_trades_df = user_trades_df.sort_values(
-            ['token_name', 'start_date'])
+        # generate full date range from the first date to today
+        # create multi-index with all date + unique token combinations
+        # to reindex DF to fill in all missing dates and tokens
+        date_range = pd.date_range(
+            start=user_trades_df['start_date'].min(),
+            end=pd.to_datetime(datetime.now(tz=timezone.utc).date(), utc=True),
+            freq='D'
+        )
+        unique_tokens = user_trades_df['token_name'].unique()
+        full_index = pd.MultiIndex.from_product(
+            [date_range, unique_tokens],
+            names=['start_date', 'token_name']
+        )
+        user_trades_df = user_trades_df.set_index(['start_date', 'token_name']).reindex(full_index)
+
+        # fill missing values
+        # fill volume and fees with 0
+        user_trades_df[['volume_usd', 'fees_usd']] = user_trades_df[['volume_usd', 'fees_usd']].fillna(0)
+        # fill the token name (which became NaN during reindexing)
+        user_trades_df = user_trades_df.reset_index()
+        user_trades_df['token_name'] = user_trades_df.groupby('start_date')['token_name'].ffill().bfill()
+
+        # calculate cumulative sums by token
         user_trades_df['cumulative_volume_usd'] = (
             user_trades_df
-            .groupby('token_name', group_keys=False)['volume_usd']
+            .sort_values(['token_name', 'start_date'])
+            .groupby('token_name')['volume_usd']
+            .cumsum()
+        )
+        user_trades_df['cumulative_fees_usd'] = (
+            user_trades_df
+            .sort_values(['token_name', 'start_date'])
+            .groupby('token_name')['fees_usd']
             .cumsum()
         )
 
     return volume_by_token, accounts_mapping, user_trades_df, None
 
+
 # --- data processing and display functions ---
-
-
 def get_earliest_txn_datetime(earliest_buy: datetime | None, earliest_sell: datetime | None):
     if earliest_buy is None:
         return earliest_sell
@@ -1026,6 +1053,20 @@ That means that actual trade volume is half of total fill volume, so the percent
     df_cumulative = df_cumulative.sort_values(
         'Market Volume (USD)', ascending=False)
 
+    # handle sorting before formatting values for display
+    user_vol_token_order = (
+        user_trades_df.groupby('token_name')['cumulative_volume_usd']
+        .max().sort_values(ascending=False).index.tolist()
+    )
+    exchange_vol_token_order = (
+        df_cumulative.groupby('Asset')['Market Volume (USD)']
+        .max().sort_values(ascending=False).index.tolist()
+    )
+    user_fees_token_order = (
+        user_trades_df.groupby('token_name')['cumulative_fees_usd']
+        .max().sort_values(ascending=False).index.tolist()
+    )
+
     # format for display only
     df_cumulative['Your Volume (USD)'] = df_cumulative['Your Volume (USD)'].apply(
         format_currency)
@@ -1038,15 +1079,11 @@ That means that actual trade volume is half of total fill volume, so the percent
         st.subheader("Trading Volume Breakdown")
         st.dataframe(df_cumulative, hide_index=True)
 
+        # user volume
         col1, col2 = st.columns(2, gap="large")
-        user_vol_token_order = (
-            user_trades_df.groupby('token_name')['cumulative_volume_usd']
-            .max().sort_values(ascending=False).index.tolist()
-        )
         with col1:
-            # plot cumulative volume over time
             st.subheader("Daily User Volume")
-            fig = px.line(
+            fig = px.bar(
                 user_trades_df,
                 x='start_date',
                 y='volume_usd',
@@ -1058,12 +1095,10 @@ That means that actual trade volume is half of total fill volume, so the percent
                 },
                 category_orders={'token_name': user_vol_token_order}
             )
-            # display legend in descending order of total volume
             st.plotly_chart(fig, use_container_width=True)
         with col2:
-            # plot cumulative volume over time
             st.subheader("Cumulative User Volume")
-            fig = px.line(
+            fig = px.bar(
                 user_trades_df,
                 x='start_date',
                 y='cumulative_volume_usd',
@@ -1075,18 +1110,13 @@ That means that actual trade volume is half of total fill volume, so the percent
                 },
                 category_orders={'token_name': user_vol_token_order}
             )
-            # display legend in descending order of total volume
             st.plotly_chart(fig, use_container_width=True)
 
+        # exchange volume
         col1, col2 = st.columns(2, gap="large")
-        exchange_vol_token_order = (
-            df_cumulative.groupby('Asset')['Market Volume (USD)']
-            .max().sort_values(ascending=False).index.tolist()
-        )
         with col1:
-            # plot cumulative volume over time
             st.subheader("Daily Exchange Volume")
-            fig = px.line(
+            fig = px.bar(
                 cumulative_trade_data,
                 x='start_date',
                 y='volume_usd',
@@ -1098,12 +1128,10 @@ That means that actual trade volume is half of total fill volume, so the percent
                 },
                 category_orders={'token_name': exchange_vol_token_order}
             )
-            # display legend in descending order of total volume
             st.plotly_chart(fig, use_container_width=True)
         with col2:
-            # plot cumulative volume over time
             st.subheader("Cumulative Exchange Volume")
-            fig = px.line(
+            fig = px.bar(
                 cumulative_trade_data,
                 x='start_date',
                 y='cumulative_volume_usd',
@@ -1115,7 +1143,39 @@ That means that actual trade volume is half of total fill volume, so the percent
                 },
                 category_orders={'token_name': exchange_vol_token_order}
             )
-            # display legend in descending order of total volume
+            st.plotly_chart(fig, use_container_width=True)
+
+        # user fees
+        col1, col2 = st.columns(2, gap="large")
+        with col1:
+            st.subheader("Daily User Fees")
+            fig = px.bar(
+                user_trades_df,
+                x='start_date',
+                y='fees_usd',
+                color='token_name',
+                labels={
+                    'fees_usd': 'Fees (USD)',
+                    'start_date': 'Date',
+                    'token_name': 'Token'
+                },
+                category_orders={'token_name': user_fees_token_order}
+            )
+            st.plotly_chart(fig, use_container_width=True)
+        with col2:
+            st.subheader("Cumulative User Fees")
+            fig = px.bar(
+                user_trades_df,
+                x='start_date',
+                y='cumulative_fees_usd',
+                color='token_name',
+                labels={
+                    'cumulative_fees_usd': 'Cumulative Fees (USD)',
+                    'start_date': 'Date',
+                    'token_name': 'Token'
+                },
+                category_orders={'token_name': user_fees_token_order}
+            )
             st.plotly_chart(fig, use_container_width=True)
 
 
