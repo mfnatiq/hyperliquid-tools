@@ -799,11 +799,11 @@ def main():
 
                     leaderboard = _get_leaderboard()
                     leaderboard['total_volume_usd'] = leaderboard['total_volume_usd'].apply(lambda x: format_currency(x))
-                    leaderboard['user_address'] = leaderboard['user_address'].apply(lambda x: x[:6] + '...' + x[-6:])
                     leaderboard_formatted = leaderboard[['user_rank', 'user_address', 'total_volume_usd']]
 
                     # if searched addresses within leaderboard, display them separately
                     leaderboard_searched_addresses = leaderboard_formatted[leaderboard_formatted['user_address'].str.lower().isin([a.lower() for a in accounts])]
+                    leaderboard_searched_addresses['user_address'] = leaderboard_searched_addresses['user_address'].apply(lambda x: x[:6] + '...' + x[-6:])
                     if not leaderboard_searched_addresses.empty:
                         st.subheader('Searched Addresses')
                         st.dataframe(
@@ -817,6 +817,7 @@ def main():
                         )
 
                     # display overall leaderboard
+                    leaderboard_formatted['user_address'] = leaderboard_formatted['user_address'].apply(lambda x: x[:6] + '...' + x[-6:])
                     st.subheader('Overall Leaderboard')
                     st.dataframe(
                         leaderboard_formatted,
