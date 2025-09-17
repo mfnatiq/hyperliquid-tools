@@ -16,3 +16,5 @@ acceptedPayments = {
         'minAmount': 0.3,
     },
 }
+
+NON_LOGED_IN_TRADES_TOTAL = 10000

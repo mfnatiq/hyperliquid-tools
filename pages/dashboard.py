@@ -18,7 +18,7 @@ from src.bridge.unit_bridge_api import UnitBridgeInfo
 from src.utils.render_utils import footer_html, copy_script
 from src.trade.trade_data import get_candlestick_data, get_user_fills
 from src.bridge.unit_bridge_utils import create_bridge_summary, process_bridge_operations
-from src.consts import unitStartTime, oneDayInS, acceptedPayments
+from src.consts import NON_LOGED_IN_TRADES_TOTAL, unitStartTime, oneDayInS, acceptedPayments
 import uuid
 
 # setup and configure logging
@@ -254,6 +254,8 @@ def get_subaccounts_cached(account: str) -> list:
     return subaccounts if subaccounts is not None else []
 
 
+TRADE_COUNT_FETCH_LIMIT = -1    # -1: no limit
+
 @st.cache_data(ttl=60, show_spinner=False)
 def get_cached_unit_volumes(
     accounts: list[str],
@@ -289,7 +291,7 @@ def get_cached_unit_volumes(
                     }
     except Exception as e:
         logger.error(f'unable to fetch subaccounts of {accounts}: {e}')
-        return dict(), dict(), pd.DataFrame, 'Unable to fetch trade history - did you put a valid list of accounts?'
+        return dict(), dict(), pd.DataFrame, False, 'Unable to fetch subaccounts - did you put a valid list of accounts?'
 
     accounts_to_query = accounts_mapping.keys()
 
@@ -331,6 +333,8 @@ def get_cached_unit_volumes(
     numDaysQuerySpan = 30
     user_fills_rows = []
     try:
+        non_logged_in_limit_trade_count = TRADE_COUNT_FETCH_LIMIT
+
         for account in accounts_to_query:
             num_fills_total = 0
             account_fills = []
@@ -349,6 +353,11 @@ def get_cached_unit_volumes(
                 # query again til no more
                 num_fills = len(fills_result)
                 num_fills_total += num_fills
+
+                # limit num fills shown if not logged in
+                if "user_email" not in st.session_state and num_fills_total > NON_LOGED_IN_TRADES_TOTAL:
+                    non_logged_in_limit_trade_count = num_fills_total
+                    break
 
                 logger.info(f'{num_fills} trades for {account} made from {startTime} to {endTime}')
 
@@ -428,7 +437,7 @@ def get_cached_unit_volumes(
     except Exception as e:
         logging.error(f'error fetching fills for some account(s) in {accounts_to_query}: {e}')
         # TODO need clearer error message
-        return dict(), dict(), pd.DataFrame, 'Error fetching fills: did you put a valid list of accounts?'
+        return dict(), dict(), pd.DataFrame, False, 'Error fetching fills: did you put a valid list of accounts?'
 
     user_trades_df = pd.DataFrame(user_fills_rows)
     if not user_trades_df.empty:
@@ -479,7 +488,7 @@ def get_cached_unit_volumes(
             .cumsum()
         )
 
-    return volume_by_token, accounts_mapping, user_trades_df, None
+    return volume_by_token, accounts_mapping, user_trades_df, non_logged_in_limit_trade_count, None
 
 
 # --- data processing and display functions ---
@@ -691,7 +700,7 @@ def main():
         accounts = [a.strip() for a in addresses_input.split(",") if a]
 
         with st.spinner(f'Loading data for {", ".join(accounts)}...', show_time=True):
-            volume_by_token, accounts_mapping, user_trades_df, err = get_cached_unit_volumes(
+            volume_by_token, accounts_mapping, user_trades_df, non_logged_in_limit_trade_count, err = get_cached_unit_volumes(
                 accounts, unit_token_mappings, exclude_subaccounts)
 
             raw_bridge_data = unit_bridge_info.get_operations(accounts)
@@ -708,6 +717,13 @@ def main():
                     'last_updated': datetime.now(timezone.utc),
                     'accounts': accounts,
                 }
+
+                if non_logged_in_limit_trade_count == TRADE_COUNT_FETCH_LIMIT:
+                    if st.session_state.get('non_logged_in_limit_trade_count', False):
+                        del st.session_state['non_logged_in_limit_trade_count']
+                else:
+                    st.session_state['non_logged_in_limit_trade_count'] = non_logged_in_limit_trade_count
+
                 st.session_state['raw_bridge_data'] = raw_bridge_data
 
     # show content in output placeholder only if have data
@@ -724,6 +740,9 @@ def main():
 
             st.caption(
                 f"Last updated: {volume_data['last_updated'].strftime(DATE_FORMAT)}")
+
+            if st.session_state.get('non_logged_in_limit_trade_count', False):
+                st.warning(f'Only showing latest {non_logged_in_limit_trade_count} trades: log in to see full data')
 
             # create tabs
             tab1, tab2, tab3, tab4, tab5 = st.tabs(
