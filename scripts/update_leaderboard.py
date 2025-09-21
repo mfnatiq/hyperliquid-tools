@@ -81,7 +81,9 @@ def update_leaderboard_data():
 
     params = {}
     run_config = { 'limit': 1000 }
+
     headers = { "X-API-Key": ALLIUM_API_KEY }
+    # TODO temporarily set to different query id to combine raw and dex trades until updated indexing
     leaderboard_query_id = os.getenv("ALLIUM_LEADERBOARD_QUERY_ID")
     if not leaderboard_query_id:
         logger.error("ALLIUM_LEADERBOARD_QUERY_ID environment variable not set")
