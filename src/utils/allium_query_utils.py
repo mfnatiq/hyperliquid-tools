@@ -24,10 +24,6 @@ if not ALLIUM_API_KEY:
 def query_allium(params: dict, run_config: dict, query_id: str) -> list:
     headers = { "X-API-Key": ALLIUM_API_KEY }
     all_rows = []
-    leaderboard_addresses_query_id = os.getenv("ALLIUM_LEADERBOARD_QUERY_ADDRESSES_ID")
-    if not leaderboard_addresses_query_id:
-        logger.error("ALLIUM_LEADERBOARD_QUERY_ADDRESSES_ID environment variable not set")
-        return all_rows
 
     query_run_id = None
     status = "queued"
