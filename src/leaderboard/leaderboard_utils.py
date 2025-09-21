@@ -5,7 +5,7 @@ from logging import Logger
 from dotenv import load_dotenv
 import pandas as pd
 from sqlalchemy import TIMESTAMP, Column, DateTime, Float, Integer, MetaData, String, Table, create_engine, inspect
-
+from utils.allium_query_utils import query_allium
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -67,3 +67,15 @@ def get_leaderboard_last_updated(logger: Logger):
     except Exception as e:
         logger.error(f'unable to fetch last updated date of leaderboard: {e}')
     return None
+
+def get_rank_by_addresses(address_list: list[str]):
+    params = { 'address_list': ','.join([a.lower() for a in address_list]) }
+
+    leaderboard_addresses_query_id = os.getenv("ALLIUM_LEADERBOARD_QUERY_ADDRESSES_ID")
+    if not leaderboard_addresses_query_id:
+        logger.error("ALLIUM_LEADERBOARD_QUERY_ADDRESSES_ID environment variable not set")
+        return False
+
+    all_rows = query_allium(params, {}, leaderboard_addresses_query_id)
+
+    return all_rows

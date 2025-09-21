@@ -4,7 +4,7 @@ import time
 from dotenv import load_dotenv
 import requests
 from src.auth.db_utils import init_db, PremiumType, get_user_premium_type, upgrade_to_premium, start_trial_if_new_user, get_user
-from src.leaderboard.leaderboard_utils import get_leaderboard_last_updated, get_leaderboard
+from src.leaderboard.leaderboard_utils import get_leaderboard_last_updated, get_leaderboard, get_rank_by_addresses
 from src.utils.utils import DATE_FORMAT, format_currency, get_cached_unit_token_mappings, get_current_timestamp_millis
 from datetime import datetime, timedelta, timezone
 import pandas as pd
@@ -235,6 +235,10 @@ def get_curr_hype_price():
     prices = info.all_mids()
     return float(prices['@107'])
 
+
+@st.cache_data(ttl=oneDayInS, show_spinner=False)
+def _get_rank_by_addresses(address_list: list[str]):
+    return get_rank_by_addresses(address_list)
 
 def load_data():
     unit_token_mappings = _get_cached_unit_token_mappings()
@@ -729,6 +733,7 @@ def main():
         with output_placeholder.container():
             volume_data = st.session_state['volume_data']
             df_trade = create_volume_df(volume_data['volume_by_token'])
+            accounts = volume_data['accounts']
 
             raw_bridge_data = st.session_state['raw_bridge_data']
             processed_bridge_data = format_bridge_data(
@@ -812,7 +817,7 @@ def main():
                 else:
                     st.info('🚧 This feature is in beta')
                     leaderboard_last_updated = _get_leaderboard_last_updated()
-                    st.markdown(f'Last Updated: **{leaderboard_last_updated}** (data is only recalculated every few hours)')
+                    st.markdown(f'Last Updated: **{leaderboard_last_updated}**')
 
                     leaderboard = _get_leaderboard()
                     leaderboard['total_volume_usd'] = leaderboard['total_volume_usd'].apply(lambda x: format_currency(x))
@@ -832,6 +837,25 @@ def main():
                                 'total_volume_usd': st.column_config.TextColumn('Total Volume (USD)'),
                             },
                         )
+                    else:
+                        submitted = st.button('Get ranks of searched addresses', type='primary')
+                        if submitted:
+                            with st.spinner('Loading...'):
+                                logger.info(f'searching ranks of addresses {accounts}')
+                                ranks = _get_rank_by_addresses(accounts)
+
+                                df_ranks = pd.DataFrame(ranks)
+                                df_ranks = df_ranks[['user_rank', 'user_address', 'total_volume_usd']]
+                                st.subheader('Searched Addresses')
+                                st.dataframe(
+                                    df_ranks,
+                                    hide_index=True,
+                                    column_config={
+                                        'user_rank': st.column_config.TextColumn('Rank'),
+                                        'user_address': st.column_config.TextColumn('Address'),
+                                        'total_volume_usd': st.column_config.TextColumn('Total Volume (USD)'),
+                                    },
+                                )
 
                     # display overall leaderboard
                     leaderboard_formatted.loc[:, 'user_address'] = leaderboard_formatted['user_address'].apply(lambda x: x[:6] + '...' + x[-6:])
@@ -1225,7 +1249,6 @@ def format_bridge_data(
     cumulative_trade_data: pd.DataFrame,
 ):
     # combine bridge operations from all addresses into a single DataFrame
-    # TODO separate by address?
     all_operations_df = pd.DataFrame()
     for _, data in raw_bridge_data.items():
         processed_df = process_bridge_operations(

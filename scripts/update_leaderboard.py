@@ -2,11 +2,12 @@ from datetime import datetime, timezone
 import os
 from dotenv import load_dotenv
 import time
-import requests
 import logging
 from sqlalchemy import DateTime, create_engine, text, MetaData, Table, Column, String, Float, Integer, inspect
 from sqlalchemy.dialects.postgresql import TIMESTAMP # for pg specific type
 from sqlalchemy.exc import SQLAlchemyError
+
+from utils.allium_query_utils import query_allium
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -47,13 +48,6 @@ metadata_table = Table(
 )
 # endregion
 
-# region allium api details
-ALLIUM_BASE_URL = "https://api.allium.so/api/v1/explorer"
-ALLIUM_API_KEY = os.getenv("ALLIUM_API_KEY")
-if not ALLIUM_API_KEY:
-    logger.error("ALLIUM_API_KEY environment variable not set")
-    exit(1)
-
 def initialize_database_schema():
     """helper to create tables if don't exist"""
     try:
@@ -72,7 +66,6 @@ def initialize_database_schema():
     except SQLAlchemyError as e:
         logger.error(f"error initializing database schema: {e}")
         raise
-# endregion
 
 # region main leaderboard update function
 def update_leaderboard_data():
@@ -82,87 +75,33 @@ def update_leaderboard_data():
     params = {}
     run_config = { 'limit': 1000 }
 
-    headers = { "X-API-Key": ALLIUM_API_KEY }
     # TODO temporarily set to different query id to combine raw and dex trades until updated indexing
     leaderboard_query_id = os.getenv("ALLIUM_LEADERBOARD_QUERY_ID")
     if not leaderboard_query_id:
         logger.error("ALLIUM_LEADERBOARD_QUERY_ID environment variable not set")
         return False
 
-    all_rows = []
-    query_run_id = None
-    status = "queued"
-    poll_interval = 2
+    all_rows = query_allium(params, run_config, leaderboard_query_id)
 
-    try:
-        # step 1: trigger async allium query
-        logger.info(f"querying leaderboard (query id {leaderboard_query_id})")
-        response = requests.post(
-            f"{ALLIUM_BASE_URL}/queries/{leaderboard_query_id}/run-async",
-            json={ "parameters": params, 'run_config': run_config },
-            headers=headers,
-        )
-        response.raise_for_status()
-        query_run_id = response.json()['run_id']
-        logger.info(f"leaderboard query triggered with run id {query_run_id}")
-
-        # step 2: poll for results
-        while status in ['queued', 'running']:
-            time.sleep(poll_interval)
-            response = requests.get(
-                f"{ALLIUM_BASE_URL}/query-runs/{query_run_id}",
-                headers=headers,
-            )
-            response.raise_for_status()
-            data = response.json()
-            status = data['status']
-            logger.info(f"query results polling status: {status}")
-
-        if status == 'failed':
-            logger.error(f"query failed: {data.get('error', 'Unknown error')}")
-            return False
-        elif status != 'success':
-            logger.error(f"query did not succeed, final status: {status}, data: {data}")
-            return False
-
-        logger.info("query successful, fetching results")
-
-        # step 3: get results once done
-        response = requests.get(f"{ALLIUM_BASE_URL}/query-runs/{query_run_id}/results", headers=headers)
-        response.raise_for_status()
-        data_response = response.json()
-        all_rows = data_response.get("data", [])
-
-        if not all_rows:
-            logger.warning("leaderboard query returned no data, skipping update")
-            return False
-
-        with engine.begin() as conn:
-            logger.info("starting database transaction for leaderboard updates")
-
-            conn.execute(leaderboard_table.delete())
-            logger.info(f"deleted all rows from table {leaderboard_table.name}")
-
-            conn.execute(leaderboard_table.insert(), all_rows)
-            logger.info(f"inserted {len(all_rows)} rows")
-
-            conn.execute(metadata_table.update().values(last_updated_at=datetime.now(tz=timezone.utc)))
-            logger.info("updated leaderboard metadata table")
-
-            conn.commit()
-            logger.info("db txn committed successfully")
-
-            return True
-    except requests.exceptions.RequestException as e:
-        logger.error(f"HTTP Request error during allium api call: {e}")
+    if not all_rows:
+        logger.warning("leaderboard query returned no data, skipping update")
         return False
-    except SQLAlchemyError as e:
-        logger.error(f"SQLAlchemy error during database operation: {e}")
-        return False
-    except Exception as e:
-        logger.error(f"unexpected error occurred: {e}")
-        return False
-    finally:
+
+    with engine.begin() as conn:
+        logger.info("starting database transaction for leaderboard updates")
+
+        conn.execute(leaderboard_table.delete())
+        logger.info(f"deleted all rows from table {leaderboard_table.name}")
+
+        conn.execute(leaderboard_table.insert(), all_rows)
+        logger.info(f"inserted {len(all_rows)} rows")
+
+        conn.execute(metadata_table.update().values(last_updated_at=datetime.now(tz=timezone.utc)))
+        logger.info("updated leaderboard metadata table")
+
+        conn.commit()
+        logger.info("db txn committed successfully")
+
         logger.info(f"leaderboard update finished in {time.time() - start_time:.2f} seconds")
 # endregion
 
