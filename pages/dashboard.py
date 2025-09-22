@@ -1,6 +1,7 @@
 from copy import deepcopy
 import os
 import time
+from cachetools import TTLCache
 from dotenv import load_dotenv
 import requests
 from src.auth.db_utils import init_db, PremiumType, get_user_premium_type, upgrade_to_premium, start_trial_if_new_user, get_user
@@ -236,9 +237,35 @@ def get_curr_hype_price():
     return float(prices['@107'])
 
 
+# cache each address individually
+# so if e.g. A, B is cached
+# and user queries A, C, D
+# code will fetch A from cache then send C, D to actual DB query
+@st.cache_resource
+def get_rank_cache():
+    # thread-safe TTL cache that holds up to maxsize addresses, each expiring after ttl seconds
+    return TTLCache(maxsize=10000, ttl=3600)
 @st.cache_data(ttl=oneDayInS, show_spinner=False)
-def _get_rank_by_addresses(address_list: list[str]):
-    return get_rank_by_addresses(address_list)
+def _get_rank_by_addresses(address_list: list[str]) -> list:
+    rank_cache = get_rank_cache()
+
+    results = []
+    addresses_to_fetch = []
+    for addr in address_list:
+        if addr in rank_cache:
+            results.append(rank_cache[addr])
+        else:
+            addresses_to_fetch.append(addr)
+
+    if addresses_to_fetch:
+        fetched_ranks = get_rank_by_addresses(addresses_to_fetch)
+
+        for addr, rank_data in zip(addresses_to_fetch, fetched_ranks):
+            rank_cache[addr] = rank_data
+            results.append(rank_data)
+
+    return results
+
 
 def load_data():
     unit_token_mappings = _get_cached_unit_token_mappings()
