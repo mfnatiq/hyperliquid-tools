@@ -51,26 +51,32 @@ def get_pacifica_funding_rates():
     return response.json()
 
 # --- 2. Styling Function ---
-# This function will be applied to each cell in the specified columns.
-# It returns a CSS style string.
-def style_funding_rates(val):
+def apply_styles(val):
     """
-    Applies color to funding rates:
-    - Green for positive values
-    - Red for negative values
-    - Default (black) for zero or non-numeric types
+    This function handles all styling logic in one place.
+    - Returns grey color for NaN values.
+    - Returns green color for positive numbers.
+    - Returns red color for negative numbers.
+    - Returns nothing for zeros or other data types.
     """
-    color = ''
-    # Check if the value is a number before comparing
-    breakpoint()
+    # Check for NaN first, as it's not a number
+    if pd.isna(val):
+        # Use a muted grey for NaN values
+        return 'color: #808080'
+    
+    # Now check for numeric types
     if isinstance(val, (int, float)):
         if val > 0:
-            color = '#2E8B57'  # Green
+            return 'color: #2E8B57'  # Green
         elif val < 0:
-            color = '#C70039'  # Red
-    return f'color: {color}'
+            return 'color: #C70039'  # Red
+            
+    # Return no specific style for other cases (like zero or text)
+    return ''
 
 with st.spinner(show_time=True):
+    st.info("Symbols with differing names across exchanges like 1000BONK vs. kBONK have been normalised to e.g. BONK")
+
     lighter_funding_rates = get_lighter_funding_rates()['funding_rates']
     pacifica_funding_rates = get_pacifica_funding_rates()['data']
 
@@ -96,9 +102,6 @@ with st.spinner(show_time=True):
     # Reindex the DataFrame to include all desired columns, filling missing ones with NaN
     combined_df = combined_df.reindex(columns=final_columns)
 
-    # Display the resulting DataFrame
-    print(combined_df)
-
     # 2. Create a standardized 'base_symbol' column
     # This removes the '1000' or 'k' prefix from the symbol names
     combined_df['base_symbol'] = combined_df['symbol'].str.replace(r'^(1000|k)', '', regex=True)
@@ -121,9 +124,9 @@ with st.spinner(show_time=True):
     st.dataframe(
         final_df.style
             # Apply the color styling function first
-            .map(style_funding_rates, subset=numeric_cols)
-            # NOW, format ONLY the NaN values without changing number precision
-            .format(na_rep="---", subset=numeric_cols),
+            .map(apply_styles, subset=exchange_cols)
+            # Use .format() ONLY to change the display text for NaNs
+            .format(na_rep="---", subset=exchange_cols),
         hide_index=True,
         # column_config={
         #     'user_rank': st.column_config.TextColumn('Rank'),
@@ -131,3 +134,7 @@ with st.spinner(show_time=True):
         #     'total_volume_usd': st.column_config.TextColumn('Total Volume (USD)'),
         # },
     )
+
+    # TODO convert all to percentages and mention is hourly
+    # for all binance / hyperliquid / lighter, divide by 8 then x100 then add %
+    # for pacifica, x100 then add % (alr in 1h)
