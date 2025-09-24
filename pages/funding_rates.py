@@ -1,6 +1,8 @@
 import pandas as pd
 import requests
 import streamlit as st
+from hyperliquid.info import Info
+from hyperliquid.utils import constants
 
 st.set_page_config(
     'Funding Rates',
@@ -20,9 +22,44 @@ logger = logging.getLogger(__name__)
 
 fetch_funding_rates_cache_duration_s = 60
 
+# TODO put postprocessing of fetched data in the respective cached functions
+
+# hyperliquid
+try:
+    info = Info(constants.MAINNET_API_URL, skip_ws=True)
+except Exception as e:
+    logger.error(f'client error occured: {e}')
+    st.error(
+        "Hyperliquid API rate limit reached, please try again in a short while")
+@st.cache_data(ttl=fetch_funding_rates_cache_duration_s, show_spinner=False)
+def get_hyperliquid_funding_rates():
+    hyperliquid_data_raw = info.meta_and_asset_ctxs()
+    parsed_hyperliquid = []
+    if len(hyperliquid_data_raw) == 2:
+        universe_data = hyperliquid_data_raw[0].get('universe', [])
+        asset_contexts = hyperliquid_data_raw[1]
+
+        # ensure both lists are of same length to avoid index errors
+        if len(universe_data) == len(asset_contexts):
+            for i, asset_info in enumerate(universe_data):
+                symbol = asset_info.get('name')
+                funding_rate_info = asset_contexts[i]
+                funding_rate = funding_rate_info.get('funding')
+                if symbol and funding_rate is not None:
+                    try:
+                        parsed_hyperliquid.append({
+                            'symbol': symbol,
+                            'hyperliquid': float(funding_rate)
+                        })
+                    except (ValueError, TypeError):
+                        continue
+    hyperliquid_df = pd.DataFrame(parsed_hyperliquid)
+    return hyperliquid_df
+
 @st.cache_data(ttl=fetch_funding_rates_cache_duration_s, show_spinner=False)
 def get_lighter_funding_rates():
     # contains binance, bybit, hyperliquid, lighter
+    # ignore hyperliquid one as we get that directly
     response = requests.get(
         "https://mainnet.zklighter.elliot.ai/api/v1/funding-rates",
         headers={ "accept": "application/json" },
@@ -76,6 +113,7 @@ with st.spinner(show_time=True):
     st.info("Symbols with differing names across exchanges like 1000BONK vs. kBONK have been normalised to e.g. BONK")
 
     lighter_funding_rates = get_lighter_funding_rates()['funding_rates']
+    hyperliquid_df = get_hyperliquid_funding_rates()
     pacifica_funding_rates = get_pacifica_funding_rates()['data']
     # variational_funding_rates = get_variational_funding_rates()['result']
     extended_funding_rates = get_extended_funding_rates()['data']
@@ -86,6 +124,12 @@ with st.spinner(show_time=True):
 
     # pivot df to get exchanges as columns
     combined_df = combined_df.pivot(index='symbol', columns='exchange', values='rate').reset_index()
+
+    # drop hyperliquid from lighter data as it will be fetched separately
+    combined_df = combined_df.drop(columns=['hyperliquid'])
+
+    if not hyperliquid_df.empty:
+        combined_df = pd.merge(combined_df, hyperliquid_df, on='symbol', how='outer')
 
     # parse pacifica data
     pacifica_df = pd.DataFrame(pacifica_funding_rates)
@@ -129,8 +173,8 @@ with st.spinner(show_time=True):
     exchange_cols = [
         'binance',
         'bybit',
-        'hyperliquid',
         'lighter',
+        'hyperliquid',
         'pacifica',
         'extended',
         'paradex'
@@ -157,8 +201,8 @@ with st.spinner(show_time=True):
     formatters = {
         'binance': lambda x: f"{x * 100:.4f}%",
         'bybit': lambda x: f"{x * 100:.4f}%",
-        'hyperliquid': lambda x: f"{x * 100:.4f}%",
         'lighter': lambda x: f"{x * 100:.4f}%",
+        'hyperliquid': lambda x: f"{(x * 8) * 100:.4f}%",  # data is for every 1h
         'pacifica': lambda x: f"{(x * 8) * 100:.4f}%",  # data is for every 1h
         'extended': lambda x: f"{(x * 8) * 100:.4f}%",  # data is for every 1h
         'paradex': lambda x: f"{x * 100:.4f}%",
