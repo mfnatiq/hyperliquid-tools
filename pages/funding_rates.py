@@ -8,7 +8,7 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("Funding Rate Comparison (1H)")
+st.title("Funding Rate Comparison (8H)")
 
 # setup and configure logging
 import logging
@@ -38,43 +38,38 @@ def get_pacifica_funding_rates():
     return response.json()
 
 @st.cache_data(ttl=fetch_funding_rates_cache_duration_s, show_spinner=False)
-def get_pacifica_funding_rates():
+def get_extended_funding_rates():
     response = requests.get(
-        "https://api.pacifica.fi/api/v1/info",
+        "https://api.starknet.extended.exchange/api/v1/info/markets",
         headers={ "Accept": "*/*" },
     )
     return response.json()
 
-# @st.cache_data(ttl=fetch_funding_rates_cache_duration_s, show_spinner=False)
-# def get_variational_funding_rates():
-#     response = requests.get(
-#         "https://api.variational.io/v1/metadata/supported_assets",
-#         headers={ "Accept": "*/*" },
-#     )
-#     return response.json()
+@st.cache_data(ttl=fetch_funding_rates_cache_duration_s, show_spinner=False)
+def get_paradex_funding_rates():
+    response = requests.get(
+        "https://api.prod.paradex.trade/v1/markets/summary?market=ALL",
+        headers={ "Accept": "*/*" },
+    )
+    return response.json()
 
 # --- 2. Styling Function ---
 def apply_styles(val):
     """
-    This function handles all styling logic in one place.
-    - Returns grey color for NaN values.
-    - Returns green color for positive numbers.
-    - Returns red color for negative numbers.
-    - Returns nothing for zeros or other data types.
+    this function handles all styling logic in one place
     """
-    # Check for NaN first, as it's not a number
+    # check for NaN first
     if pd.isna(val):
-        # Use a muted grey for NaN values
-        return 'color: #808080'
+        return 'color: #808080' # muted grey
 
-    # Now check for numeric types
+    # check for numeric types
     if isinstance(val, (int, float)):
         if val > 0:
-            return 'color: #2E8B57'  # Green
+            return 'color: #2E8B57'  # green
         elif val < 0:
-            return 'color: #C70039'  # Red
+            return 'color: #C70039'  # red
 
-    # Return no specific style for other cases (like zero or text)
+    # no specific style for other cases (like zero or text)
     return ''
 
 with st.spinner(show_time=True):
@@ -83,78 +78,97 @@ with st.spinner(show_time=True):
     lighter_funding_rates = get_lighter_funding_rates()['funding_rates']
     pacifica_funding_rates = get_pacifica_funding_rates()['data']
     # variational_funding_rates = get_variational_funding_rates()['result']
+    extended_funding_rates = get_extended_funding_rates()['data']
+    paradex_funding_rates = get_paradex_funding_rates()['results']
 
-    # Create a DataFrame from the first list of data
-    df1 = pd.DataFrame(lighter_funding_rates)
+    # start with this
+    combined_df = pd.DataFrame(lighter_funding_rates)
 
-    # Pivot the DataFrame to get exchanges as columns
-    funding_rates_df = df1.pivot(index='symbol', columns='exchange', values='rate').reset_index()
+    # pivot df to get exchanges as columns
+    combined_df = combined_df.pivot(index='symbol', columns='exchange', values='rate').reset_index()
 
-    # Create a DataFrame from the second list of data for 'pacifica'
+    # parse pacifica data
     pacifica_df = pd.DataFrame(pacifica_funding_rates)
     pacifica_df = pacifica_df[['symbol', 'funding_rate']].rename(columns={'funding_rate': 'pacifica'})
     pacifica_df['pacifica'] = pacifica_df['pacifica'].astype(float)
+    if not pacifica_df.empty:
+        combined_df = pd.merge(combined_df, pacifica_df, on='symbol', how='outer')
 
+    # process extended data
+    parsed_extended_data = []
+    for market in extended_funding_rates:
+        # check if market is active and has necessary data
+        if market.get('status') == 'ACTIVE' and 'marketStats' in market:
+            asset_name = market.get('assetName')
+            funding_rate = market['marketStats'].get('fundingRate')
+            if asset_name and funding_rate is not None:
+                parsed_extended_data.append({'symbol': asset_name, 'extended': float(funding_rate)})
+    extended_df = pd.DataFrame(parsed_extended_data)
+    if not extended_df.empty:
+        combined_df = pd.merge(combined_df, extended_df, on='symbol', how='outer')
 
-    # Merge the two DataFrames on the 'symbol'
-    combined_df = pd.merge(funding_rates_df, pacifica_df, on='symbol', how='outer')
+    # process paradex data
+    parsed_paradex = []
+    for market in paradex_funding_rates:
+        symbol = market.get('symbol', '')
+        # filter for perp markets only and ensure it has a funding rate
+        if symbol.endswith('-PERP') and market.get('funding_rate') is not None:
+            # extract base asset name e.g., "OM-USD-PERP" -> "OM"
+            base_symbol = symbol.split('-')[0]
+            try:
+                # safely convert funding rate to float
+                rate = float(market['funding_rate'])
+                parsed_paradex.append({'symbol': base_symbol, 'paradex': rate})
+            except (ValueError, TypeError):
+                continue # skip if funding rate is not a valid number
+    paradex_df = pd.DataFrame(parsed_paradex)
+    if not paradex_df.empty:
+        combined_df = pd.merge(combined_df, paradex_df, on='symbol', how='outer')
 
-    # # --- 3. PARSE AND PROCESS VARIATIONAL DATA ---
-    # parsed_variational = []
-    # for symbol, data_list in variational_funding_rates.items():
-    #     if data_list:
-    #         params = data_list[0].get('variational_funding_rate_params', {})
-    #         normal_slope = params.get('normal_slope')
-    #         if normal_slope is not None:
-    #             parsed_variational.append({
-    #                 'symbol': symbol,
-    #                 'variational': float(normal_slope)
-    #             })
-    # variational_df = pd.DataFrame(parsed_variational)
-    # breakpoint()
+    # define desired column order
+    exchange_cols = [
+        'binance',
+        'bybit',
+        'hyperliquid',
+        'lighter',
+        'pacifica',
+        'extended',
+        'paradex'
+    ]
+    final_columns = ['symbol'] + exchange_cols
 
-    # final_df = pd.merge(combined_df, variational_df, on='symbol', how='outer')
-
-    # Define the desired column order
-    numeric_cols = ['binance', 'bybit', 'hyperliquid', 'lighter', 'pacifica']
-    final_columns = ['symbol'] + numeric_cols
-
-    # Reindex the DataFrame to include all desired columns, filling missing ones with NaN
+    # reindex df to include all desired columns, filling missing ones with NaN
     combined_df = combined_df.reindex(columns=final_columns)
 
-    # 2. Create a standardized 'base_symbol' column
-    # This removes the '1000' or 'k' prefix from the symbol names
-    combined_df['base_symbol'] = combined_df['symbol'].str.replace(r'^(1000|k)', '', regex=True)
+    # create standardized 'symbol' column: removes '1000' or 'k' prefix from symbol names
+    combined_df['symbol'] = combined_df['symbol'].str.replace(r'^(1000|k)', '', regex=True)
 
-    # 3. Group by 'base_symbol' and aggregate the results for exchange columns
-    # The .first() method takes the first non-null value for each exchange in the group.
-    exchange_cols = ['binance', 'bybit', 'hyperliquid', 'lighter', 'pacifica']
-    merged_df = combined_df.groupby('base_symbol')[exchange_cols].first()
+    # group by 'symbol' and aggregate results for exchange columns
+    # .first() method takes the first non-null value for each exchange in the group.
+    merged_df = combined_df.groupby('symbol')[exchange_cols].first()
 
-    # 4. Finalize the DataFrame
-    # Reset the index to turn 'base_symbol' into a column
+    # reset the index to turn 'symbol' into a column
     final_df = merged_df.reset_index()
 
-    # Rename the 'base_symbol' column to 'symbol'
-    final_df = final_df.rename(columns={'base_symbol': 'symbol'})
-
-    # 5. Drop rows where ALL exchange values are NaN
+    # drop rows where all exchange values are NaN
     final_df = final_df.dropna(subset=exchange_cols, how='all')
 
-    # lighter api returns 8h rates but pacifica api returns 1h rates
+    # lighter api, paradex return 8h rates
     formatters = {
-        'binance': lambda x: f"{(x / 8) * 100:.4f}%",
-        'bybit': lambda x: f"{(x / 8) * 100:.4f}%",
-        'hyperliquid': lambda x: f"{(x / 8) * 100:.4f}%",
-        'lighter': lambda x: f"{(x / 8) * 100:.4f}%",
-        'pacifica': lambda x: f"{x * 100:.4f}%"
+        'binance': lambda x: f"{x * 100:.4f}%",
+        'bybit': lambda x: f"{x * 100:.4f}%",
+        'hyperliquid': lambda x: f"{x * 100:.4f}%",
+        'lighter': lambda x: f"{x * 100:.4f}%",
+        'pacifica': lambda x: f"{(x * 8) * 100:.4f}%",  # data is for every 1h
+        'extended': lambda x: f"{(x * 8) * 100:.4f}%",  # data is for every 1h
+        'paradex': lambda x: f"{x * 100:.4f}%",
     }
 
     st.dataframe(
         final_df.style
-            # Apply the color styling function first
+            # apply color styling function first
             .map(apply_styles, subset=exchange_cols)
-            # Use .format() ONLY to change the display text for NaNs
+            # use .format() to format data + change the display text for NaNs
             .format(formatters, na_rep="---", subset=exchange_cols),
         hide_index=True,
         # column_config={
