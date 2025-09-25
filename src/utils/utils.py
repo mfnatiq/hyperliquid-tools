@@ -41,12 +41,13 @@ def get_cached_unit_token_mappings(info: Info, logger: Logger) -> dict[str, tupl
                     str(t['fullName']).startswith('Unit '))
 
     universe_metadata: list[SpotAssetInfo] = spot_metadata['universe']
-    universe_metadata_idx = 0
     mapping = {}
 
     for t in unit_tokens:
         token_name = t['name']
         token_idx = t['index']
+
+        logger.info(f'trying to process unit token with name {token_name}, idx {token_idx}')
 
         try:
             # used for bridge
@@ -59,11 +60,10 @@ def get_cached_unit_token_mappings(info: Info, logger: Logger) -> dict[str, tupl
             continue
 
         universe_entry = None
-        while universe_metadata_idx < len(universe_metadata):
+        for universe_metadata_idx in range(len(universe_metadata)):
             if token_idx in universe_metadata[universe_metadata_idx]['tokens']:
                 universe_entry = universe_metadata[universe_metadata_idx]
                 break
-            universe_metadata_idx += 1
 
         if universe_entry:
             mapping[universe_entry['name']] = (token_name, token_decimals)
