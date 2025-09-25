@@ -185,7 +185,7 @@ def announcement():
 @st.dialog("Latest Updates", width="large", on_dismiss="ignore")
 def updates_announcement():
     st.write("""
-        🚨 2025-09-11: Updated trade data
+        🚨 2025-09-25: Added button to search for wallets outside top 1000
 
         Enjoy!
     """)
@@ -780,7 +780,7 @@ def main():
                     "💡 Summary",
                     "⚡ Trade Analysis",
                     "🌉 Bridge Analysis",
-                    "🏆 Leaderboard (Beta!)",
+                    "🏆 Leaderboard",
                     "🔗 HyperEVM Trades (W.I.P)",
                 ]
             )
@@ -864,8 +864,8 @@ def main():
                                 'total_volume_usd': st.column_config.TextColumn('Total Volume (USD)'),
                             },
                         )
-                    else:
-                        submitted = st.button('Get ranks of searched addresses', type='primary')
+                    elif not df_trade.empty:    # don't show option for those confirmed no trades
+                        submitted = st.button('Show my wallet ranks', type='primary')
                         if submitted:
                             with st.spinner('Loading...'):
                                 logger.info(f'searching ranks of addresses {accounts}')
@@ -873,14 +873,16 @@ def main():
 
                                 df_ranks = pd.DataFrame(ranks)
                                 df_ranks = df_ranks[['user_rank', 'user_address', 'total_volume_usd']]
+                                df_ranks.loc[:, 'user_address'] = df_ranks['user_address'].apply(lambda x: x[:6] + '...' + x[-6:])
+                                df_ranks['total_volume_usd'] = df_ranks['total_volume_usd'].apply(lambda x: format_currency(x))
                                 st.subheader('Searched Addresses')
                                 st.dataframe(
                                     df_ranks,
                                     hide_index=True,
                                     column_config={
-                                        'user_rank': st.column_config.TextColumn('Rank'),
-                                        'user_address': st.column_config.TextColumn('Address'),
-                                        'total_volume_usd': st.column_config.TextColumn('Total Volume (USD)'),
+                                        'user_rank': st.column_config.TextColumn('Rank', width="medium"),
+                                        'user_address': st.column_config.TextColumn('Address', width="medium"),
+                                        'total_volume_usd': st.column_config.TextColumn('Total Volume (USD)', width="medium"),
                                     },
                                 )
 
@@ -891,9 +893,9 @@ def main():
                         leaderboard_formatted,
                         hide_index=True,
                         column_config={
-                            'user_rank': st.column_config.TextColumn('Rank'),
-                            'user_address': st.column_config.TextColumn('Address'),
-                            'total_volume_usd': st.column_config.TextColumn('Total Volume (USD)'),
+                            'user_rank': st.column_config.TextColumn('Rank', width="medium"),
+                            'user_address': st.column_config.TextColumn('Address', width="medium"),
+                            'total_volume_usd': st.column_config.TextColumn('Total Volume (USD)', width="medium"),
                         },
                     )
 

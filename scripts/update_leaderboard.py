@@ -7,7 +7,7 @@ from sqlalchemy import DateTime, create_engine, text, MetaData, Table, Column, S
 from sqlalchemy.dialects.postgresql import TIMESTAMP # for pg specific type
 from sqlalchemy.exc import SQLAlchemyError
 
-from utils.allium_query_utils import query_allium
+from src.utils.allium_query_utils import query_allium
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",

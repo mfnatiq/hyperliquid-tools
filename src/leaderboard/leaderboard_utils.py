@@ -5,7 +5,7 @@ from logging import Logger
 from dotenv import load_dotenv
 import pandas as pd
 from sqlalchemy import TIMESTAMP, Column, DateTime, Float, Integer, MetaData, String, Table, create_engine, inspect
-from utils.allium_query_utils import query_allium
+from src.utils.allium_query_utils import query_allium
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
