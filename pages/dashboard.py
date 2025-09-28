@@ -1,10 +1,11 @@
 from copy import deepcopy
 import os
 import time
+from cachetools import TTLCache
 from dotenv import load_dotenv
 import requests
 from src.auth.db_utils import init_db, PremiumType, get_user_premium_type, upgrade_to_premium, start_trial_if_new_user, get_user
-from src.leaderboard.leaderboard_utils import get_leaderboard_last_updated, get_leaderboard
+from src.leaderboard.leaderboard_utils import get_leaderboard_last_updated, get_leaderboard, get_rank_by_addresses
 from src.utils.utils import DATE_FORMAT, format_currency, get_cached_unit_token_mappings, get_current_timestamp_millis
 from datetime import datetime, timedelta, timezone
 import pandas as pd
@@ -184,7 +185,7 @@ def announcement():
 @st.dialog("Latest Updates", width="large", on_dismiss="ignore")
 def updates_announcement():
     st.write("""
-        🚨 2025-09-11: Updated trade data
+        🚨 2025-09-25: Added button to search for wallets outside top 1000
 
         Enjoy!
     """)
@@ -234,6 +235,36 @@ def _get_candlestick_data(_token_ids: list[str], _token_names: list[str]):
 def get_curr_hype_price():
     prices = info.all_mids()
     return float(prices['@107'])
+
+
+# cache each address individually
+# so if e.g. A, B is cached
+# and user queries A, C, D
+# code will fetch A from cache then send C, D to actual DB query
+@st.cache_resource
+def get_rank_cache():
+    # thread-safe TTL cache that holds up to maxsize addresses, each expiring after ttl seconds
+    return TTLCache(maxsize=10000, ttl=3600)
+@st.cache_data(ttl=oneDayInS, show_spinner=False)
+def _get_rank_by_addresses(address_list: list[str]) -> list:
+    rank_cache = get_rank_cache()
+
+    results = []
+    addresses_to_fetch = []
+    for addr in address_list:
+        if addr in rank_cache:
+            results.append(rank_cache[addr])
+        else:
+            addresses_to_fetch.append(addr)
+
+    if addresses_to_fetch:
+        fetched_ranks = get_rank_by_addresses(addresses_to_fetch)
+
+        for addr, rank_data in zip(addresses_to_fetch, fetched_ranks):
+            rank_cache[addr] = rank_data
+            results.append(rank_data)
+
+    return results
 
 
 def load_data():
@@ -729,6 +760,7 @@ def main():
         with output_placeholder.container():
             volume_data = st.session_state['volume_data']
             df_trade = create_volume_df(volume_data['volume_by_token'])
+            accounts = volume_data['accounts']
 
             raw_bridge_data = st.session_state['raw_bridge_data']
             processed_bridge_data = format_bridge_data(
@@ -748,7 +780,7 @@ def main():
                     "💡 Summary",
                     "⚡ Trade Analysis",
                     "🌉 Bridge Analysis",
-                    "🏆 Leaderboard (Beta!)",
+                    "🏆 Leaderboard",
                     "🔗 HyperEVM Trades (W.I.P)",
                 ]
             )
@@ -812,7 +844,7 @@ def main():
                 else:
                     st.info('🚧 This feature is in beta')
                     leaderboard_last_updated = _get_leaderboard_last_updated()
-                    st.markdown(f'Last Updated: **{leaderboard_last_updated}** (data is only recalculated every few hours)')
+                    st.markdown(f'Last Updated: **{leaderboard_last_updated}**')
 
                     leaderboard = _get_leaderboard()
                     leaderboard['total_volume_usd'] = leaderboard['total_volume_usd'].apply(lambda x: format_currency(x))
@@ -832,6 +864,27 @@ def main():
                                 'total_volume_usd': st.column_config.TextColumn('Total Volume (USD)'),
                             },
                         )
+                    elif not df_trade.empty:    # don't show option for those confirmed no trades
+                        submitted = st.button('Show my wallet ranks', type='primary')
+                        if submitted:
+                            with st.spinner('Loading...'):
+                                logger.info(f'searching ranks of addresses {accounts}')
+                                ranks = _get_rank_by_addresses(accounts)
+
+                                df_ranks = pd.DataFrame(ranks)
+                                df_ranks = df_ranks[['user_rank', 'user_address', 'total_volume_usd']]
+                                df_ranks.loc[:, 'user_address'] = df_ranks['user_address'].apply(lambda x: x[:6] + '...' + x[-6:])
+                                df_ranks['total_volume_usd'] = df_ranks['total_volume_usd'].apply(lambda x: format_currency(x))
+                                st.subheader('Searched Addresses')
+                                st.dataframe(
+                                    df_ranks,
+                                    hide_index=True,
+                                    column_config={
+                                        'user_rank': st.column_config.TextColumn('Rank', width="medium"),
+                                        'user_address': st.column_config.TextColumn('Address', width="medium"),
+                                        'total_volume_usd': st.column_config.TextColumn('Total Volume (USD)', width="medium"),
+                                    },
+                                )
 
                     # display overall leaderboard
                     leaderboard_formatted.loc[:, 'user_address'] = leaderboard_formatted['user_address'].apply(lambda x: x[:6] + '...' + x[-6:])
@@ -840,9 +893,9 @@ def main():
                         leaderboard_formatted,
                         hide_index=True,
                         column_config={
-                            'user_rank': st.column_config.TextColumn('Rank'),
-                            'user_address': st.column_config.TextColumn('Address'),
-                            'total_volume_usd': st.column_config.TextColumn('Total Volume (USD)'),
+                            'user_rank': st.column_config.TextColumn('Rank', width="medium"),
+                            'user_address': st.column_config.TextColumn('Address', width="medium"),
+                            'total_volume_usd': st.column_config.TextColumn('Total Volume (USD)', width="medium"),
                         },
                     )
 
@@ -1225,7 +1278,6 @@ def format_bridge_data(
     cumulative_trade_data: pd.DataFrame,
 ):
     # combine bridge operations from all addresses into a single DataFrame
-    # TODO separate by address?
     all_operations_df = pd.DataFrame()
     for _, data in raw_bridge_data.items():
         processed_df = process_bridge_operations(
