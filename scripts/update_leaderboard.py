@@ -7,6 +7,14 @@ import logging
 from sqlalchemy import DateTime, create_engine, text, MetaData, Table, Column, String, Float, Integer, inspect
 from sqlalchemy.dialects.postgresql import TIMESTAMP # for pg specific type
 from sqlalchemy.exc import SQLAlchemyError
+from hyperliquid.info import Info
+from hyperliquid.utils import constants
+
+import sys
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+# add src root to search path so src import works
+sys.path.insert(0, project_root)
+from src.utils.utils import get_cached_unit_token_mappings
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -79,7 +87,12 @@ def update_leaderboard_data():
     start_time = time.time()
     logger.info("starting leaderboard update process")
 
-    params = {}
+    info = Info(constants.MAINNET_API_URL, skip_ws=True)
+    unit_token_mappings = get_cached_unit_token_mappings(info, logger)
+
+    params = {
+        "coin_list": ','.join([f"'{coin}'" for coin in unit_token_mappings.keys()])
+    }
     run_config = { 'limit': 1000 }
 
     headers = { "X-API-Key": ALLIUM_API_KEY }
