@@ -585,9 +585,6 @@ def display_upgrade_section(id: str):
     st.text(f"""
         You've seen what detailed analytics this dashboard has to offer. Ready to keep the insights coming?
     """)
-    st.markdown("""
-        As an early user, you get a :green[25% discount] (already applied)!
-    """)
     st.text("""
         For a one-time payment, you get full access to:
         📊 Complete transaction and bridging history

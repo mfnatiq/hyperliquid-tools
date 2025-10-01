@@ -57,7 +57,6 @@ if "user_email" in st.session_state:
             st.markdown(f"""
                 After the trial ends, you can maintain premium access forever with a :green[one-time payment] of :green[{stablesAmountToPay} USD₮0] (or approximate equivalent in HYPE)
             """)
-            st.markdown("Subscription cost will go up to :red[20 USD₮0] after **2025-09-30** - if you would like to subscribe early to lock in this discounted price, please DM me!")
         else:
             display_upgrade_section('trial_page')
 
