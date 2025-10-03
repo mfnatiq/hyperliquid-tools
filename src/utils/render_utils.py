@@ -46,7 +46,6 @@ html, body {{ margin: 0; padding: 0; background: transparent; }}
 <div class="footer">
     <span>
     made by <a href="https://x.com/fnatiqmambo" target="_blank">@fnatiqmambo</a>
-    (formerly <a href="https://x.com/mfnatiq1" target="_blank">@mfnatiq1</a>)
     </span>
     <span class="separator">•</span>
     <span>donations:</span>
