@@ -266,6 +266,8 @@ def get_cached_unit_volumes(
     # account: { remarks (subaccount of another), num fills }
     accounts_mapping: dict[str, dict[str, int]] = dict()
 
+    total_trade_volume: dict[str, float] = dict()  # { account: total trade volume }
+
     try:
         for account in accounts:
             accounts_mapping[account] = {
@@ -289,7 +291,7 @@ def get_cached_unit_volumes(
                     }
     except Exception as e:
         logger.error(f'unable to fetch subaccounts of {accounts}: {e}')
-        return dict(), dict(), pd.DataFrame, False, 'Unable to fetch subaccounts - did you put a valid list of accounts?'
+        return dict(), dict(), total_trade_volume, pd.DataFrame, False, 'Unable to fetch subaccounts - did you put a valid list of accounts?'
 
     accounts_to_query = accounts_mapping.keys()
 
@@ -326,7 +328,6 @@ def get_cached_unit_volumes(
         for t, _ in unit_token_mappings.values()
     }
 
-    fills = dict()  # { account: list of fills }
     currTime = get_current_timestamp_millis()
     numDaysQuerySpan = 30
     user_fills_rows = []
@@ -335,7 +336,8 @@ def get_cached_unit_volumes(
 
         for account in accounts_to_query:
             num_fills_total = 0
-            account_fills = []
+
+            total_trade_volume_account = 0
 
             # initialisation
             startTime = unitStartTime
@@ -389,6 +391,8 @@ def get_cached_unit_volumes(
                         trade_time = datetime.fromtimestamp(
                             f['time'] / 1000, tz=timezone.utc)
 
+                        total_trade_volume_account += trade_volume
+
                         # direction
                         prev_first_txn = volume_by_token[token_name]['Direction'][direction]['First Txn']
                         if prev_first_txn is None or trade_time < prev_first_txn:
@@ -429,13 +433,11 @@ def get_cached_unit_volumes(
                             'fees_usd': fee_amt,
                         })
 
-                account_fills.extend(fills_result)
-
-            fills[account] = account_fills
+            total_trade_volume[account] = total_trade_volume_account
     except Exception as e:
         logging.error(f'error fetching fills for some account(s) in {accounts_to_query}: {e}')
         # TODO need clearer error message
-        return dict(), dict(), pd.DataFrame, False, 'Error fetching fills: did you put a valid list of accounts?'
+        return dict(), dict(), total_trade_volume, pd.DataFrame, False, 'Error fetching fills: did you put a valid list of accounts?'
 
     user_trades_df = pd.DataFrame(user_fills_rows)
     if not user_trades_df.empty:
@@ -486,7 +488,7 @@ def get_cached_unit_volumes(
             .cumsum()
         )
 
-    return volume_by_token, accounts_mapping, user_trades_df, non_logged_in_limit_trade_count, None
+    return volume_by_token, accounts_mapping, total_trade_volume, user_trades_df, non_logged_in_limit_trade_count, None
 
 
 # --- data processing and display functions ---
@@ -695,7 +697,7 @@ def main():
         accounts = [a.strip() for a in addresses_input.split(",") if a]
 
         with st.spinner(f'Loading data for {", ".join(accounts)}...', show_time=True):
-            volume_by_token, accounts_mapping, user_trades_df, non_logged_in_limit_trade_count, err = get_cached_unit_volumes(
+            volume_by_token, accounts_mapping, total_trade_volume, user_trades_df, non_logged_in_limit_trade_count, err = get_cached_unit_volumes(
                 accounts, unit_token_mappings, exclude_subaccounts)
 
             raw_bridge_data = unit_bridge_info.get_operations(accounts)
@@ -809,32 +811,45 @@ def main():
                 else:
                     st.info('🚧 This feature is in beta')
                     leaderboard_last_updated = _get_leaderboard_last_updated()
-                    st.markdown(f'Last Updated: **{leaderboard_last_updated}** (data is only recalculated every few hours)')
+                    st.markdown(f'Last Updated: **{leaderboard_last_updated}**')
 
                     leaderboard = _get_leaderboard()
                     leaderboard['total_volume_usd'] = leaderboard['total_volume_usd'].apply(lambda x: format_currency(x))
                     leaderboard_formatted = leaderboard[['user_rank', 'user_address', 'total_volume_usd']]
 
                     # if searched addresses within leaderboard, display them separately
-                    leaderboard_searched_addresses = leaderboard_formatted[leaderboard_formatted['user_address'].str.lower().isin([a.lower() for a in accounts])]
+                    # else get data based on query
+                    accounts_lowercase = [a.lower() for a in accounts]
+                    leaderboard_searched_addresses = leaderboard_formatted[leaderboard_formatted['user_address'].str.lower().isin(accounts_lowercase)]
+                    st.subheader('Searched Addresses')
+
+                    # manually-obtained trade volumes
+                    ranks = [
+                        (f'{len(leaderboard_formatted)}+', addr.lower(), format_currency(total_vol))
+                        for addr, total_vol in total_trade_volume.items()
+                    ]
+                    ranks_df = pd.DataFrame(ranks, columns=["user_rank", "user_address", "total_volume_usd"])
+
+                    leaderboard_searched_addresses = pd.concat([leaderboard_searched_addresses, ranks_df], ignore_index=True)
+                    # keep first one i.e. add if not already in full searched list
+                    leaderboard_searched_addresses = leaderboard_searched_addresses.drop_duplicates(subset=["user_address"], keep="first")  # keep DataFrame rows over tuples
                     leaderboard_searched_addresses.loc[:, 'user_address'] = leaderboard_searched_addresses['user_address'].apply(lambda x: x[:6] + '...' + x[-6:])
-                    if not leaderboard_searched_addresses.empty:
-                        st.subheader('Searched Addresses')
-                        st.dataframe(
-                            leaderboard_searched_addresses,
-                            hide_index=True,
-                            column_config={
-                                'user_rank': st.column_config.TextColumn('Rank'),
-                                'user_address': st.column_config.TextColumn('Address'),
-                                'total_volume_usd': st.column_config.TextColumn('Total Volume (USD)'),
-                            },
-                        )
+                    st.dataframe(
+                        leaderboard_searched_addresses,
+                        hide_index=True,
+                        column_config={
+                            'user_rank': st.column_config.TextColumn('Rank'),
+                            'user_address': st.column_config.TextColumn('Address'),
+                            'total_volume_usd': st.column_config.TextColumn('Total Volume (USD)'),
+                        },
+                    )
 
                     # display overall leaderboard
                     leaderboard_formatted.loc[:, 'user_address'] = leaderboard_formatted['user_address'].apply(lambda x: x[:6] + '...' + x[-6:])
+                    leaderboard_filtered = leaderboard_formatted.iloc[:1000]
                     st.subheader('Overall Leaderboard')
                     st.dataframe(
-                        leaderboard_formatted,
+                        leaderboard_filtered,
                         hide_index=True,
                         column_config={
                             'user_rank': st.column_config.TextColumn('Rank'),

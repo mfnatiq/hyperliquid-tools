@@ -49,7 +49,11 @@ metadata_table = Table(
 def get_leaderboard(logger: Logger) -> pd.DataFrame:
     try:
         with engine.connect() as conn:
-            results = conn.execute(leaderboard_table.select())
+            results = conn.execute(
+                leaderboard_table.
+                select().
+                order_by(leaderboard_table.c.user_rank.asc())
+            )
             leaderboard_rows = results.fetchall()
             column_names = results.keys()
             leaderboard_df = pd.DataFrame(leaderboard_rows, columns=column_names)

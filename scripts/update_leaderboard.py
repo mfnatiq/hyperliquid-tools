@@ -93,7 +93,7 @@ def update_leaderboard_data():
     params = {
         "coin_list": ','.join([f"'{coin}'" for coin in unit_token_mappings.keys()])
     }
-    run_config = { 'limit': 1000 }
+    run_config = { 'limit': 10000 }
 
     headers = { "X-API-Key": ALLIUM_API_KEY }
     # TODO temporarily set to different query id to combine raw and dex trades until updated indexing
