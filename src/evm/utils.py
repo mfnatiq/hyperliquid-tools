@@ -43,5 +43,10 @@ while not done:
 
 swap_txns = [t for t in txn_list if ('swap' in t['functionName'] or 'Swap' in t['functionName']) and t['isError'] == '0']
 
-swap_txns_info = [(s['hash'], s['functionName']) for s in swap_txns]
+from collections import defaultdict
+txns_mapping = defaultdict(list)
+
+for txn in swap_txns:
+    txns_mapping[txn['functionName']].append(txn['hash'])
+
 breakpoint()
