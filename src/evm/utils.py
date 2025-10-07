@@ -2,10 +2,10 @@ import os
 from dotenv import load_dotenv
 import requests
 
-ADDRESS = os.getenv("ADDRESS")
 startblock = 0
 
 load_dotenv()
+ADDRESS = os.getenv("ADDRESS")
 ETHERSCAN_API_KEY = os.getenv("ETHERSCAN_API_KEY")
 
 txn_list = []
@@ -42,4 +42,6 @@ while not done:
         done = True
 
 swap_txns = [t for t in txn_list if ('swap' in t['functionName'] or 'Swap' in t['functionName']) and t['isError'] == '0']
+
+swap_txns_info = [(s['hash'], s['functionName']) for s in swap_txns]
 breakpoint()
