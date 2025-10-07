@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 import requests
 
-address = '0x8D6F070e5e3F73758426007dA680324C10C2869C'
+ADDRESS = os.getenv("ADDRESS")
 startblock = 0
 
 load_dotenv()
@@ -21,7 +21,7 @@ while not done:
         ?chainid=999
         &module=account
         &action=txlist
-        &address={address}
+        &address={ADDRESS}
         &startblock={startblock}
         &endblock=latest
         &page=1
