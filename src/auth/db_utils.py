@@ -187,7 +187,7 @@ def get_user(email: str, logger: Logger) -> Optional[User]:
         return _row_to_user_object(result_row, logger)
 
 
-NUM_TRIAL_DAYS = 7
+NUM_TRIAL_DAYS = 5
 
 
 def start_trial_if_new_user(email: str, logger: Logger) -> str | None:
