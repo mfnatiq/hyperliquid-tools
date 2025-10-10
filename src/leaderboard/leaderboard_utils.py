@@ -59,7 +59,7 @@ def get_leaderboard(logger: Logger) -> pd.DataFrame:
             leaderboard_df = pd.DataFrame(leaderboard_rows, columns=column_names)
             return leaderboard_df
     except Exception as e:
-        logger.error(f'unable to fetchleaderboard: {e}')
+        logger.error(f'unable to fetch leaderboard: {e}')
     return pd.DataFrame()
 
 def get_leaderboard_last_updated(logger: Logger):
