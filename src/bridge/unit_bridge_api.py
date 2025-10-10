@@ -52,9 +52,9 @@ class UnitBridgeInfo():
                     try:
                         operations_data = future.result()
                         all_results[address] = operations_data
-                    except Exception as exc:
-                        self._logger.error(f'{address} generated an exception: {exc}')
-                        all_results[address] = {"error": str(exc)}
+                    except Exception as e:
+                        self._logger.error(f'error fetching operations for {address}: {e}')
+                        all_results[address] = {"error": str(e)}
 
             # if this is not the last batch, wait before starting the next one
             if i < len(address_batches) - 1:

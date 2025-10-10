@@ -240,10 +240,10 @@ def load_data():
     unit_token_mappings = _get_cached_unit_token_mappings()
     logger.info(f'unit token mappings: {unit_token_mappings}')
     token_list = [t for t, _ in unit_token_mappings.values()]
-    cumulative_trade_data = _get_candlestick_data(
+    candlestick_data = _get_candlestick_data(
         [k for k in unit_token_mappings.keys()], token_list)
 
-    return unit_token_mappings, token_list, cumulative_trade_data
+    return unit_token_mappings, token_list, candlestick_data
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -624,25 +624,25 @@ def main():
         if "init_done" not in st.session_state:
             # first-ever run: initialisation
             with st.spinner("Initialising..."):
-                unit_token_mappings, token_list, cumulative_trade_data = load_data()
+                unit_token_mappings, token_list, candlestick_data = load_data()
 
                 # save into session_state so don't re-init
                 st.session_state.unit_token_mappings = unit_token_mappings
                 st.session_state.token_list = token_list
-                st.session_state.cumulative_trade_data = cumulative_trade_data
+                st.session_state.candlestick_data = candlestick_data
                 st.session_state.init_done = True
         else:
             # subsequent runs: refresh cached data
-            unit_token_mappings, token_list, cumulative_trade_data = load_data()
+            unit_token_mappings, token_list, candlestick_data = load_data()
 
             # update session_state with latest values
             st.session_state.unit_token_mappings = unit_token_mappings
             st.session_state.token_list = token_list
-            st.session_state.cumulative_trade_data = cumulative_trade_data
+            st.session_state.candlestick_data = candlestick_data
         # use cached/session values
         unit_token_mappings = st.session_state.unit_token_mappings
         token_list = st.session_state.token_list
-        cumulative_trade_data = st.session_state.cumulative_trade_data
+        candlestick_data = st.session_state.candlestick_data
 
         if "last_tab" not in st.session_state:
             st.session_state.last_tab = None
@@ -731,7 +731,7 @@ def main():
 
             raw_bridge_data = st.session_state['raw_bridge_data']
             processed_bridge_data = format_bridge_data(
-                raw_bridge_data, unit_token_mappings, cumulative_trade_data)
+                raw_bridge_data, unit_token_mappings, candlestick_data)
             df_bridging, top_bridged_asset = create_bridge_summary(
                 processed_bridge_data)
 
@@ -777,7 +777,7 @@ def main():
                         df_trade,
                         volume_data['accounts_mapping'],
                         volume_data['user_trades_df'],
-                        cumulative_trade_data,
+                        candlestick_data,
                         token_list,
                     )
 
@@ -1011,7 +1011,7 @@ def display_accounts_table(accounts_df: pd.DataFrame):
 
 def display_trade_volume_info(
     trade_df: pd.DataFrame,
-    cumulative_trade_data: pd.DataFrame,
+    candlestick_data: pd.DataFrame,
     accounts: list[str],
     user_trades_df: pd.DataFrame,
     token_list: list[str],
@@ -1019,7 +1019,7 @@ def display_trade_volume_info(
     """
     assumes trade_df is not empty (handled externally)
     """
-    final_cumulative_volume = cumulative_trade_data.groupby('token_name').agg(
+    final_cumulative_volume = candlestick_data.groupby('token_name').agg(
         final_cumulative_volume=('cumulative_volume_usd', 'last')
     ).reset_index()
 
@@ -1147,7 +1147,7 @@ That means that actual trade volume is half of total fill volume, so the percent
         with col1:
             st.subheader("Daily Exchange Volume")
             fig = px.bar(
-                cumulative_trade_data,
+                candlestick_data,
                 x='start_date',
                 y='volume_usd',
                 color='token_name',
@@ -1162,7 +1162,7 @@ That means that actual trade volume is half of total fill volume, so the percent
         with col2:
             st.subheader("Cumulative Exchange Volume")
             fig = px.bar(
-                cumulative_trade_data,
+                candlestick_data,
                 x='start_date',
                 y='cumulative_volume_usd',
                 color='token_name',
@@ -1213,7 +1213,7 @@ def display_trade_data(
     df_trade: pd.DataFrame,
     accounts_mapping: dict,
     user_trades_df: pd.DataFrame,
-    cumulative_trade_data,
+    candlestick_data,
     token_list: list[str],
 ):
     # show raw data in expander
@@ -1223,7 +1223,7 @@ def display_trade_data(
     else:
         display_trade_volume_table(df_trade, len(accounts_mapping))
 
-        display_trade_volume_info(df_trade, cumulative_trade_data, list(
+        display_trade_volume_info(df_trade, candlestick_data, list(
             accounts_mapping.keys()), user_trades_df, token_list)
 
         with st.expander("Raw Data"):
@@ -1234,14 +1234,14 @@ def display_trade_data(
 def format_bridge_data(
     raw_bridge_data: dict,
     unit_token_mappings: dict[str, tuple[str, int]],
-    cumulative_trade_data: pd.DataFrame,
+    candlestick_data: pd.DataFrame,
 ):
     # combine bridge operations from all addresses into a single DataFrame
     # TODO separate by address?
     all_operations_df = pd.DataFrame()
     for _, data in raw_bridge_data.items():
         processed_df = process_bridge_operations(
-            data, unit_token_mappings, cumulative_trade_data, logger)
+            data, unit_token_mappings, candlestick_data, logger)
         if processed_df is not None and not processed_df.empty:
             all_operations_df = pd.concat(
                 [all_operations_df, processed_df], ignore_index=True)

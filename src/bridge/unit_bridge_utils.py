@@ -12,7 +12,7 @@ def _bridge_asset_name_in_token_list(unit_asset_name: str, bridge_asset_name: st
 def process_bridge_operations(
     data_dict: dict,
     unit_token_mappings: dict[str, tuple[str, int]],
-    cumulative_trade_data: pd.DataFrame,
+    candlestick_data: pd.DataFrame,
     logger: Logger,
 ) -> pd.DataFrame | None:
     """
@@ -45,7 +45,7 @@ def process_bridge_operations(
     def convert_amount(
         row,
         unit_token_mappings: dict[str, tuple[str, int]],
-        cumulative_trade_data: pd.DataFrame,
+        candlestick_data: pd.DataFrame,
         unique_tokens: list[str]
     ):
         amount = row['sourceAmount']
@@ -69,10 +69,10 @@ def process_bridge_operations(
 
         # filter by token and matching calendar date
         mask = (
-            (cumulative_trade_data['token_name'] == found_key) &
-            (cumulative_trade_data['start_date'].dt.date == target_date)
+            (candlestick_data['token_name'] == found_key) &
+            (candlestick_data['start_date'].dt.date == target_date)
         )
-        found_row = cumulative_trade_data.loc[mask]
+        found_row = candlestick_data.loc[mask]
 
         if found_row.empty:
             logger.warning(
@@ -98,9 +98,9 @@ def process_bridge_operations(
 
         return pd.Series([amount_formatted, amount_usd], index=amt_cols)
 
-    unique_tokens = cumulative_trade_data['token_name'].unique().tolist()
+    unique_tokens = candlestick_data['token_name'].unique().tolist()
     df[amt_cols] = df.apply(lambda row: convert_amount(
-        row, unit_token_mappings, cumulative_trade_data, unique_tokens), axis=1)
+        row, unit_token_mappings, candlestick_data, unique_tokens), axis=1)
 
     # filter only completed or nearly completed transactions for volume calculation
     completed_states = [
