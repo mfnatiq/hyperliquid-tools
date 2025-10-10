@@ -7,7 +7,8 @@ def _bridge_asset_name_in_token_list(unit_asset_name: str, bridge_asset_name: st
     # TODO do manual mapping instead?
     return unit_asset_name.lower().endswith(bridge_asset_name) \
             or (unit_asset_name == 'UFART' and bridge_asset_name == 'fartcoin') \
-            or (unit_asset_name == 'UUUSPX' and bridge_asset_name == 'spxs')
+            or (unit_asset_name == 'UUUSPX' and bridge_asset_name == 'spxs') \
+            or (unit_asset_name == 'UDZ' and bridge_asset_name == '2z')
 
 def process_bridge_operations(
     data_dict: dict,
