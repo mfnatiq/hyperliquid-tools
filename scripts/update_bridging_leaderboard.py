@@ -1,15 +1,16 @@
 from datetime import datetime, timedelta, timezone
 import os
-from dotenv import load_dotenv
 import time
+from dotenv import load_dotenv
 import pandas as pd
-import requests
 import logging
 from sqlalchemy import DateTime, create_engine, or_, select, MetaData, Table, Column, String, Float, Integer, inspect, DateTime
 from sqlalchemy.dialects.postgresql import TIMESTAMP # for pg specific type
 from sqlalchemy.exc import SQLAlchemyError
 from hyperliquid.info import Info
 from hyperliquid.utils import constants
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 import sys
 
@@ -80,11 +81,14 @@ def initialize_database_schema():
         logger.error(f"error initializing database schema: {e}")
         raise
 
-def get_ref_leaderboard(limit: int) -> pd.DataFrame:
+def get_addresses_to_query(limit: int) -> pd.DataFrame:
     try:
         with engine.connect() as conn:
             # only fetch those from too long ago
             prev_time = datetime.now(timezone.utc) - timedelta(hours=12)
+
+            # get either those in trading leaderboard table
+            # or those in bridging table that were fetched a while ago
             results = conn.execute(
                 select(ref_leaderboard_table.c.user_address)
                 .outerjoin(leaderboard_table, ref_leaderboard_table.c.user_address == leaderboard_table.c.user_address)
@@ -131,37 +135,79 @@ def format_bridge_data(
                 [all_operations_df, processed_df], ignore_index=True)
     return all_operations_df
 
+def update_bridging_leaderboard(data: list):
+    with engine.begin() as conn:
+        logger.info("starting database transaction for bridging leaderboard updates")
+
+        stmt = pg_insert(leaderboard_table).values(data) if is_postgresql else sqlite_insert(leaderboard_table).values(data)
+        update_cols = {col: getattr(stmt.excluded, col)
+                        for col in leaderboard_table.c.keys() if col != "user_address"}
+        upsert_stmt = stmt.on_conflict_do_update(
+            index_elements=['user_address'],
+            set_=update_cols
+        )
+        conn.execute(upsert_stmt)
+        logger.info(f"inserted {len(data)} rows")
+
+        conn.commit()
+        logger.info("db txn committed successfully")
+
+        return True
+
 if __name__ == "__main__":
     try:
         unit_token_mappings, token_list, candlestick_data = load_data()
 
+        start = time.time()
+
         initialize_database_schema()
         limit = 100
-        addresses = list(get_ref_leaderboard(limit)['user_address'])
-        logger.info(f'fetching bridging data for {len(addresses)} addresses')
-        operations = unit_bridge_info.get_operations(addresses)
 
-        rows_to_insert = []
+        num_addresses_processed = 0
 
-        for addr, ops in operations.items():
-            bridge_operations_for_addr = { addr: ops }
-            processed_bridge_data = format_bridge_data(
-                bridge_operations_for_addr, unit_token_mappings, candlestick_data)
-            df_bridging, top_bridged_asset = create_bridge_summary(
-                processed_bridge_data)
+        addresses_to_update = list(get_addresses_to_query(limit)['user_address'])
 
-            if df_bridging is not None:
-                total_vol = df_bridging['Total (USD)'].sum()
+        while len(addresses_to_update) > 0:
+            logger.info(f'fetching bridging data for {len(addresses_to_update)} addresses')
+            operations = unit_bridge_info.get_operations(addresses_to_update, show_logs=False)
 
-                rows_to_insert.append((
-                    addr, total_vol, top_bridged_asset, datetime.now(timezone.utc)
-                ))
+            rows_to_insert = []
 
-        breakpoint()
-        # success = update_bridging_leaderboard_data()
-        # if success:
-        #     logger.info("bridging leaderboard update completed successfully")
-        # else:
-        #     logger.error("bridging leaderboard update failed")
+            for addr, ops in operations.items():
+                bridge_operations_for_addr = { addr: ops }
+                processed_bridge_data = format_bridge_data(
+                    bridge_operations_for_addr, unit_token_mappings, candlestick_data)
+                df_bridging, top_bridged_asset = create_bridge_summary(
+                    processed_bridge_data)
+
+                if df_bridging is not None:
+                    total_vol = df_bridging['Total (USD)'].sum()
+
+                    rows_to_insert.append({
+                        'user_address': addr,
+                        'total_volume_usd': total_vol,
+                        'top_bridged_asset': top_bridged_asset,
+                        'last_updated': datetime.now(timezone.utc),
+                    })
+                else:
+                    # prevent infinite looping
+                    rows_to_insert.append({
+                        'user_address': addr,
+                        'total_volume_usd': 0,
+                        'top_bridged_asset': None,
+                        'last_updated': datetime.now(timezone.utc),
+                    })
+
+            num_addresses_processed += len(rows_to_insert)
+
+            success = update_bridging_leaderboard(rows_to_insert)
+            if success:
+                logger.info(f"bridging leaderboard update completed successfully for {len(rows_to_insert)} rows; processed {num_addresses_processed} so far")
+            else:
+                logger.error("bridging leaderboard update failed")
+
+            addresses_to_update = list(get_addresses_to_query(limit)['user_address'])
+
+        logger.info(f'updating entire leaderboard DB ({num_addresses_processed} addresses) took {(time.time() - start)}s')
     except Exception as e:
         logger.critical(f"error during script execution: {e}")

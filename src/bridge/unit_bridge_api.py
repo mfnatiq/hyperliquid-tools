@@ -6,14 +6,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 UNIT_API_MAINNET_URL = 'https://api.hyperunit.xyz'
 
-# number of addresses to process in a single parallel batch
-BATCH_SIZE = 10
-# number of seconds to wait between processing each batch
-DELAY_SECONDS = 2
-
 class UnitBridgeInfo():
-    def __init__(self):
+    def __init__(self, batch_size=10, delay_s=2):
         self.base_url = UNIT_API_MAINNET_URL
+
+        # number of addresses to process in a single parallel batch
+        self.batch_size = batch_size
+        # number of seconds to wait between processing each batch
+        self.delay_s = delay_s
 
         self.session = requests.Session()
         self.session.headers.update({
@@ -21,9 +21,9 @@ class UnitBridgeInfo():
         })
         self._logger = logging.getLogger(__name__)
 
-    def get_operations(self, addresses: list[str]) -> dict:
+    def get_operations(self, addresses: list[str], show_logs=True) -> dict:
         """
-        fetches list of operations for all addresses in parallel,
+        fetches list of operations for multiple addresses
         handling rate limits by processing them in batches with a delay
         returns dict mapping each address to its operations data
         """
@@ -31,14 +31,15 @@ class UnitBridgeInfo():
 
         # split addresses into smaller chunks
         address_batches = [
-            addresses[i:i + BATCH_SIZE]
-            for i in range(0, len(addresses), BATCH_SIZE)
+            addresses[i:i + self.batch_size]
+            for i in range(0, len(addresses), self.batch_size)
         ]
 
         for i, batch in enumerate(address_batches):
-            self._logger.info(
-                f"processing batch {i + 1}/{len(address_batches)} with {len(batch)} addresses"
-            )
+            if show_logs:
+                self._logger.info(
+                    f"processing batch {i + 1}/{len(address_batches)} with {len(batch)} addresses"
+                )
 
             with ThreadPoolExecutor(max_workers=len(batch)) as executor:
                 future_to_address = {
@@ -58,8 +59,9 @@ class UnitBridgeInfo():
 
             # if this is not the last batch, wait before starting the next one
             if i < len(address_batches) - 1:
-                self._logger.info(f"sleeping for {DELAY_SECONDS}s before next batch")
-                time.sleep(DELAY_SECONDS)
+                if show_logs:
+                    self._logger.info(f"sleeping for {self.delay_s}s before next batch")
+                time.sleep(self.delay_s)
 
         return all_results
 
