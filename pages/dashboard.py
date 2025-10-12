@@ -185,7 +185,7 @@ def announcement():
 @st.dialog("Latest Updates", width="large", on_dismiss="ignore")
 def updates_announcement():
     st.write("""
-        🚨 2025-09-11: Updated trade data
+        🚨 2025-10-12: Added bridging leaderboard (in beta)
 
         Enjoy!
     """)
