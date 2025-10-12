@@ -714,7 +714,6 @@ def main():
                     'volume_by_token': volume_by_token,
                     'accounts_mapping': accounts_mapping,
                     'user_trades_df': user_trades_df,
-                    'last_updated': datetime.now(timezone.utc),
                     'accounts': accounts,
                 }
 
@@ -733,13 +732,15 @@ def main():
             df_trade = create_volume_df(volume_data['volume_by_token'])
 
             raw_bridge_data = st.session_state['raw_bridge_data']
-            processed_bridge_data = format_bridge_data(
+            processed_bridge_data, operations_by_address = format_bridge_data(
                 raw_bridge_data, unit_token_mappings, candlestick_data)
             df_bridging, top_bridged_asset = create_bridge_summary(
                 processed_bridge_data)
 
-            st.caption(
-                f"Last updated: {volume_data['last_updated'].strftime(DATE_FORMAT)}")
+            bridge_data_by_address = []
+            for address, bridge_operations in operations_by_address.items():
+                df_bridging_by_address, address_top_bridged_asset = create_bridge_summary(bridge_operations)
+                bridge_data_by_address.append((address, df_bridging_by_address, address_top_bridged_asset))
 
             if st.session_state.get('non_logged_in_limit_trade_count', False):
                 st.warning(f'Only showing latest {non_logged_in_limit_trade_count} trades: log in to see full data')
@@ -872,6 +873,18 @@ def main():
                     display_upgrade_section("leaderboard_data")
                 else:
                     st.info('🚧 This feature is in beta')
+
+                    # TODO check how to do this for multiple addresses
+                    invalidate_bridge_leaderboard_fetch = False
+                    for bridge_address, bridge_df_by_address, top_bridged_asset_by_address in bridge_data_by_address:
+                        need_update = update_bridge_leaderboard_if_needed(
+                            df_bridging['Total (USD)'].sum(),
+
+                        )
+                        if need_update:
+                            invalidate_bridge_leaderboard_fetch = True
+
+                    invalidate cache if invalidate_bridge_leaderboard_fetch set
                     bridge_leaderboard_last_updated, bridge_leaderboard = _get_bridge_leaderboard()
 
                     if bridge_leaderboard.empty:
@@ -971,12 +984,6 @@ def display_summary(df_trade: pd.DataFrame, df_bridging: pd.DataFrame | None, to
         with col3:
             st.metric("Total Bridge Transactions", int(
                 df_bridging['Total Transactions'].sum()))
-
-        # TODO check how to do this for multiple addresses
-        update_bridge_leaderboard_if_needed(
-            df_bridging['Total (USD)'].sum(),
-
-        )
 
 
 def display_trade_volume_table(df: pd.DataFrame, num_accounts: int):
@@ -1306,17 +1313,19 @@ def format_bridge_data(
     unit_token_mappings: dict[str, tuple[str, int]],
     candlestick_data: pd.DataFrame,
 ):
-    # combine bridge operations from all addresses into a single DataFrame
-    # TODO separate by address?
-    separate by address
+    """
+    return both operations by addresses individually as well as combined DF for ease of processing
+    """
     all_operations_df = pd.DataFrame()
-    for _, data in raw_bridge_data.items():
+    operations_by_address = dict()
+    for address, data in raw_bridge_data.items():
         processed_df = process_bridge_operations(
             data, unit_token_mappings, candlestick_data, logger)
         if processed_df is not None and not processed_df.empty:
+            operations_by_address[address] = processed_df
             all_operations_df = pd.concat(
                 [all_operations_df, processed_df], ignore_index=True)
-    return all_operations_df
+    return all_operations_df, operations_by_address
 
 
 def display_bridge_data(raw_bridge_data: dict, summary_df: pd.DataFrame | None, top_asset: str, all_operations_df: pd.DataFrame):
