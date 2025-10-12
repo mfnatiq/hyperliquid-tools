@@ -77,10 +77,17 @@ def update_bridge_leaderboard(bridge_data_by_address: list) -> bool:
     """
     with engine.begin() as conn:
         logger.info(f'inserting up to {len(bridge_data_by_address)} rows if not already in bridging leaderboard table')
-        rows = [
-            (bridge_address, bridge_df_by_address['Total (USD)'].sum(), top_bridged_asset_by_address)
-            for bridge_address, bridge_df_by_address, top_bridged_asset_by_address in bridge_data_by_address
-        ]
+        rows = []
+        for bridge_address, bridge_df_by_address, top_bridged_asset_by_address in bridge_data_by_address:
+            sum_result = bridge_df_by_address['Total (USD)'].sum()
+            # convert numpy float to standard python float for psycopg2
+            total_vol = float(sum_result) if pd.notna(sum_result) else 0.0
+
+            rows.append({
+                "user_address": bridge_address,
+                "total_volume_usd": total_vol,
+                "top_bridged_asset": top_bridged_asset_by_address,
+            })
 
         stmt = pg_insert(leaderboard_table).values(rows) if is_postgresql else sqlite_insert(leaderboard_table).values(rows)
 
