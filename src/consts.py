@@ -17,4 +17,4 @@ acceptedPayments = {
     },
 }
 
-NON_LOGED_IN_TRADES_TOTAL = 10000
+NON_LOGGED_IN_TRADES_TOTAL = 10000

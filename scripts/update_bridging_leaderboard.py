@@ -4,7 +4,7 @@ import time
 from dotenv import load_dotenv
 import pandas as pd
 import logging
-from sqlalchemy import DateTime, create_engine, or_, select, MetaData, Table, Column, String, Float, Integer, inspect, DateTime
+from sqlalchemy import DateTime, create_engine, func, or_, select, MetaData, Table, Column, String, Float, Integer, inspect, DateTime
 from sqlalchemy.dialects.postgresql import TIMESTAMP # for pg specific type
 from sqlalchemy.exc import SQLAlchemyError
 from hyperliquid.info import Info
@@ -66,7 +66,12 @@ leaderboard_table = Table(
     Column("user_address", String, primary_key=True),
     Column("total_volume_usd", Float),
     Column("top_bridged_asset", String),
-    Column("last_updated", TIMESTAMP(timezone=True) if is_postgresql else DateTime),   # possibly different as users search and have data added
+    Column(
+        "last_updated",
+        TIMESTAMP(timezone=True) if is_postgresql else DateTime,
+        server_default=func.now(),  # handles inserts
+        server_onupdate=func.now(), # handles updates
+    ),
 )
 # endregion
 
@@ -108,7 +113,6 @@ def get_addresses_to_query(limit: int) -> pd.DataFrame:
         logger.error(f'unable to fetch leaderboard: {e}')
     return pd.DataFrame()
 
-
 def load_data():
     info = Info(constants.MAINNET_API_URL, skip_ws=True)
     unit_token_mappings = get_cached_unit_token_mappings(info, logger)
@@ -118,22 +122,6 @@ def load_data():
         info, [k for k in unit_token_mappings.keys()], token_list)
 
     return unit_token_mappings, token_list, candlestick_data
-
-# copied from dashboard.py to prevent full loading from there
-# TODO change so it puts every address separately
-def format_bridge_data(
-    raw_bridge_data: dict,
-    unit_token_mappings: dict[str, tuple[str, int]],
-    candlestick_data: pd.DataFrame,
-):
-    all_operations_df = pd.DataFrame()
-    for _, data in raw_bridge_data.items():
-        processed_df = process_bridge_operations(
-            data, unit_token_mappings, candlestick_data, logger)
-        if processed_df is not None and not processed_df.empty:
-            all_operations_df = pd.concat(
-                [all_operations_df, processed_df], ignore_index=True)
-    return all_operations_df
 
 def update_bridging_leaderboard(data: list):
     with engine.begin() as conn:
@@ -174,9 +162,9 @@ if __name__ == "__main__":
             rows_to_insert = []
 
             for addr, ops in operations.items():
-                bridge_operations_for_addr = { addr: ops }
-                processed_bridge_data = format_bridge_data(
-                    bridge_operations_for_addr, unit_token_mappings, candlestick_data)
+                processed_bridge_data = process_bridge_operations(
+                    ops, unit_token_mappings, candlestick_data, logger
+                )
                 df_bridging, top_bridged_asset = create_bridge_summary(
                     processed_bridge_data)
 
@@ -187,7 +175,6 @@ if __name__ == "__main__":
                         'user_address': addr,
                         'total_volume_usd': total_vol,
                         'top_bridged_asset': top_bridged_asset,
-                        'last_updated': datetime.now(timezone.utc),
                     })
                 else:
                     # prevent infinite looping
@@ -195,7 +182,6 @@ if __name__ == "__main__":
                         'user_address': addr,
                         'total_volume_usd': 0,
                         'top_bridged_asset': None,
-                        'last_updated': datetime.now(timezone.utc),
                     })
 
             num_addresses_processed += len(rows_to_insert)

@@ -3,7 +3,7 @@ import os
 import time
 from dotenv import load_dotenv
 import requests
-from src.bridge.bridge_leaderboard import get_bridge_leaderboard_with_datetime_last_updated
+from src.bridge.bridge_leaderboard import get_bridge_leaderboard_with_datetime_last_updated, update_bridge_leaderboard
 from src.auth.db_utils import init_db, PremiumType, get_user_premium_type, upgrade_to_premium, start_trial_if_new_user, get_user
 from src.trade.trade_leaderboard import get_leaderboard_last_updated, get_leaderboard
 from src.utils.utils import DATE_FORMAT, format_currency, get_cached_unit_token_mappings, get_current_timestamp_millis
@@ -19,7 +19,7 @@ from src.bridge.unit_bridge_api import UnitBridgeInfo
 from src.utils.render_utils import footer_html, copy_script
 from src.trade.trade_data import get_candlestick_data, get_user_fills
 from src.bridge.unit_bridge_utils import create_bridge_summary, process_bridge_operations
-from src.consts import NON_LOGED_IN_TRADES_TOTAL, unitStartTime, oneDayInS, acceptedPayments
+from src.consts import NON_LOGGED_IN_TRADES_TOTAL, unitStartTime, oneDayInS, acceptedPayments
 import uuid
 
 # setup and configure logging
@@ -356,7 +356,7 @@ def get_cached_unit_volumes(
                 num_fills_total += num_fills
 
                 # limit num fills shown if not logged in
-                if "user_email" not in st.session_state and num_fills_total > NON_LOGED_IN_TRADES_TOTAL:
+                if "user_email" not in st.session_state and num_fills_total > NON_LOGGED_IN_TRADES_TOTAL:
                     non_logged_in_limit_trade_count = num_fills_total
                     break
 
@@ -874,17 +874,16 @@ def main():
                 else:
                     st.info('🚧 This feature is in beta')
 
-                    # TODO check how to do this for multiple addresses
-                    invalidate_bridge_leaderboard_fetch = False
-                    for bridge_address, bridge_df_by_address, top_bridged_asset_by_address in bridge_data_by_address:
-                        need_update = update_bridge_leaderboard_if_needed(
-                            df_bridging['Total (USD)'].sum(),
+                    need_update = update_bridge_leaderboard(
+                        bridge_data_by_address
+                    ) if bridge_data_by_address else False
+                    if need_update:
+                        # if user queries an address that isn't already in table
+                        # update_bridge_leaderboard() will add to table then invalidate table fetching cache
+                        # so it ensures table fetched is updated
+                        _get_bridge_leaderboard.clear()
 
-                        )
-                        if need_update:
-                            invalidate_bridge_leaderboard_fetch = True
-
-                    invalidate cache if invalidate_bridge_leaderboard_fetch set
+                    # invalidate cache if invalidate_bridge_leaderboard_fetch set
                     bridge_leaderboard_last_updated, bridge_leaderboard = _get_bridge_leaderboard()
 
                     if bridge_leaderboard.empty:
@@ -895,23 +894,23 @@ def main():
                         bridge_leaderboard['total_volume_usd'] = bridge_leaderboard['total_volume_usd'].apply(lambda x: format_currency(x))
                         bridge_leaderboard_formatted = bridge_leaderboard[['user_rank', 'user_address', 'total_volume_usd', 'top_bridged_asset']]
 
-                        # if searched addresses within leaderboard, display them separately
-                        # else get data based on query
-                        accounts_lowercase = [a.lower() for a in accounts]
-                        bridge_leaderboard_searched_addresses = bridge_leaderboard_formatted[bridge_leaderboard_formatted['user_address'].str.lower().isin(accounts_lowercase)]
-                        st.subheader('Searched Addresses')
+                        # display searched addresses separately if have any bridge txns
+                        if bridge_data_by_address:
+                            accounts_lowercase = [a.lower() for a in accounts]
+                            bridge_leaderboard_searched_addresses = bridge_leaderboard_formatted[bridge_leaderboard_formatted['user_address'].str.lower().isin(accounts_lowercase)]
+                            st.subheader('Searched Addresses')
 
-                        bridge_leaderboard_searched_addresses.loc[:, 'user_address'] = bridge_leaderboard_searched_addresses['user_address'].apply(lambda x: x[:6] + '...' + x[-6:])
-                        st.dataframe(
-                            bridge_leaderboard_searched_addresses,
-                            hide_index=True,
-                            column_config={
-                                'user_rank': st.column_config.TextColumn('Rank'),
-                                'user_address': st.column_config.TextColumn('Address'),
-                                'total_volume_usd': st.column_config.TextColumn('Total Volume (USD)'),
-                                'top_bridged_asset': st.column_config.TextColumn('Top Bridged Asset'),
-                            },
-                        )
+                            bridge_leaderboard_searched_addresses.loc[:, 'user_address'] = bridge_leaderboard_searched_addresses['user_address'].apply(lambda x: x[:6] + '...' + x[-6:])
+                            st.dataframe(
+                                bridge_leaderboard_searched_addresses,
+                                hide_index=True,
+                                column_config={
+                                    'user_rank': st.column_config.TextColumn('Rank'),
+                                    'user_address': st.column_config.TextColumn('Address'),
+                                    'total_volume_usd': st.column_config.TextColumn('Total Volume (USD)'),
+                                    'top_bridged_asset': st.column_config.TextColumn('Top Bridged Asset'),
+                                },
+                            )
 
                         # display overall leaderboard
                         bridge_leaderboard_formatted.loc[:, 'user_address'] = bridge_leaderboard_formatted['user_address'].apply(lambda x: x[:6] + '...' + x[-6:])
