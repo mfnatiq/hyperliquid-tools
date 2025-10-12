@@ -78,10 +78,9 @@ leaderboard_table = Table(
 def initialize_database_schema():
     """helper to create tables if don't exist"""
     try:
-        with engine.connect() as conn:
-            # use metadata.create_all() to create tables based on definitions
-            metadata.create_all(conn)
-            logger.info("database schema initialised, tables checked / created")
+        # use metadata.create_all() to create tables based on definitions
+        metadata.create_all(engine)
+        logger.info("database schema initialised, tables checked / created")
     except SQLAlchemyError as e:
         logger.error(f"error initializing database schema: {e}")
         raise
