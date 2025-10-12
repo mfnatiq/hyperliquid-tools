@@ -49,4 +49,8 @@ txns_mapping = defaultdict(list)
 for txn in swap_txns:
     txns_mapping[txn['functionName']].append(txn['hash'])
 
+for func, hashes in txns_mapping.items():
+    print(f'function name {func}:')
+    print(f'txn hashes: {hashes}\n')
+
 breakpoint()
