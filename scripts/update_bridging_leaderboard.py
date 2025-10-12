@@ -168,7 +168,10 @@ if __name__ == "__main__":
                     processed_bridge_data)
 
                 if df_bridging is not None:
-                    total_vol = df_bridging['Total (USD)'].sum()
+                    sum_result = df_bridging['Total (USD)'].sum()
+
+                    # sum() returns a numpy type: cast to standard float for psycopg2
+                    total_vol = float(sum_result) if pd.notna(sum_result) else 0.0
 
                     rows_to_insert.append({
                         'user_address': addr,
