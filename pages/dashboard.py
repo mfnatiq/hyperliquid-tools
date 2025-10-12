@@ -3,8 +3,9 @@ import os
 import time
 from dotenv import load_dotenv
 import requests
+from src.bridge.bridge_leaderboard import get_bridge_leaderboard_with_datetime_last_updated, update_bridge_leaderboard
 from src.auth.db_utils import init_db, PremiumType, get_user_premium_type, upgrade_to_premium, start_trial_if_new_user, get_user
-from src.leaderboard.leaderboard_utils import get_leaderboard_last_updated, get_leaderboard
+from src.trade.trade_leaderboard import get_leaderboard_last_updated, get_leaderboard
 from src.utils.utils import DATE_FORMAT, format_currency, get_cached_unit_token_mappings, get_current_timestamp_millis
 from datetime import datetime, timedelta, timezone
 import pandas as pd
@@ -18,7 +19,7 @@ from src.bridge.unit_bridge_api import UnitBridgeInfo
 from src.utils.render_utils import footer_html, copy_script
 from src.trade.trade_data import get_candlestick_data, get_user_fills
 from src.bridge.unit_bridge_utils import create_bridge_summary, process_bridge_operations
-from src.consts import NON_LOGED_IN_TRADES_TOTAL, unitStartTime, oneDayInS, acceptedPayments
+from src.consts import NON_LOGGED_IN_TRADES_TOTAL, unitStartTime, oneDayInS, acceptedPayments
 import uuid
 
 # setup and configure logging
@@ -184,7 +185,7 @@ def announcement():
 @st.dialog("Latest Updates", width="large", on_dismiss="ignore")
 def updates_announcement():
     st.write("""
-        🚨 2025-09-11: Updated trade data
+        🚨 2025-10-12: Added bridging leaderboard (in beta)
 
         Enjoy!
     """)
@@ -240,10 +241,10 @@ def load_data():
     unit_token_mappings = _get_cached_unit_token_mappings()
     logger.info(f'unit token mappings: {unit_token_mappings}')
     token_list = [t for t, _ in unit_token_mappings.values()]
-    cumulative_trade_data = _get_candlestick_data(
+    candlestick_data = _get_candlestick_data(
         [k for k in unit_token_mappings.keys()], token_list)
 
-    return unit_token_mappings, token_list, cumulative_trade_data
+    return unit_token_mappings, token_list, candlestick_data
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -355,7 +356,7 @@ def get_cached_unit_volumes(
                 num_fills_total += num_fills
 
                 # limit num fills shown if not logged in
-                if "user_email" not in st.session_state and num_fills_total > NON_LOGED_IN_TRADES_TOTAL:
+                if "user_email" not in st.session_state and num_fills_total > NON_LOGGED_IN_TRADES_TOTAL:
                     non_logged_in_limit_trade_count = num_fills_total
                     break
 
@@ -624,25 +625,25 @@ def main():
         if "init_done" not in st.session_state:
             # first-ever run: initialisation
             with st.spinner("Initialising..."):
-                unit_token_mappings, token_list, cumulative_trade_data = load_data()
+                unit_token_mappings, token_list, candlestick_data = load_data()
 
                 # save into session_state so don't re-init
                 st.session_state.unit_token_mappings = unit_token_mappings
                 st.session_state.token_list = token_list
-                st.session_state.cumulative_trade_data = cumulative_trade_data
+                st.session_state.candlestick_data = candlestick_data
                 st.session_state.init_done = True
         else:
             # subsequent runs: refresh cached data
-            unit_token_mappings, token_list, cumulative_trade_data = load_data()
+            unit_token_mappings, token_list, candlestick_data = load_data()
 
             # update session_state with latest values
             st.session_state.unit_token_mappings = unit_token_mappings
             st.session_state.token_list = token_list
-            st.session_state.cumulative_trade_data = cumulative_trade_data
+            st.session_state.candlestick_data = candlestick_data
         # use cached/session values
         unit_token_mappings = st.session_state.unit_token_mappings
         token_list = st.session_state.token_list
-        cumulative_trade_data = st.session_state.cumulative_trade_data
+        candlestick_data = st.session_state.candlestick_data
 
         if "last_tab" not in st.session_state:
             st.session_state.last_tab = None
@@ -700,7 +701,9 @@ def main():
             volume_by_token, accounts_mapping, total_trade_volume, user_trades_df, non_logged_in_limit_trade_count, err = get_cached_unit_volumes(
                 accounts, unit_token_mappings, exclude_subaccounts)
 
+            # note bridge data doesn't apply for subaccounts as you can only bridge to main account
             raw_bridge_data = unit_bridge_info.get_operations(accounts)
+
 
         with output_placeholder.container():
             if err is not None:
@@ -711,7 +714,6 @@ def main():
                     'volume_by_token': volume_by_token,
                     'accounts_mapping': accounts_mapping,
                     'user_trades_df': user_trades_df,
-                    'last_updated': datetime.now(timezone.utc),
                     'accounts': accounts,
                 }
 
@@ -730,39 +732,42 @@ def main():
             df_trade = create_volume_df(volume_data['volume_by_token'])
 
             raw_bridge_data = st.session_state['raw_bridge_data']
-            processed_bridge_data = format_bridge_data(
-                raw_bridge_data, unit_token_mappings, cumulative_trade_data)
+            processed_bridge_data, operations_by_address = format_bridge_data(
+                raw_bridge_data, unit_token_mappings, candlestick_data)
             df_bridging, top_bridged_asset = create_bridge_summary(
                 processed_bridge_data)
 
-            st.caption(
-                f"Last updated: {volume_data['last_updated'].strftime(DATE_FORMAT)}")
+            bridge_data_by_address = []
+            for address, bridge_operations in operations_by_address.items():
+                df_bridging_by_address, address_top_bridged_asset = create_bridge_summary(bridge_operations)
+                bridge_data_by_address.append((address, df_bridging_by_address, address_top_bridged_asset))
 
             if st.session_state.get('non_logged_in_limit_trade_count', False):
                 st.warning(f'Only showing latest {non_logged_in_limit_trade_count} trades: log in to see full data')
 
             # create tabs
-            tab1, tab2, tab3, tab4, tab5 = st.tabs(
+            tab_summary, tab_trade, tab_trade_leaderboard, tab_bridge, tab_bridge_leaderboard = st.tabs(
                 [
                     "💡 Summary",
                     "⚡ Trade Analysis",
+                    "🏆 Leaderboard",
                     "🌉 Bridge Analysis",
-                    "🏆 Leaderboard (Beta!)",
-                    "🔗 HyperEVM Trades (W.I.P)",
+                    "🏆 Bridge Leaderboard (beta)",
+                    # "🔗 HyperEVM Trades (W.I.P)",
                 ]
             )
 
             # default starting, so don't fire any event for it
             st.session_state.last_tab = "summary"
 
-            with tab1:
+            with tab_summary:
                 if st.session_state.last_tab != "summary":
                     track_event("summary", { 'addresses_input': addresses_input })
                     st.session_state.last_tab = "summary"
 
                 display_summary(df_trade, df_bridging, top_bridged_asset)
 
-            with tab2:
+            with tab_trade:
                 if st.session_state.last_tab != "view_trade_details":
                     track_event("view_trade_details", { 'addresses_input': addresses_input })
                     st.session_state.last_tab = "view_trade_details"
@@ -777,29 +782,11 @@ def main():
                         df_trade,
                         volume_data['accounts_mapping'],
                         volume_data['user_trades_df'],
-                        cumulative_trade_data,
+                        candlestick_data,
                         token_list,
                     )
 
-            with tab3:
-                if st.session_state.last_tab != "view_bridge_details":
-                    track_event("view_bridge_details", { 'addresses_input': addresses_input })
-                    st.session_state.last_tab = "view_bridge_details"
-
-                if not is_logged_in():
-                    show_login_info()
-                elif user_premium_type == PremiumType.NONE:
-                    display_upgrade_section("bridge_data")
-                else:
-                    # only runs for subscribed users
-                    display_bridge_data(
-                        raw_bridge_data,
-                        df_bridging,
-                        top_bridged_asset,
-                        processed_bridge_data
-                    )
-
-            with tab4:
+            with tab_trade_leaderboard:
                 if st.session_state.last_tab != "view_trade_leaderboard":
                     track_event("view_trade_leaderboard", { 'addresses_input': addresses_input })
                     st.session_state.last_tab = "view_trade_leaderboard"
@@ -809,7 +796,6 @@ def main():
                 elif user_premium_type == PremiumType.NONE:
                     display_upgrade_section("leaderboard_data")
                 else:
-                    st.info('🚧 This feature is in beta')
                     leaderboard_last_updated = _get_leaderboard_last_updated()
                     st.markdown(f'Last Updated: **{leaderboard_last_updated}**')
 
@@ -858,22 +844,112 @@ def main():
                         },
                     )
 
-            with tab5:
-                if st.session_state.last_tab != "view_hyperevm_analysis":
-                    track_event("view_hyperevm_analysis", { 'addresses_input': addresses_input })
-                    st.session_state.last_tab = "view_hyperevm_analysis"
+            with tab_bridge:
+                if st.session_state.last_tab != "view_bridge_details":
+                    track_event("view_bridge_details", { 'addresses_input': addresses_input })
+                    st.session_state.last_tab = "view_bridge_details"
 
-                st.text("🚧 Under development, stay tuned!")
+                if not is_logged_in():
+                    show_login_info()
+                elif user_premium_type == PremiumType.NONE:
+                    display_upgrade_section("bridge_data")
+                else:
+                    # only runs for subscribed users
+                    display_bridge_data(
+                        raw_bridge_data,
+                        df_bridging,
+                        top_bridged_asset,
+                        processed_bridge_data
+                    )
+
+            with tab_bridge_leaderboard:
+                if st.session_state.last_tab != "view_bridge_leaderboard":
+                    track_event("view_bridge_leaderboard", { 'addresses_input': addresses_input })
+                    st.session_state.last_tab = "view_bridge_leaderboard"
+
+                if not is_logged_in():
+                    show_login_info()
+                elif user_premium_type == PremiumType.NONE:
+                    display_upgrade_section("leaderboard_data")
+                else:
+                    st.info('🚧 This feature is in beta')
+
+                    need_update = update_bridge_leaderboard(
+                        bridge_data_by_address
+                    ) if bridge_data_by_address else False
+                    if need_update:
+                        # if user queries an address that isn't already in table
+                        # update_bridge_leaderboard() will add to table then invalidate table fetching cache
+                        # so it ensures table fetched is updated
+                        _get_bridge_leaderboard.clear()
+
+                    # invalidate cache if invalidate_bridge_leaderboard_fetch set
+                    bridge_leaderboard_last_updated, bridge_leaderboard = _get_bridge_leaderboard()
+
+                    if bridge_leaderboard.empty:
+                        st.warning('Error fetching bridge leaderboard data, try again later')
+                    else:
+                        st.markdown(f'Last Updated: **{bridge_leaderboard_last_updated}**')
+
+                        bridge_leaderboard['total_volume_usd'] = bridge_leaderboard['total_volume_usd'].apply(lambda x: format_currency(x))
+                        bridge_leaderboard_formatted = bridge_leaderboard[['user_rank', 'user_address', 'total_volume_usd', 'top_bridged_asset']]
+
+                        # display searched addresses separately if have any bridge txns
+                        if bridge_data_by_address:
+                            accounts_lowercase = [a.lower() for a in accounts]
+                            bridge_leaderboard_searched_addresses = bridge_leaderboard_formatted[bridge_leaderboard_formatted['user_address'].str.lower().isin(accounts_lowercase)]
+                            st.subheader('Searched Addresses')
+
+                            bridge_leaderboard_searched_addresses.loc[:, 'user_address'] = bridge_leaderboard_searched_addresses['user_address'].apply(lambda x: x[:6] + '...' + x[-6:])
+                            st.dataframe(
+                                bridge_leaderboard_searched_addresses,
+                                hide_index=True,
+                                column_config={
+                                    'user_rank': st.column_config.TextColumn('Rank'),
+                                    'user_address': st.column_config.TextColumn('Address'),
+                                    'total_volume_usd': st.column_config.TextColumn('Total Volume (USD)'),
+                                    'top_bridged_asset': st.column_config.TextColumn('Top Bridged Asset'),
+                                },
+                            )
+
+                        # display overall leaderboard
+                        bridge_leaderboard_formatted.loc[:, 'user_address'] = bridge_leaderboard_formatted['user_address'].apply(lambda x: x[:6] + '...' + x[-6:])
+                        leaderboard_filtered = bridge_leaderboard_formatted.iloc[:1000]
+                        st.subheader('Overall Leaderboard')
+                        st.dataframe(
+                            leaderboard_filtered,
+                            hide_index=True,
+                            column_config={
+                                'user_rank': st.column_config.TextColumn('Rank'),
+                                'user_address': st.column_config.TextColumn('Address'),
+                                'total_volume_usd': st.column_config.TextColumn('Total Volume (USD)'),
+                                'top_bridged_asset': st.column_config.TextColumn('Top Bridged Asset'),
+                            },
+                        )
+
+            # with tab_evm:
+            #     if st.session_state.last_tab != "view_hyperevm_analysis":
+            #         track_event("view_hyperevm_analysis", { 'addresses_input': addresses_input })
+            #         st.session_state.last_tab = "view_hyperevm_analysis"
+
+            #     st.text("🚧 Under development, stay tuned!")
 
 # region leaderboard data cached
 @st.cache_data(ttl=3600, show_spinner=False)
 def _get_leaderboard_last_updated():
-    return get_leaderboard_last_updated(logger)
+    return get_leaderboard_last_updated()
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def _get_leaderboard():
-    return get_leaderboard(logger)
+    return get_leaderboard()
 # endregion
+
+# region bridging leaderboard data cached
+@st.cache_data(ttl=3600, show_spinner=False)
+def _get_bridge_leaderboard() -> tuple[datetime, pd.DataFrame]:
+    return get_bridge_leaderboard_with_datetime_last_updated()
+# endregion
+
 
 # --------------- display ---------------
 def display_summary(df_trade: pd.DataFrame, df_bridging: pd.DataFrame | None, top_bridged_asset: str):
@@ -1011,7 +1087,7 @@ def display_accounts_table(accounts_df: pd.DataFrame):
 
 def display_trade_volume_info(
     trade_df: pd.DataFrame,
-    cumulative_trade_data: pd.DataFrame,
+    candlestick_data: pd.DataFrame,
     accounts: list[str],
     user_trades_df: pd.DataFrame,
     token_list: list[str],
@@ -1019,7 +1095,7 @@ def display_trade_volume_info(
     """
     assumes trade_df is not empty (handled externally)
     """
-    final_cumulative_volume = cumulative_trade_data.groupby('token_name').agg(
+    final_cumulative_volume = candlestick_data.groupby('token_name').agg(
         final_cumulative_volume=('cumulative_volume_usd', 'last')
     ).reset_index()
 
@@ -1147,7 +1223,7 @@ That means that actual trade volume is half of total fill volume, so the percent
         with col1:
             st.subheader("Daily Exchange Volume")
             fig = px.bar(
-                cumulative_trade_data,
+                candlestick_data,
                 x='start_date',
                 y='volume_usd',
                 color='token_name',
@@ -1162,7 +1238,7 @@ That means that actual trade volume is half of total fill volume, so the percent
         with col2:
             st.subheader("Cumulative Exchange Volume")
             fig = px.bar(
-                cumulative_trade_data,
+                candlestick_data,
                 x='start_date',
                 y='cumulative_volume_usd',
                 color='token_name',
@@ -1213,7 +1289,7 @@ def display_trade_data(
     df_trade: pd.DataFrame,
     accounts_mapping: dict,
     user_trades_df: pd.DataFrame,
-    cumulative_trade_data,
+    candlestick_data,
     token_list: list[str],
 ):
     # show raw data in expander
@@ -1223,7 +1299,7 @@ def display_trade_data(
     else:
         display_trade_volume_table(df_trade, len(accounts_mapping))
 
-        display_trade_volume_info(df_trade, cumulative_trade_data, list(
+        display_trade_volume_info(df_trade, candlestick_data, list(
             accounts_mapping.keys()), user_trades_df, token_list)
 
         with st.expander("Raw Data"):
@@ -1234,18 +1310,21 @@ def display_trade_data(
 def format_bridge_data(
     raw_bridge_data: dict,
     unit_token_mappings: dict[str, tuple[str, int]],
-    cumulative_trade_data: pd.DataFrame,
+    candlestick_data: pd.DataFrame,
 ):
-    # combine bridge operations from all addresses into a single DataFrame
-    # TODO separate by address?
+    """
+    return both operations by addresses individually as well as combined DF for ease of processing
+    """
     all_operations_df = pd.DataFrame()
-    for _, data in raw_bridge_data.items():
+    operations_by_address = dict()
+    for address, data in raw_bridge_data.items():
         processed_df = process_bridge_operations(
-            data, unit_token_mappings, cumulative_trade_data, logger)
+            data, unit_token_mappings, candlestick_data, logger)
         if processed_df is not None and not processed_df.empty:
+            operations_by_address[address] = processed_df
             all_operations_df = pd.concat(
                 [all_operations_df, processed_df], ignore_index=True)
-    return all_operations_df
+    return all_operations_df, operations_by_address
 
 
 def display_bridge_data(raw_bridge_data: dict, summary_df: pd.DataFrame | None, top_asset: str, all_operations_df: pd.DataFrame):

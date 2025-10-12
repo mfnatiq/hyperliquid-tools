@@ -1,43 +1,69 @@
 import json
 import logging
+import time
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 UNIT_API_MAINNET_URL = 'https://api.hyperunit.xyz'
 
 class UnitBridgeInfo():
-    def __init__(self):
+    def __init__(self, batch_size=10, delay_s=2):
         self.base_url = UNIT_API_MAINNET_URL
-        
+
+        # number of addresses to process in a single parallel batch
+        self.batch_size = batch_size
+        # number of seconds to wait between processing each batch
+        self.delay_s = delay_s
+
         self.session = requests.Session()
         self.session.headers.update({
             "Content-Type": "application/json",
         })
         self._logger = logging.getLogger(__name__)
 
-    def get_operations(self, addresses: list[str]) -> dict:
+    def get_operations(self, addresses: list[str], show_logs=True) -> dict:
         """
-        fetches list of operations for all addresses in parallel
+        fetches list of operations for multiple addresses
+        handling rate limits by processing them in batches with a delay
         returns dict mapping each address to its operations data
         """
-        results = {}
-        with ThreadPoolExecutor(max_workers=len(addresses)) as executor:
-            # Submits a GET request for each address to the thread pool
-            future_to_address = {
-                executor.submit(self._get_operations_for_address, address): address
-                for address in addresses
-            }
+        all_results = {}
 
-            # collects results as they are completed
-            for future in as_completed(future_to_address):
-                address = future_to_address[future]
-                try:
-                    operations_data = future.result()
-                    results[address] = operations_data
-                except Exception as exc:
-                    self._logger.error(f'{address} generated an exception: {exc}')
-                    results[address] = {"error": str(exc)}
-        return results
+        # split addresses into smaller chunks
+        address_batches = [
+            addresses[i:i + self.batch_size]
+            for i in range(0, len(addresses), self.batch_size)
+        ]
+
+        for i, batch in enumerate(address_batches):
+            if show_logs:
+                self._logger.info(
+                    f"processing batch {i + 1}/{len(address_batches)} with {len(batch)} addresses"
+                )
+
+            with ThreadPoolExecutor(max_workers=len(batch)) as executor:
+                future_to_address = {
+                    executor.submit(self._get_operations_for_address, address): address
+                    for address in batch
+                }
+
+                # collects results for the current batch as they are completed
+                for future in as_completed(future_to_address):
+                    address = future_to_address[future]
+                    try:
+                        operations_data = future.result()
+                        all_results[address] = operations_data
+                    except Exception as e:
+                        self._logger.error(f'error fetching operations for {address}: {e}')
+                        all_results[address] = {"error": str(e)}
+
+            # if this is not the last batch, wait before starting the next one
+            if i < len(address_batches) - 1:
+                if show_logs:
+                    self._logger.info(f"sleeping for {self.delay_s}s before next batch")
+                time.sleep(self.delay_s)
+
+        return all_results
 
     def _get_operations_for_address(self, address: str):
         """

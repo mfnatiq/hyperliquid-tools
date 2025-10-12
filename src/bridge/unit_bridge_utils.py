@@ -77,7 +77,7 @@ def process_bridge_operations(
 
         if found_row.empty:
             logger.warning(
-                f'target date {target_date} of {row['opCreatedAt']} not found in price list, ignoring')
+                f'target date {target_date} for asset {asset} (bridge txn at {row['opCreatedAt']}) not found in price list, ignoring')
             return pd.Series([np.nan, np.nan], index=amt_cols)
 
         # assume only have 1 day since candlestick data is fetched daily
