@@ -870,7 +870,7 @@ def main():
                 if not is_logged_in():
                     show_login_info()
                 elif user_premium_type == PremiumType.NONE:
-                    display_upgrade_section("leaderboard_data")
+                    display_upgrade_section("bridge_leaderboard_data")
                 else:
                     st.info('🚧 This feature is in beta')
 
