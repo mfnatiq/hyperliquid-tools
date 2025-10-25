@@ -14,7 +14,7 @@ import sys
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 # add src root to search path so src import works
 sys.path.insert(0, project_root)
-from src.utils.utils import get_cached_unit_token_mappings
+from src.utils.utils import get_unit_token_mappings
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -88,7 +88,7 @@ def update_leaderboard_data():
     logger.info("starting leaderboard update process")
 
     info = Info(constants.MAINNET_API_URL, skip_ws=True)
-    unit_token_mappings = get_cached_unit_token_mappings(info, logger)
+    unit_token_mappings = get_unit_token_mappings(info, logger)
 
     params = {
         "coin_list": ','.join([f"'{coin}'" for coin in unit_token_mappings.keys()])

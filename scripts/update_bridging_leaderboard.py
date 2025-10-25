@@ -18,7 +18,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 # add src root to search path so src import works
 sys.path.insert(0, project_root)
 
-from src.utils.utils import get_cached_unit_token_mappings
+from src.utils.utils import get_unit_token_mappings
 from src.bridge.unit_bridge_api import UnitBridgeInfo
 from src.trade.trade_data import get_candlestick_data
 from src.bridge.unit_bridge_utils import create_bridge_summary, process_bridge_operations
@@ -114,7 +114,7 @@ def get_addresses_to_query(limit: int) -> pd.DataFrame:
 
 def load_data():
     info = Info(constants.MAINNET_API_URL, skip_ws=True)
-    unit_token_mappings = get_cached_unit_token_mappings(info, logger)
+    unit_token_mappings = get_unit_token_mappings(info, logger)
     logger.info(f'unit token mappings: {unit_token_mappings}')
     token_list = [t for t, _ in unit_token_mappings.values()]
     candlestick_data = get_candlestick_data(

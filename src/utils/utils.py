@@ -33,7 +33,7 @@ def format_currency(value: float):
 # that spinner only runs whenever data is NOT fetched from cache
 # i.e. if data is actually fetched
 # hence reducing unnecessary quick spinner upon fetching from cache
-def get_cached_unit_token_mappings(info: Info, logger: Logger) -> dict[str, tuple[str, int]]:
+def get_unit_token_mappings(info: Info, logger: Logger) -> dict[str, tuple[str, int]]:
     spot_metadata = info.spot_meta()
 
     unit_tokens = (t for t in spot_metadata['tokens']
@@ -71,3 +71,8 @@ def get_cached_unit_token_mappings(info: Info, logger: Logger) -> dict[str, tupl
             logger.info(f'unable to find pair metadata for token {token_name}, skipping processing')
 
     return mapping
+
+
+def get_xyz_token_mappings(info: Info) -> list[str]:
+    perp_metadata = info.meta('xyz')
+    return [t['name'] for t in perp_metadata['universe']]
