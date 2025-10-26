@@ -704,7 +704,6 @@ def main():
             # note bridge data doesn't apply for subaccounts as you can only bridge to main account
             raw_bridge_data = unit_bridge_info.get_operations(accounts)
 
-
         with output_placeholder.container():
             if err is not None:
                 st.error(err)
@@ -856,7 +855,6 @@ def main():
                 else:
                     # only runs for subscribed users
                     display_bridge_data(
-                        raw_bridge_data,
                         df_bridging,
                         top_bridged_asset,
                         processed_bridge_data
@@ -1292,7 +1290,6 @@ def display_trade_data(
     candlestick_data,
     token_list: list[str],
 ):
-    # show raw data in expander
     if df_trade.empty:
         st.warning(
             "No trades on Unit tokens found - if you think this is an error, contact me")
@@ -1301,10 +1298,6 @@ def display_trade_data(
 
         display_trade_volume_info(df_trade, candlestick_data, list(
             accounts_mapping.keys()), user_trades_df, token_list)
-
-        with st.expander("Raw Data"):
-            st.json(accounts_mapping)
-            st.dataframe(df_trade)
 
 
 def format_bridge_data(
@@ -1327,7 +1320,7 @@ def format_bridge_data(
     return all_operations_df, operations_by_address
 
 
-def display_bridge_data(raw_bridge_data: dict, summary_df: pd.DataFrame | None, top_asset: str, all_operations_df: pd.DataFrame):
+def display_bridge_data(summary_df: pd.DataFrame | None, top_asset: str, all_operations_df: pd.DataFrame):
     if all_operations_df.empty or summary_df is None or summary_df.empty:
         st.warning(
             "No bridge transactions found - if you think this is an error, contact me")
@@ -1424,12 +1417,6 @@ def display_bridge_data(raw_bridge_data: dict, summary_df: pd.DataFrame | None, 
             showlegend=True
         )
         st.plotly_chart(fig, use_container_width=True)
-
-    # raw data
-    with st.expander("Raw Data"):
-        st.dataframe(all_operations_df[['asset', 'direction', 'amount_formatted',
-                     'amount_usd', 'opCreatedAt', 'state', 'sourceChain', 'destinationChain']])
-        st.json(raw_bridge_data)
 
 
 if __name__ == '__main__':
