@@ -30,13 +30,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# umami analytics
-umami_website_id = "d055b0ff-48a4-4617-a9fd-4124a5346705"
-components.html(f"""
-<script defer src="https://cloud.umami.is/script.js" data-website-id="{umami_website_id}">
-</script>
-""", height=0)
-
 # # set up secrets manually as secrets.toml seems only readable in streamlit community cloud
 # TODO doesn't work, st.secrets seems to be read-only
 # try:
@@ -137,7 +130,8 @@ def show_login_info(show_button_only: bool = False):
 
 col1, col2 = st.columns([1, 1], vertical_alignment='center')
 with col1:
-    st.title("Unit Volume Tracker")
+    with st.container(vertical_alignment='center', horizontal=True, horizontal_alignment="left"):
+        st.header("Unit Volume Tracker")
 with col2:
     with st.container(vertical_alignment='center', horizontal=True, horizontal_alignment="right"):
         if "user_email" in st.session_state:
@@ -170,6 +164,13 @@ with col2:
         else:
             show_login_info(show_button_only=True)
 
+# umami analytics
+# TODO seems to have non-zero height still?
+umami_website_id = "d055b0ff-48a4-4617-a9fd-4124a5346705"
+components.html(f"""
+<script defer src="https://cloud.umami.is/script.js" data-website-id="{umami_website_id}">
+</script>
+""", height=0)
 
 # announcement shows only upon startup
 # main prompt modal only shows for non-premium users
