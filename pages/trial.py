@@ -11,7 +11,7 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("Trial Details")
+st.header("Trial Details")
 
 # setup and configure logging
 import logging

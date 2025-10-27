@@ -31,13 +31,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# umami analytics
-umami_website_id = "d055b0ff-48a4-4617-a9fd-4124a5346705"
-components.html(f"""
-<script defer src="https://cloud.umami.is/script.js" data-website-id="{umami_website_id}">
-</script>
-""", height=0)
-
 # # set up secrets manually as secrets.toml seems only readable in streamlit community cloud
 # TODO doesn't work, st.secrets seems to be read-only
 # try:
@@ -138,7 +131,8 @@ def show_login_info(show_button_only: bool = False):
 
 col1, col2 = st.columns([1, 1], vertical_alignment='center')
 with col1:
-    st.title("Unit Volume Tracker")
+    with st.container(vertical_alignment='center', horizontal=True, horizontal_alignment="left"):
+        st.header("Unit Volume Tracker")
 with col2:
     with st.container(vertical_alignment='center', horizontal=True, horizontal_alignment="right"):
         if "user_email" in st.session_state:
@@ -171,6 +165,13 @@ with col2:
         else:
             show_login_info(show_button_only=True)
 
+# umami analytics
+# TODO seems to have non-zero height still?
+umami_website_id = "d055b0ff-48a4-4617-a9fd-4124a5346705"
+components.html(f"""
+<script defer src="https://cloud.umami.is/script.js" data-website-id="{umami_website_id}">
+</script>
+""", height=0)
 
 # announcement shows only upon startup
 # main prompt modal only shows for non-premium users
@@ -1127,7 +1128,6 @@ def main():
                 else:
                     # only runs for subscribed users
                     display_bridge_data(
-                        raw_bridge_data,
                         df_bridging,
                         top_bridged_asset,
                         processed_bridge_data
@@ -1563,7 +1563,6 @@ def display_trade_data(
     unit_candlestick_data,
     token_list: list[str],
 ):
-    # show raw data in expander
     if df_trade.empty:
         st.warning(
             "No trades on Unit tokens found - if you think this is an error, contact me")
@@ -1572,10 +1571,6 @@ def display_trade_data(
 
         display_trade_volume_info(df_trade, unit_candlestick_data, list(
             accounts_mapping.keys()), user_trades_df, token_list)
-
-        with st.expander("Raw Data"):
-            st.json(accounts_mapping)
-            st.dataframe(df_trade)
 
 
 def format_bridge_data(
@@ -1598,7 +1593,7 @@ def format_bridge_data(
     return all_operations_df, operations_by_address
 
 
-def display_bridge_data(raw_bridge_data: dict, summary_df: pd.DataFrame | None, top_asset: str, all_operations_df: pd.DataFrame):
+def display_bridge_data(summary_df: pd.DataFrame | None, top_asset: str, all_operations_df: pd.DataFrame):
     if all_operations_df.empty or summary_df is None or summary_df.empty:
         st.warning(
             "No bridge transactions found - if you think this is an error, contact me")
@@ -1695,12 +1690,6 @@ def display_bridge_data(raw_bridge_data: dict, summary_df: pd.DataFrame | None, 
             showlegend=True
         )
         st.plotly_chart(fig, use_container_width=True)
-
-    # raw data
-    with st.expander("Raw Data"):
-        st.dataframe(all_operations_df[['asset', 'direction', 'amount_formatted',
-                     'amount_usd', 'opCreatedAt', 'state', 'sourceChain', 'destinationChain']])
-        st.json(raw_bridge_data)
 
 
 if __name__ == '__main__':

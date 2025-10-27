@@ -10,4 +10,7 @@ pg = st.navigation(
     }
 )
 
+st.title("Hyperliquid Tools")
+st.divider()
+
 pg.run()
