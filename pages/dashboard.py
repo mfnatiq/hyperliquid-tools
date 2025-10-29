@@ -427,7 +427,7 @@ def get_cached_unit_volumes(
     """
     get unit volumes with caching
     """
-    # TODO region put this into separate helper function
+    # TODO put this into separate helper function
     # account: { remarks (subaccount of another), num fills }
     accounts_mapping: dict[str, dict[str, int | float | str]] = dict()
 
@@ -492,7 +492,7 @@ def get_cached_unit_volumes(
         }
         for t, _ in unit_token_mappings.values()
     }
-    # endregion
+    # end TODO
 
     try:
         token_coin_name_mapping = { k: v[0] for k, v in unit_token_mappings.items() }
