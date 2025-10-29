@@ -187,7 +187,7 @@ def announcement():
 @st.dialog("Latest Updates", width="large", on_dismiss="ignore")
 def updates_announcement():
     st.write("""
-        🚨 2025-10-12: Added bridging leaderboard (in beta)
+        🚨 2025-10-29: Added basic trade info for XYZ tokens
 
         Enjoy!
     """)
@@ -1003,7 +1003,7 @@ def main():
                     "💡 Summary",
                     "⚡ Trade Analysis",
                     "🏆 Leaderboard",
-                    "⚡ XYZ Trade Analysis (beta)",
+                    "⚡ XYZ Trade Analysis (new!)",
                     "🌉 Bridge Analysis",
                     "🏆 Bridge Leaderboard",
                     # "🔗 HyperEVM Trades (W.I.P)",
@@ -1040,6 +1040,8 @@ def main():
                     )
 
             with tab_xyz_trade:
+                st.info('🚧 This feature is in beta')
+
                 if st.session_state.last_tab != "view_xyz_trade_details":
                     track_event("view_xyz_trade_details", { 'addresses_input': addresses_input })
                     st.session_state.last_tab = "view_xyz_trade_details"
@@ -1143,8 +1145,6 @@ def main():
                 elif user_premium_type == PremiumType.NONE:
                     display_upgrade_section("bridge_leaderboard_data")
                 else:
-                    st.info('🚧 This feature is in beta')
-
                     need_update = update_bridge_leaderboard(
                         bridge_data_by_address
                     ) if bridge_data_by_address else False
