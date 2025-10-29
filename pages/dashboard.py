@@ -1003,7 +1003,7 @@ def main():
                     "💡 Summary",
                     "⚡ Trade Analysis",
                     "🏆 Leaderboard",
-                    "⚡ XYZ Trade Analysis (new!)",
+                    "⚡ XYZ Trade Analysis (new)",
                     "🌉 Bridge Analysis",
                     "🏆 Bridge Leaderboard",
                     # "🔗 HyperEVM Trades (W.I.P)",
