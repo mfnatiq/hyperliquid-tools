@@ -576,7 +576,7 @@ def get_cached_xyz_volumes(
     """
     get unit volumes with caching
     """
-    # TODO region put this into separate helper function
+    # TODO put this into separate helper function
     # account: { remarks (subaccount of another), num fills }
     accounts_mapping: dict[str, dict[str, int | float | str]] = dict()
 
@@ -1018,7 +1018,7 @@ def main():
                     track_event("summary", { 'addresses_input': addresses_input })
                     st.session_state.last_tab = "summary"
 
-                display_summary(df_trade, df_bridging, top_bridged_asset)
+                display_summary(df_trade, df_bridging, top_bridged_asset, df_trade_xyz)
 
             with tab_trade:
                 if st.session_state.last_tab != "view_unit_trade_details":
@@ -1223,7 +1223,12 @@ def _get_bridge_leaderboard() -> tuple[datetime, pd.DataFrame]:
 
 
 # --------------- display ---------------
-def display_summary(df_trade: pd.DataFrame, df_bridging: pd.DataFrame | None, top_bridged_asset: str):
+def display_summary(
+    df_trade: pd.DataFrame,
+    df_bridging: pd.DataFrame | None,
+    top_bridged_asset: str,
+    df_trade_xyz: pd.DataFrame,
+):
     # trade data
     if df_trade.empty:
         st.warning(
@@ -1239,11 +1244,28 @@ def display_summary(df_trade: pd.DataFrame, df_bridging: pd.DataFrame | None, to
         with col3:
             st.metric('Total Trades Made', df_trade['Num Trades'].sum())
 
+    # xyz trade data
+    if df_trade_xyz.empty:
+        st.warning(
+            "No trades on XYZ tokens found - if you think this is an error, contact me")
+    else:
+        st.divider()
+        st.subheader("XYZ Trade Data")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Trade Volume", format_currency(
+                df_trade_xyz['Total Volume'].sum()))
+        with col2:
+            st.metric("Top Traded Token", df_trade_xyz.iloc[0]['Token'])
+        with col3:
+            st.metric('Total Trades Made', df_trade_xyz['Num Trades'].sum())
+
     # bridging data
     if df_bridging is None or df_bridging.empty:
         st.warning(
             "No bridge transactions found - if you think this is an error, contact me")
     else:
+        st.divider()
         st.subheader("Bridge Data")
         col1, col2, col3 = st.columns(3)
         with col1:

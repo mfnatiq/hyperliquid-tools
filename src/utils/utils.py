@@ -15,6 +15,7 @@ def get_today_timestamp_millis() -> int:
     return int(datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000)
 
 
+# TODO consider millify / numerize inbuilt libraries
 def format_currency(value: float):
     if value >= 1_000_000_000_000:
         return f"${value/1_000_000_000_000:.2f}T"
