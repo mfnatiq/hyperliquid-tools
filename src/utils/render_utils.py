@@ -5,9 +5,9 @@ footer_html = f"""
 <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,600&display=swap">
 <style>
 html, body {{ margin: 0; padding: 0; background: transparent; }}
-/* Kill extra bottom padding Streamlit adds */
+/* kill extra bottom padding added by streamlit */
 .block-container {{
-    padding-bottom: 1rem !important;
+    padding-bottom: 130px !important;   /* manually calculated based on footer height */
 }}
 .footer {{
     position: fixed;
@@ -18,13 +18,26 @@ html, body {{ margin: 0; padding: 0; background: transparent; }}
     display: flex;
     justify-content: center;
     align-items: center;
-    padding: 10px 20px;
+    padding: 16px 0;
     font-size: 14px;
     font-family: 'Source Sans Pro', sans-serif;
-    background-color: #0e1117;  /* same as main streamlit background */
+    background-color: #0e1117;
     z-index: 9999;
+    gap: 256px;  /* between donation and referrals */
 }}
-.footer a {{ color: #87CEEB; text-decoration: none; }}
+.footer-main {{
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+}}
+.footer-referrals {{
+    display: flex;
+    flex-direction: column;
+}}
+.footer a {{
+    color: #87CEEB;
+    text-decoration: none;
+}}
 .separator {{ margin: 0 15px; }}
 .donation-address {{
     background-color: #2C2C2C;
@@ -44,17 +57,27 @@ html, body {{ margin: 0; padding: 0; background: transparent; }}
 </style>
 
 <div class="footer">
-    <span>
-    made by <a href="https://x.com/fnatiqmambo" target="_blank">@fnatiqmambo</a>
-    </span>
-    <span class="separator">•</span>
-    <span>donations:</span>
-    <span id="donation-address" class="donation-address">{donation_address}</span>
-    <span class="icon-container" id="copy-btn" title="Copy to clipboard">
-        <i id="icon-copy" class="fa-solid fa-copy copy-icon"></i>
-        <i id="icon-check" class="fa-solid fa-check copy-icon" style="display:none; color:#7CFC00;"></i>
-    </span>
+    <div class="footer-main">
+        <span>
+        made by <a href="https://x.com/fnatiqmambo" target="_blank">@fnatiqmambo</a>
+        </span>
+        <span class="separator">•</span>
+        <span>donations:</span>
+        <span id="donation-address" class="donation-address">{donation_address}</span>
+        <span class="icon-container" id="copy-btn" title="Copy to clipboard">
+            <i id="icon-copy" class="fa-solid fa-copy copy-icon"></i>
+            <i id="icon-check" class="fa-solid fa-check copy-icon" style="display:none; color:#7CFC00;"></i>
+        </span>
+    </div>
+    <div class="footer-referrals">
+        referrals:
+        <span><a href="https://omni.variational.io/?ref=OMNIMAMBO" target="_blank">Variational</a>: OMNIMAMBO</span>
+        <span><a href="https://bullpen.fi/@bitcoin" target="_blank">Bullpen</a>: @bitcoin</span>
+        <span><a href="https://app.extended.exchange/join/MAMBO" target="_blank">Extended</a>: MAMBO</span>
+        <span><a href="https://app.pacifica.fi/?referral=pacifica" target="_blank">Pacifica</a>: pacifica</span>
+    </div>
 </div>
+
 """
 
 # JavaScript component for copy functionality

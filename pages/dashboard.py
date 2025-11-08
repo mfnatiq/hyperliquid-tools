@@ -187,7 +187,7 @@ def announcement():
 @st.dialog("Latest Updates", width="large", on_dismiss="ignore")
 def updates_announcement():
     st.write("""
-        🚨 2025-10-29: Added basic trade info for XYZ tokens
+        🚨 2025-11-07: Added XYZ volume to summary
 
         Enjoy!
     """)
