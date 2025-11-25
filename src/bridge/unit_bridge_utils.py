@@ -87,7 +87,11 @@ def process_bridge_operations(
         found_decimals = False
         for asset_name, decimals in unit_token_mappings.values():
             if _bridge_asset_name_in_token_list(asset_name, asset):
-                decimal_places = decimals
+                # TODO hacky, find out why `spotMeta` endpoint returns 6 for unit monad
+                if asset == 'mon':
+                    decimal_places = 18
+                else:
+                    decimal_places = decimals
                 found_decimals = True
                 break
         if not found_decimals:
