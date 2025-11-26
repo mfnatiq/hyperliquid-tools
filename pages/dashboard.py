@@ -239,9 +239,18 @@ def _get_candlestick_data(_token_ids: list[str], _token_names: list[str]):
 
 
 @st.cache_data(ttl=60, show_spinner=False)
+def get_mid_prices():
+    return info.all_mids()
+
+@st.cache_data(ttl=60, show_spinner=False)
 def get_curr_hype_price():
-    prices = info.all_mids()
+    prices = get_mid_prices()
     return float(prices['@107'])
+
+@st.cache_data(ttl=60, show_spinner=False)
+def get_curr_btc_price():
+    prices = get_mid_prices()
+    return float(prices['@142'])
 
 
 def load_unit_data():
@@ -887,7 +896,10 @@ def main():
         user_premium_type = get_user_premium_type(
             st.session_state['user_email'], logger) if 'user_email' in st.session_state else False
 
-        st.metric("Current HYPE Price", format_currency(get_curr_hype_price()))
+        with st.container(vertical_alignment='center', horizontal=True):
+            st.metric("HYPE Price", f'${get_curr_hype_price()}', width="content")
+            st.metric(" ", " ", width="content", label_visibility="hidden")    # hack for some horizontal spacing
+            st.metric("BTC Price", f'${get_curr_btc_price()}', width="content")
 
         with st.container(vertical_alignment='center', horizontal=True):
             addresses_input: str = st.text_input(
