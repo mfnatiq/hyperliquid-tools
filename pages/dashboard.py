@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 import requests
 from src.bridge.bridge_leaderboard import get_bridge_leaderboard_with_datetime_last_updated, update_bridge_leaderboard
 from src.auth.db_utils import init_db, PremiumType, get_user_premium_type, upgrade_to_premium, start_trial_if_new_user, get_user
-from src.trade.trade_leaderboard import get_leaderboard_last_updated, get_leaderboard
+from src.trade.trade_leaderboard import get_leaderboard_last_updated, get_leaderboard, get_xyz_leaderboard_last_updated, get_xyz_leaderboard
 from src.utils.utils import DATE_FORMAT, format_currency, get_unit_token_mappings, get_current_timestamp_millis, get_xyz_token_mappings
 from datetime import datetime, timedelta, timezone
 import pandas as pd
@@ -1010,12 +1010,13 @@ def main():
                 st.warning(f'Only showing latest {non_logged_in_limit_trade_count} trades: log in to see full data')
 
             # create tabs
-            tab_summary, tab_trade, tab_trade_leaderboard, tab_xyz_trade, tab_bridge, tab_bridge_leaderboard = st.tabs(
+            tab_summary, tab_trade, tab_trade_leaderboard, tab_xyz_trade, tab_xyz_leaderboard, tab_bridge, tab_bridge_leaderboard = st.tabs(
                 [
                     "💡 Summary",
                     "⚡ Trade Analysis",
                     "🏆 Leaderboard",
-                    "⚡ XYZ Trade Analysis (new)",
+                    "⚡ XYZ Trade Analysis",
+                    "🏆 XYZ Leaderboard (new)",
                     "🌉 Bridge Analysis",
                     "🏆 Bridge Leaderboard",
                     # "🔗 HyperEVM Trades (W.I.P)",
@@ -1130,6 +1131,64 @@ def main():
                         },
                     )
 
+            with tab_xyz_leaderboard:
+                if st.session_state.last_tab != "view_xyz_leaderboard":
+                    track_event("view_xyz_leaderboard", { 'addresses_input': addresses_input })
+                    st.session_state.last_tab = "view_xyz_leaderboard"
+
+                if not is_logged_in():
+                    show_login_info()
+                elif user_premium_type == PremiumType.NONE:
+                    display_upgrade_section("xyz_leaderboard_data")
+                else:
+                    leaderboard_last_updated = _get_xyz_leaderboard_last_updated()
+                    st.markdown(f'Last Updated: **{leaderboard_last_updated}**')
+
+                    leaderboard = _get_xyz_leaderboard()
+                    leaderboard['total_volume_usd'] = leaderboard['total_volume_usd'].apply(lambda x: format_currency(x))
+                    leaderboard_formatted = leaderboard[['user_rank', 'user_address', 'total_volume_usd']]
+
+                    # if searched addresses within leaderboard, display them separately
+                    # else get data based on query
+                    accounts_lowercase = [a.lower() for a in accounts]
+                    leaderboard_searched_addresses = leaderboard_formatted[leaderboard_formatted['user_address'].str.lower().isin(accounts_lowercase)]
+                    st.subheader('Searched Addresses')
+
+                    # manually-obtained trade volumes
+                    ranks = [
+                        (f'{len(leaderboard_formatted)}+', addr.lower(), format_currency(total_vol))
+                        for addr, total_vol in total_trade_volume.items()
+                    ]
+                    ranks_df = pd.DataFrame(ranks, columns=["user_rank", "user_address", "total_volume_usd"])
+
+                    leaderboard_searched_addresses = pd.concat([leaderboard_searched_addresses, ranks_df], ignore_index=True)
+                    # keep first one i.e. add if not already in full searched list
+                    leaderboard_searched_addresses = leaderboard_searched_addresses.drop_duplicates(subset=["user_address"], keep="first")  # keep DataFrame rows over tuples
+                    leaderboard_searched_addresses.loc[:, 'user_address'] = leaderboard_searched_addresses['user_address'].apply(lambda x: x[:6] + '...' + x[-6:])
+                    st.dataframe(
+                        leaderboard_searched_addresses,
+                        hide_index=True,
+                        column_config={
+                            'user_rank': st.column_config.TextColumn('Rank'),
+                            'user_address': st.column_config.TextColumn('Address'),
+                            'total_volume_usd': st.column_config.TextColumn('Total Volume (USD)'),
+                        },
+                    )
+
+                    # display overall leaderboard
+                    leaderboard_formatted.loc[:, 'user_address'] = leaderboard_formatted['user_address'].apply(lambda x: x[:6] + '...' + x[-6:])
+                    leaderboard_filtered = leaderboard_formatted.iloc[:1000]
+                    st.subheader('Overall XYZ Leaderboard')
+                    st.dataframe(
+                        leaderboard_filtered,
+                        hide_index=True,
+                        column_config={
+                            'user_rank': st.column_config.TextColumn('Rank'),
+                            'user_address': st.column_config.TextColumn('Address'),
+                            'total_volume_usd': st.column_config.TextColumn('Total Volume (USD)'),
+                        },
+                    )
+
             with tab_bridge:
                 if st.session_state.last_tab != "view_bridge_details":
                     track_event("view_bridge_details", { 'addresses_input': addresses_input })
@@ -1225,6 +1284,16 @@ def _get_leaderboard_last_updated():
 @st.cache_data(ttl=3600, show_spinner=False)
 def _get_leaderboard():
     return get_leaderboard()
+# endregion
+
+# region xyz leaderboard data cached
+@st.cache_data(ttl=3600, show_spinner=False)
+def _get_xyz_leaderboard_last_updated():
+    return get_xyz_leaderboard_last_updated()
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _get_xyz_leaderboard():
+    return get_xyz_leaderboard()
 # endregion
 
 # region bridging leaderboard data cached

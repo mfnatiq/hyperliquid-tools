@@ -42,8 +42,25 @@ metadata_table = Table(
     # for sqlite (local testing), handle default value in the INSERT statement
     Column("last_updated_at", TIMESTAMP(timezone=True) if is_postgresql else DateTime)
 )
+
+xyz_leaderboard_table = Table(
+    "xyz_leaderboard",
+    metadata,
+    Column("user_address", String, primary_key=True),
+    Column("total_volume_usd", Float),
+    Column("user_rank", Integer),
+)
+xyz_leaderboard_metadata_table = Table(
+    "xyz_leaderboard_metadata",
+    metadata,
+    Column("id", Integer, primary_key=True, default=1),
+    # for pg, use TIMESTAMP WITH TIME ZONE
+    # for sqlite (local testing), handle default value in the INSERT statement
+    Column("last_updated_at", TIMESTAMP(timezone=True) if is_postgresql else DateTime)
+)
 # endregion
 
+# region trade leaderboard
 def get_leaderboard() -> pd.DataFrame:
     try:
         with engine.connect() as conn:
@@ -69,3 +86,32 @@ def get_leaderboard_last_updated():
     except Exception as e:
         logger.error(f'unable to fetch last updated date of leaderboard: {e}')
     return None
+# endregion
+
+# region xyz leaderboard
+def get_xyz_leaderboard() -> pd.DataFrame:
+    try:
+        with engine.connect() as conn:
+            results = conn.execute(
+                xyz_leaderboard_table.
+                select().
+                order_by(xyz_leaderboard_table.c.user_rank.asc())
+            )
+            leaderboard_rows = results.fetchall()
+            column_names = results.keys()
+            leaderboard_df = pd.DataFrame(leaderboard_rows, columns=column_names)
+            return leaderboard_df
+    except Exception as e:
+        logger.error(f'unable to fetch xyz leaderboard: {e}')
+    return pd.DataFrame()
+
+def get_xyz_leaderboard_last_updated():
+    try:
+        with engine.connect() as conn:
+            results = conn.execute(xyz_leaderboard_metadata_table.select())
+            latest_date = results.all()[0][1]
+            return latest_date
+    except Exception as e:
+        logger.error(f'unable to fetch last updated date of xyz leaderboard: {e}')
+    return None
+# endregion
