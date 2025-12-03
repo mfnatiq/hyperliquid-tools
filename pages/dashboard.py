@@ -431,7 +431,6 @@ def get_cached_unit_volumes(
     accounts: list[str],
     unit_token_mappings: dict[str, tuple[str, int]],
     curr_timestamp_millis: int,
-    exclude_subaccounts: bool = False,
 ):
     """
     get unit volumes with caching
@@ -451,18 +450,6 @@ def get_cached_unit_volumes(
                 "Token Fees": 0.0,
                 "Quote Fees": 0.0,
             }
-            if not exclude_subaccounts:
-                subaccounts = get_subaccounts_cached(account)
-                for sub in subaccounts:
-                    subaccount = sub['subAccountUser']
-
-                    accounts_mapping[subaccount] = {
-                        "Name": sub['name'],
-                        "Remarks": f"Subaccount of {account[:6]}...",
-                        "Num Trades": 0,
-                        "Token Fees": 0.0,
-                        "Quote Fees": 0.0,
-                    }
     except Exception as e:
         logger.error(f'unable to fetch subaccounts of {accounts}: {e}')
         return dict(), dict(), total_trade_volume, pd.DataFrame, False, 'Unable to fetch subaccounts - did you put a valid list of accounts?'
@@ -580,7 +567,6 @@ def get_cached_xyz_volumes(
     accounts: list[str],
     xyz_token_list: list[str],
     curr_timestamp_millis: int,
-    exclude_subaccounts: bool = False,
 ):
     """
     get unit volumes with caching
@@ -595,23 +581,10 @@ def get_cached_xyz_volumes(
         for account in accounts:
             accounts_mapping[account] = {
                 "Name": "",
-                "Remarks": "",
                 "Num Trades": 0,
                 "Token Fees": 0.0,
                 "Quote Fees": 0.0,
             }
-            if not exclude_subaccounts:
-                subaccounts = get_subaccounts_cached(account)
-                for sub in subaccounts:
-                    subaccount = sub['subAccountUser']
-
-                    accounts_mapping[subaccount] = {
-                        "Name": sub['name'],
-                        "Remarks": f"Subaccount of {account[:6]}...",
-                        "Num Trades": 0,
-                        "Token Fees": 0.0,
-                        "Quote Fees": 0.0,
-                    }
     except Exception as e:
         logger.error(f'unable to fetch subaccounts of {accounts}: {e}')
         return dict(), dict(), total_trade_volume, pd.DataFrame, False, 'Unable to fetch subaccounts - did you put a valid list of accounts?'
@@ -944,15 +917,21 @@ def main():
         output_placeholder.empty()
 
         accounts = [a.strip() for a in addresses_input.split(",") if a]
+        if not exclude_subaccounts:
+            for account in accounts:
+                subaccounts = get_subaccounts_cached(account)
+                for sub in subaccounts:
+                    subaccount = sub['subAccountUser']
+                    accounts.append(subaccount)
 
-        with st.spinner(f'Loading data for {", ".join(accounts)}...', show_time=True):
+        with st.spinner('Loading data...', show_time=True):
             curr_timestamp_millis = get_current_timestamp_millis()
             volume_by_token, accounts_mapping, total_trade_volume, user_trades_df, non_logged_in_limit_trade_count, err = get_cached_unit_volumes(
-                accounts, unit_token_mappings, curr_timestamp_millis, exclude_subaccounts)
+                accounts, unit_token_mappings, curr_timestamp_millis)
 
             # TODO some of these return types are unused?
             volume_by_token_xyz, accounts_mapping_xyz, total_trade_volume_xyz, user_trades_df_xyz, _, err_xyz = get_cached_xyz_volumes(
-                accounts, xyz_token_list, curr_timestamp_millis, exclude_subaccounts)
+                accounts, xyz_token_list, curr_timestamp_millis)
 
             # note bridge data doesn't apply for subaccounts as you can only bridge to main account
             raw_bridge_data = unit_bridge_info.get_operations(accounts)
