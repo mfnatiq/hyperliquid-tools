@@ -220,7 +220,6 @@ def calculate_slippage(orderbook, size_usd, side="buy"):
     remaining_usd = size_usd
     total_qty = 0
     total_cost = 0
-    levels_used = 0
     depth_used_usd = 0
     worst_price = best_price
 
@@ -230,7 +229,6 @@ def calculate_slippage(orderbook, size_usd, side="buy"):
         qty_available = level["qty"]
         value_at_level = qty_available * price
 
-        levels_used += 1
         worst_price = price
 
         if remaining_usd <= value_at_level:
@@ -274,7 +272,6 @@ def calculate_slippage(orderbook, size_usd, side="buy"):
             "effectiveSpreadBps": round(effective_spread * 100, 2),
             "filled": False,
             "filledPercent": round(filled_percent, 2),
-            "levelsUsed": levels_used,
             "depthUsedUsd": round(depth_used_usd),
             "bestPrice": round(best_price, 2),
             "worstPrice": round(worst_price, 2),
@@ -295,7 +292,6 @@ def calculate_slippage(orderbook, size_usd, side="buy"):
         "effectiveSpreadBps": round(effective_spread * 100, 2),
         "filled": True,
         "filledPercent": 100,
-        "levelsUsed": levels_used,
         "depthUsedUsd": round(depth_used_usd),
         "bestPrice": round(best_price, 2),
         "worstPrice": round(worst_price, 2),
@@ -354,9 +350,7 @@ def analyze_orderbook(orderbook):
             round(avg_bps + taker_fee_bps, 2) if avg_bps is not None else None
         )
 
-        size_key = f"${size/1000}k"
-
-        result["slippage"][size_key] = {
+        result["slippage"][size] = {
             "avgBps": avg_bps,
             "takerFeeBps": taker_fee_bps,
             "totalCostBps": total_cost_bps,
@@ -378,7 +372,7 @@ def analyze_orderbook(orderbook):
 def rank_exchanges(analyses):
     rankings = {"bySlippage": {}, "byTotalCost": {}}
 
-    for size_key in ["$1k", "$10k", "$100k", "$500k"]:
+    for size_key in ["$1k", "$10k", "$100k", "$500k"]:  # TODO fix
         exchange_data = []
 
         for analysis in analyses:
@@ -451,7 +445,6 @@ def get_all_analysis(token: str):
     return analysis_list
 
 def reorganize_by_clip_size(analysis_list):
-    # collect all available size keys (e.g., '$1.0k', '$10.0k')
     size_keys = set()
     for analysis in analysis_list:
         if "slippage" in analysis:
@@ -463,18 +456,36 @@ def reorganize_by_clip_size(analysis_list):
         rows = []
         for analysis in analysis_list:
             slip = analysis.get("slippage", {}).get(size)
-            if slip:
-                rows.append({
-                    "exchange": analysis["exchange"],
-                    "avgBps": slip.get("avgBps"),
-                    "takerFeeBps": slip.get("takerFeeBps"),
-                    "totalCostBps": slip.get("totalCostBps")
-                })
+            if not slip:
+                continue
 
-        # create df for this clip size
+            filled = slip.get("filled", True)
+
+            # if not fully filled, set infinity
+            if not filled:
+                avg_bps = float("inf")
+                total_cost_bps = float("inf")
+                note = "* insufficient liquidity"
+            else:
+                avg_bps = slip.get("avgBps")
+                total_cost_bps = slip.get("totalCostBps")
+                note = ""
+
+            rows.append({
+                "exchange": analysis["exchange"],
+                "avgBps": avg_bps,
+                "takerFeeBps": slip.get("takerFeeBps"),
+                "totalCostBps": total_cost_bps,
+                "note": note,
+            })
+
         df = pd.DataFrame(rows)
-        # sort by smallest total cost first
-        df = df.sort_values("totalCostBps").reset_index(drop=True)
+
+        # sort: finite values first, then ∞
+        df = df.sort_values(
+            by="totalCostBps",
+            key=lambda col: col.replace({float("inf"): 1e18}),
+        ).reset_index(drop=True)
 
         result[size] = df
 
@@ -491,7 +502,8 @@ with st.spinner(show_time=True):
 
     st.subheader(f"Orderbook snapshot for {token.upper()}")
     for clip_size, clip_size_data in sorted(tables.items()):
-        st.text(f'Clip Size: {clip_size}')
+        clip_size_formatted = f"${clip_size/1000}k"
+        st.text(f'Clip Size: {clip_size_formatted}')
         st.dataframe(
             clip_size_data,
             column_config={
@@ -499,10 +511,13 @@ with st.spinner(show_time=True):
                 'avgBps': st.column_config.NumberColumn('Avg Bps', width='small'),
                 'takerFeeBps': st.column_config.NumberColumn('Taker Fee (Bps)', width='small'),
                 'totalCostBps': st.column_config.NumberColumn('Total Cost (Bps)', width='small'),
+                'note': st.column_config.TextColumn('Note', width='small'),
             },
             hide_index=True,
         )
 
+
 # TODO convert to async
 # TODO add auto refresh every 5min? put last updated datetime
 # TODO check actual pricefor calculation if correct
+# TODO change manual check for clip size for loop
