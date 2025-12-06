@@ -505,3 +505,4 @@ with st.spinner(show_time=True):
 
 # TODO convert to async
 # TODO add auto refresh every 5min? put last updated datetime
+# TODO check actual pricefor calculation if correct
