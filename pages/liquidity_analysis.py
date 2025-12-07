@@ -351,8 +351,10 @@ def analyze_orderbook(orderbook):
         # avg slippage
         if bid_slippage["slippage"] is not None and ask_slippage["slippage"] is not None:
             avg_slip = (bid_slippage["slippage"] + ask_slippage["slippage"]) / 2
+        elif not bid_slippage["slippage"]:
+            logger.error(f'Unable to calculate slippage for {orderbook['exchange']} for buy side for size {size}')
         else:
-            st.error(f'Unable to calculate slippage for {orderbook['exchange']}')
+            logger.error(f'Unable to calculate slippage for {orderbook['exchange']} for ask side for size {size}')
 
         # avg effective spread
         if (
@@ -529,7 +531,7 @@ with st.expander("Detailed Breakdown", expanded=False):
         clip_size_formatted = f"${clip_size/1000}k"
         st.markdown(f'Clip Size: **{clip_size_formatted}**')
         st.dataframe(
-            clip_size_data,
+            clip_size_data[["exchange", "slippageBps", "takerFeeBps", "totalCostBps", "note"]],
             column_config={
                 'exchange': st.column_config.TextColumn('Exchange', width='small'),
                 'slippageBps': st.column_config.NumberColumn('Slippage (Bps)', width='small'),
