@@ -478,9 +478,9 @@ with st.spinner("Fetching orderbooks and computing slippage..."):
 
 st.text("Assumptions")
 st.markdown("""
-- Full clip size can be taken against existing orderbook (in actual execution, unlikely as market makers can react to taker orders and adjust / cancel as they deem fit)
-- Slippage based on average of buy side / ask side book
-- Taker Fees as follows:
+- Full clip size can be taken against existing orderbook (this is unlikely in actual execution as market makers can react to taker orders and adjust / cancel as they deem fit)
+- Slippage is calculated based on average of buy side / ask side book
+- Taker fees as follows:
 """)
 st.dataframe(
     TAKER_FEES_BPS,
