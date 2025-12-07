@@ -350,7 +350,7 @@ def analyze_orderbook(orderbook):
 
         # avg slippage
         if bid_slippage["slippage"] is not None and ask_slippage["slippage"] is not None:
-            avg_slip = (bid_slippage["slippage"] + ask_slippage["slippage"]) / 2
+            avg_slippage = (bid_slippage["slippage"] + ask_slippage["slippage"]) / 2
         elif not bid_slippage["slippage"]:
             logger.error(f'Unable to calculate slippage for {orderbook['exchange']} for buy side for size {size}')
         else:
@@ -371,7 +371,7 @@ def analyze_orderbook(orderbook):
                 or 0
             )
 
-        slippage_bps = round(avg_slip * 100, 2) if avg_slip is not None else None
+        slippage_bps = round(avg_slippage * 100, 2) if avg_slippage is not None else None
         total_cost_bps = (
             round(slippage_bps + taker_fee_bps, 2) if slippage_bps is not None else None
         )
@@ -507,7 +507,7 @@ def build_rankings_table(df: pd.DataFrame) -> pd.DataFrame:
 def render_rankings_text(df):
     lines = []
     for _, row in df.iterrows():
-        medal = row["Medal"] or "  "
+        medal = row["Medal"] or "  "    # TODO fix formatting
         line = (
             f"{medal} "
             f"#{int(row['Rank']):<2} "
