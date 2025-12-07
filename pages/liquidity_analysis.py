@@ -371,13 +371,13 @@ def analyze_orderbook(orderbook):
                 or 0
             )
 
-        avg_bps = round(avg_slip * 100, 2) if avg_slip is not None else None
+        slippage_bps = round(avg_slip * 100, 2) if avg_slip is not None else None
         total_cost_bps = (
-            round(avg_bps + taker_fee_bps, 2) if avg_bps is not None else None
+            round(slippage_bps + taker_fee_bps, 2) if slippage_bps is not None else None
         )
 
         result["slippage"][size] = {
-            "avgBps": avg_bps,
+            "slippageBps": slippage_bps,
             "takerFeeBps": taker_fee_bps,
             "totalCostBps": total_cost_bps,
             "effectiveSpreadBps": round(avg_eff_spread, 2),
@@ -393,56 +393,6 @@ def analyze_orderbook(orderbook):
         }
 
     return result
-
-
-def rank_exchanges(analyses):
-    rankings = {"bySlippage": {}, "byTotalCost": {}}
-
-    for size_key in ["$1k", "$10k", "$100k", "$500k"]:  # TODO fix
-        exchange_data = []
-
-        for analysis in analyses:
-            if analysis.get("error"):
-                continue
-
-            sd = analysis["slippage"].get(size_key)
-            if sd and sd["avgBps"] is not None:
-                exchange_data.append({
-                    "exchange": analysis["exchange"],
-                    "slippageBps": sd["avgBps"],
-                    "totalCostBps": sd["totalCostBps"],
-                    "takerFeeBps": sd["takerFeeBps"],
-                    "filled": sd["filled"],
-                })
-
-        # rank by slippage
-        by_slip = sorted(exchange_data, key=lambda x: x["slippageBps"])
-        rankings["bySlippage"][size_key] = [
-            {
-                "rank": i + 1,
-                "exchange": item["exchange"],
-                "slippageBps": item["slippageBps"],
-                "filled": item["filled"],
-            }
-            for i, item in enumerate(by_slip)
-        ]
-
-        # rank by total cost
-        by_total = sorted(exchange_data, key=lambda x: x["totalCostBps"])
-        rankings["byTotalCost"][size_key] = [
-            {
-                "rank": i + 1,
-                "exchange": item["exchange"],
-                "slippageBps": item["slippageBps"],
-                "takerFeeBps": item["takerFeeBps"],
-                "totalCostBps": item["totalCostBps"],
-                "filled": item["filled"],
-            }
-            for i, item in enumerate(by_total)
-        ]
-
-    return rankings
-
 # endregion
 
 
@@ -504,17 +454,17 @@ def reorganize_by_clip_size(analysis_list: list):
 
             # if not fully filled, set infinity
             if not filled:
-                avg_bps = float("inf")
+                slippage_bps = float("inf")
                 total_cost_bps = float("inf")
                 note = "* insufficient liquidity"
             else:
-                avg_bps = slip.get("avgBps")
+                slippage_bps = slip.get("slippageBps")
                 total_cost_bps = slip.get("totalCostBps")
                 note = ""
 
             rows.append({
                 "exchange": analysis["exchange"],
-                "avgBps": avg_bps,
+                "slippageBps": slippage_bps,
                 "takerFeeBps": slip.get("takerFeeBps"),
                 "totalCostBps": total_cost_bps,
                 "note": note,
@@ -522,7 +472,7 @@ def reorganize_by_clip_size(analysis_list: list):
 
         df = pd.DataFrame(rows)
 
-        # sort: finite values first, then ∞
+        # sort: finite values first, then inf
         df = df.sort_values(
             by="totalCostBps",
             key=lambda col: col.replace({float("inf"): 1e18}),
@@ -550,7 +500,7 @@ for clip_size, clip_size_data in sorted(tables.items()):
         clip_size_data,
         column_config={
             'exchange': st.column_config.TextColumn('Exchange', width='small'),
-            'avgBps': st.column_config.NumberColumn('Avg Bps', width='small'),
+            'slippageBps': st.column_config.NumberColumn('Slippage (Bps)', width='small'),
             'takerFeeBps': st.column_config.NumberColumn('Taker Fee (Bps)', width='small'),
             'totalCostBps': st.column_config.NumberColumn('Total Cost (Bps)', width='small'),
             'note': st.column_config.TextColumn('Note', width='small'),
@@ -558,7 +508,5 @@ for clip_size, clip_size_data in sorted(tables.items()):
         hide_index=True,
     )
 
-
 # TODO add auto refresh every 5min? put last updated datetime
 # TODO check actual pricefor calculation if correct
-# TODO change manual check for clip size for loop
