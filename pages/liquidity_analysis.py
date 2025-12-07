@@ -493,6 +493,10 @@ with st.spinner("Fetching orderbooks and computing slippage..."):
     tables = reorganize_by_clip_size(analysis_list)
 
 st.subheader(f"Orderbook snapshot for {token.upper()}")
+
+st.markdown(':green[Note that these calculations assume the full clip size can be taken against the orderbook snapshot]')
+st.markdown(':green[In actual execution, that is unlikely to be true as MMs can react to taker orders and adjust / cancel as they deem fit]')
+
 for clip_size, clip_size_data in sorted(tables.items()):
     clip_size_formatted = f"${clip_size/1000}k"
     st.text(f'Clip Size: {clip_size_formatted}')
