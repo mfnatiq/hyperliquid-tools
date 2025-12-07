@@ -522,4 +522,3 @@ for clip_size, clip_size_data in sorted(tables.items()):
 
 # TODO add auto refresh every 5min? put last updated datetime
 # TODO check actual pricefor calculation if correct
-# TODO check lighter api
