@@ -1,8 +1,8 @@
 import asyncio
+from datetime import datetime
 from typing import Any
 import aiohttp
 import pandas as pd
-import requests
 import streamlit as st
 
 st.set_page_config(
@@ -251,7 +251,6 @@ def calculate_slippage(orderbook, size_usd, side="buy"):
     remaining_usd = size_usd
     total_qty = 0
     total_cost = 0
-    depth_used_usd = 0
     worst_price = best_price
 
     # full pricefor
@@ -266,13 +265,11 @@ def calculate_slippage(orderbook, size_usd, side="buy"):
             qty_taken = remaining_usd / price
             total_qty += qty_taken
             total_cost += remaining_usd
-            depth_used_usd += remaining_usd
             remaining_usd = 0
             break
         else:
             total_qty += qty_available
             total_cost += value_at_level
-            depth_used_usd += value_at_level
             remaining_usd -= value_at_level
 
     effective_spread = abs((worst_price - best_price) / best_price) * 100
@@ -303,10 +300,6 @@ def calculate_slippage(orderbook, size_usd, side="buy"):
             "effectiveSpreadBps": round(effective_spread * 100, 2),
             "filled": False,
             "filledPercent": round(filled_percent, 2),
-            "depthUsedUsd": round(depth_used_usd),
-            "bestPrice": round(best_price, 2),
-            "worstPrice": round(worst_price, 2),
-            "avgPrice": round(avg_price, 2),
         }
 
     # fully filled
@@ -323,10 +316,6 @@ def calculate_slippage(orderbook, size_usd, side="buy"):
         "effectiveSpreadBps": round(effective_spread * 100, 2),
         "filled": True,
         "filledPercent": 100,
-        "depthUsedUsd": round(depth_used_usd),
-        "bestPrice": round(best_price, 2),
-        "worstPrice": round(worst_price, 2),
-        "avgPrice": round(avg_price, 2),
     }
 
 
@@ -356,27 +345,27 @@ def analyze_orderbook(orderbook):
     }
 
     for size in CLIP_SIZES:
-        buy_slip = calculate_slippage(orderbook, size, "buy")
-        sell_slip = calculate_slippage(orderbook, size, "sell")
+        bid_slippage = calculate_slippage(orderbook, size, "buy")
+        ask_slippage = calculate_slippage(orderbook, size, "sell")
 
         # avg slippage
-        if buy_slip["slippage"] is not None and sell_slip["slippage"] is not None:
-            avg_slip = (buy_slip["slippage"] + sell_slip["slippage"]) / 2
+        if bid_slippage["slippage"] is not None and ask_slippage["slippage"] is not None:
+            avg_slip = (bid_slippage["slippage"] + ask_slippage["slippage"]) / 2
         else:
-            avg_slip = buy_slip["slippage"] or sell_slip["slippage"]
+            st.error(f'Unable to calculate slippage for {orderbook['exchange']}')
 
         # avg effective spread
         if (
-            "effectiveSpreadBps" in buy_slip
-            and "effectiveSpreadBps" in sell_slip
+            "effectiveSpreadBps" in bid_slippage
+            and "effectiveSpreadBps" in ask_slippage
         ):
             avg_eff_spread = (
-                buy_slip["effectiveSpreadBps"] + sell_slip["effectiveSpreadBps"]
+                bid_slippage["effectiveSpreadBps"] + ask_slippage["effectiveSpreadBps"]
             ) / 2
         else:
             avg_eff_spread = (
-                buy_slip.get("effectiveSpreadBps")
-                or sell_slip.get("effectiveSpreadBps")
+                bid_slippage.get("effectiveSpreadBps")
+                or ask_slippage.get("effectiveSpreadBps")
                 or 0
             )
 
@@ -390,31 +379,16 @@ def analyze_orderbook(orderbook):
             "takerFeeBps": taker_fee_bps,
             "totalCostBps": total_cost_bps,
             "effectiveSpreadBps": round(avg_eff_spread, 2),
-            "filled": buy_slip["filled"] and sell_slip["filled"],
+            "filled": bid_slippage["filled"] and ask_slippage["filled"],
             "levels": {
-                "buy": buy_slip.get("levelsUsed", 0),
-                "sell": sell_slip.get("levelsUsed", 0),
-            },
-            "depthUsed": {
-                "buy": buy_slip.get("depthUsedUsd", 0),
-                "sell": sell_slip.get("depthUsedUsd", 0),
+                "buy": bid_slippage.get("levelsUsed", 0),
+                "sell": ask_slippage.get("levelsUsed", 0),
             },
         }
 
     return result
 # endregion
 
-
-st.subheader("Base Taker Fees")
-st.dataframe(
-    TAKER_FEES_BPS,
-    column_order=('Exchange', 'Taker Fee (Bps)', 'Assumption'),
-    hide_index=True
-)
-
-placeholder = st.empty()
-
-exchanges = list(ORDERBOOK_FETCHERS.keys())
 
 # region organise data
 async def _run_single_analysis(
@@ -454,11 +428,11 @@ def reorganize_by_clip_size(analysis_list: list):
     for size in size_keys:
         rows = []
         for analysis in analysis_list:
-            slip = analysis.get("slippage", {}).get(size)
-            if not slip:
+            slippage = analysis.get("slippage", {}).get(size)
+            if not slippage:
                 continue
 
-            filled = slip.get("filled", True)
+            filled = slippage.get("filled", True)
 
             # if not fully filled, set infinity
             if not filled:
@@ -466,14 +440,14 @@ def reorganize_by_clip_size(analysis_list: list):
                 total_cost_bps = float("inf")
                 note = "* insufficient liquidity"
             else:
-                slippage_bps = slip.get("slippageBps")
-                total_cost_bps = slip.get("totalCostBps")
+                slippage_bps = slippage.get("slippageBps")
+                total_cost_bps = slippage.get("totalCostBps")
                 note = ""
 
             rows.append({
                 "exchange": analysis["exchange"],
                 "slippageBps": slippage_bps,
-                "takerFeeBps": slip.get("takerFeeBps"),
+                "takerFeeBps": slippage.get("takerFeeBps"),
                 "totalCostBps": total_cost_bps,
                 "note": note,
             })
@@ -500,25 +474,68 @@ with st.spinner("Fetching orderbooks and computing slippage..."):
     analysis_list = asyncio.run(get_all_analysis(token.lower()))
     tables = reorganize_by_clip_size(analysis_list)
 
-st.subheader(f"Orderbook snapshot for {token.upper()}")
+st.text("Assumptions")
+st.markdown("""
+- Full clip size can be taken against existing orderbook (in actual execution, unlikely as market makers can react to taker orders and adjust / cancel as they deem fit)
+- Slippage based on average of buy side / ask side book
+- Taker Fees as follows:
+""")
+st.dataframe(
+    TAKER_FEES_BPS,
+    column_order=('Exchange', 'Taker Fee (Bps)', 'Assumption'),
+    hide_index=True
+)
 
-st.markdown(':green[Note that these calculations assume the full clip size can be taken against the orderbook snapshot]')
-st.markdown(':green[In actual execution, that is unlikely to be true as MMs can react to taker orders and adjust / cancel as they deem fit]')
+st.subheader("Slippage Rankings")
+st.caption(datetime.now().strftime("Last updated: %Y-%m-%d %H:%M:%S"))
+
+MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
+def build_rankings_table(df: pd.DataFrame) -> pd.DataFrame:
+    df['full_remarks'] = df.apply(
+        lambda r: f"{r['totalCostBps']:.2f} bps (slippage {r['slippageBps']:.2f} + taker fee {r['takerFeeBps']:.2f})",
+        axis=1,
+    )
+    # sort by total cost bps (lower is better)
+    ranked = df.sort_values("totalCostBps", ascending=True).reset_index(drop=True)
+    ranked.insert(0, "Rank", ranked.index + 1)
+    ranked["Medal"] = ranked["Rank"].map(MEDALS).fillna("")
+    cols = ["Medal", "Rank", "exchange", "full_remarks"]
+    return ranked[cols]
+
+def render_rankings_text(df):
+    lines = []
+    for _, row in df.iterrows():
+        medal = row["Medal"] or "  "
+        line = (
+            f"{medal} "
+            f"#{int(row['Rank']):<2} "
+            f"{row['exchange']:<15} "
+            f"{row['full_remarks']}"
+        )
+        lines.append(line)
+    text = "\n".join(lines)
+
+    # code block: monospaced, no borders, left aligned
+    st.code(text, language=None)
 
 for clip_size, clip_size_data in sorted(tables.items()):
-    clip_size_formatted = f"${clip_size/1000}k"
-    st.text(f'Clip Size: {clip_size_formatted}')
-    st.dataframe(
-        clip_size_data,
-        column_config={
-            'exchange': st.column_config.TextColumn('Exchange', width='small'),
-            'slippageBps': st.column_config.NumberColumn('Slippage (Bps)', width='small'),
-            'takerFeeBps': st.column_config.NumberColumn('Taker Fee (Bps)', width='small'),
-            'totalCostBps': st.column_config.NumberColumn('Total Cost (Bps)', width='small'),
-            'note': st.column_config.TextColumn('Note', width='small'),
-        },
-        hide_index=True,
-    )
+    st.markdown(f"**${clip_size/1000}k**")
 
-# TODO add auto refresh every 5min? put last updated datetime
-# TODO check actual pricefor calculation if correct
+    rankings_df = build_rankings_table(clip_size_data)
+    render_rankings_text(rankings_df)
+
+with st.expander("Detailed Breakdown", expanded=False):
+    for clip_size, clip_size_data in sorted(tables.items()):
+        clip_size_formatted = f"${clip_size/1000}k"
+        st.markdown(f'Clip Size: **{clip_size_formatted}**')
+        st.dataframe(
+            clip_size_data,
+            column_config={
+                'exchange': st.column_config.TextColumn('Exchange', width='small'),
+                'slippageBps': st.column_config.NumberColumn('Slippage (Bps)', width='small'),
+                'takerFeeBps': st.column_config.NumberColumn('Taker Fee (Bps)', width='small'),
+                'totalCostBps': st.column_config.NumberColumn('Total Cost (Bps)', width='small'),
+                'note': st.column_config.TextColumn('Note', width='small'),
+            },
+            hide_index=True,
+        )
