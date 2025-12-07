@@ -20,17 +20,17 @@ logger = logging.getLogger(__name__)
 
 CLIP_SIZES = [1_000, 10_000, 50_000, 100_000, 500_000]
 TAKER_FEES_BPS = {
-    "Hyperliquid": 0.045,
-    "Extended": 0.025,
-    "Lighter": 0.0,
-    "Paradex": 0.0,
-    "Pacifica": 0.04,
+    "Hyperliquid": 4.5,
+    "Extended": 2.5,
+    "Lighter": 2,
+    "Paradex": 0,
+    "Pacifica": 4,
 }
 
 # region l2 orderbook fetchers
 def fetch_hyperliquid_orderbook(token: str):
     resp = requests.post(
-        "https://api.Hyperliquid.xyz/info",
+        "https://api.hyperliquid.xyz/info",
         json={"type": "l2Book", "coin": token.upper()},
         timeout=15,
     )
@@ -49,7 +49,7 @@ def fetch_hyperliquid_orderbook(token: str):
 def fetch_paradex_orderbook(token: str):
     pair = f"{token.upper()}-USD-PERP"
     resp = requests.get(
-        f"https://api.prod.Paradex.trade/v1/orderbook/{pair}/interactive?depth=50",
+        f"https://api.prod.Paradex.trade/v1/orderbook/{pair}/interactive?depth=100",
         headers={"Accept": "application/json"},
         timeout=10,
     )
@@ -308,7 +308,7 @@ def analyze_orderbook(orderbook):
     mid_price = (best_bid + best_ask) / 2
     spread = ((best_ask - best_bid) / best_bid) * 100
 
-    taker_fee_bps = (TAKER_FEES_BPS.get(orderbook["exchange"], 0)) * 100
+    taker_fee_bps = (TAKER_FEES_BPS.get(orderbook["exchange"], 0))
 
     result = {
         "exchange": orderbook["exchange"],
@@ -423,7 +423,7 @@ def rank_exchanges(analyses):
 TAKER_FEES_BPS = dict(sorted(TAKER_FEES_BPS.items()))
 ORDERBOOK_FETCHERS = dict(sorted(ORDERBOOK_FETCHERS.items()))
 df_taker_fees_bps = pd.DataFrame(
-    [{ "Exchange": k, "Taker Fee (bps)": v * 100 } for k, v in TAKER_FEES_BPS.items()]
+    [{ "Exchange": k, "Taker Fee (bps)": v } for k, v in TAKER_FEES_BPS.items()]
 )
 st.subheader("Base Taker Fees")
 st.dataframe(df_taker_fees_bps, hide_index=True)
