@@ -1,3 +1,6 @@
+import asyncio
+from typing import Any
+import aiohttp
 import pandas as pd
 import requests
 import streamlit as st
@@ -27,15 +30,37 @@ TAKER_FEES_BPS = {
     "Pacifica": 4,
 }
 
+
+async def _fetch_json(
+    session: aiohttp.ClientSession,
+    method: str,
+    url: str,
+    *,
+    json_body: dict[str, Any] | None = None,
+    headers: dict[str, str] | None = None,
+    timeout: int = 15,
+) -> Any:
+    """generic helper to fetch JSON via aiohttp"""
+    kwargs: dict[str, Any] = {"headers": headers, "timeout": aiohttp.ClientTimeout(total=timeout)}
+    if json_body is not None:
+        kwargs["json"] = json_body
+
+    async with session.request(method.upper(), url, **kwargs) as resp:
+        if resp.status >= 400:
+            text = await resp.text()
+            raise RuntimeError(f"HTTP {resp.status} for {url}: {text}")
+        return await resp.json()
+
+
 # region l2 orderbook fetchers
-def fetch_hyperliquid_orderbook(token: str):
-    resp = requests.post(
+async def fetch_hyperliquid_orderbook(session: aiohttp.ClientSession, token: str):
+    data = await _fetch_json(
+        session,
+        "POST",
         "https://api.hyperliquid.xyz/info",
-        json={"type": "l2Book", "coin": token.upper()},
+        json_body={"type": "l2Book", "coin": token.upper()},
         timeout=15,
     )
-    resp.raise_for_status()
-    data = resp.json()
 
     if not data.get("levels") or len(data["levels"]) < 2:
         raise ValueError(f"Invalid orderbook for {token} on Hyperliquid")
@@ -46,15 +71,15 @@ def fetch_hyperliquid_orderbook(token: str):
     return {"bids": bids, "asks": asks, "exchange": "Hyperliquid", "token": token}
 
 
-def fetch_paradex_orderbook(token: str):
+async def fetch_paradex_orderbook(session: aiohttp.ClientSession, token: str):
     pair = f"{token.upper()}-USD-PERP"
-    resp = requests.get(
+    data = await _fetch_json(
+        session,
+        "GET",
         f"https://api.prod.Paradex.trade/v1/orderbook/{pair}/interactive?depth=100",
         headers={"Accept": "application/json"},
         timeout=10,
     )
-    resp.raise_for_status()
-    data = resp.json()
 
     if not data.get("bids") or not data.get("asks"):
         raise ValueError(f"Invalid orderbook for {token} on Paradex")
@@ -92,14 +117,15 @@ def fetch_paradex_orderbook(token: str):
     }
 
 
-def fetch_extended_orderbook(token: str):
+async def fetch_extended_orderbook(session: aiohttp.ClientSession, token: str):
     market = f"{token.upper()}-USD"
-    resp = requests.get(
+    data = await _fetch_json(
+        session,
+        "GET",
         f"https://api.starknet.Extended.exchange/api/v1/info/markets/{market}/orderbook",
         timeout=10,
     )
-    resp.raise_for_status()
-    data = resp.json()
+
     if data.get("status") != "OK" or "data" not in data:
         raise ValueError(f"Invalid orderbook for {token} on Extended")
 
@@ -109,12 +135,13 @@ def fetch_extended_orderbook(token: str):
     return {"bids": bids, "asks": asks, "exchange": "Extended", "token": token}
 
 
-def fetch_lighter_orderbook(token: str):
-    details = requests.get(
-        "https://mainnet.zklighter.elliot.ai/api/v1/orderBookDetails", timeout=10
+async def fetch_lighter_orderbook(session: aiohttp.ClientSession, token: str):
+    d = await _fetch_json(
+        session,
+        "GET",
+        "https://mainnet.zklighter.elliot.ai/api/v1/orderBookDetails",
+        timeout=10,
     )
-    details.raise_for_status()
-    d = details.json()
 
     market = next(
         (
@@ -129,12 +156,12 @@ def fetch_lighter_orderbook(token: str):
         raise ValueError(f"Token {token} not available on Lighter")
 
     mid = market["market_id"]
-    res = requests.get(
+    data = await _fetch_json(
+        session,
+        "GET",
         f"https://mainnet.zklighter.elliot.ai/api/v1/orderBookOrders?market_id={mid}&limit=50",
         timeout=10,
     )
-    res.raise_for_status()
-    data = res.json()
 
     bids = sorted(
         (
@@ -161,15 +188,14 @@ def fetch_lighter_orderbook(token: str):
     return {"bids": bids, "asks": asks, "exchange": "Lighter", "token": token}
 
 
-def fetch_pacifica_orderbook(token: str):
+async def fetch_pacifica_orderbook(session: aiohttp.ClientSession, token: str):
     symbol = token.upper()
-
-    res = requests.get(
+    data = await _fetch_json(
+        session,
+        "GET",
         f"https://api.Pacifica.fi/api/v1/book?symbol={symbol}",
         timeout=10,
     )
-    res.raise_for_status()
-    data = res.json()
 
     if not data.get("success") or not data.get("data") or not data["data"].get("l"):
         raise ValueError(f"Invalid orderbook for {token} on Pacifica")
@@ -433,18 +459,33 @@ placeholder = st.empty()
 exchanges = list(TAKER_FEES_BPS.keys())
 
 # region organise data
-def get_all_analysis(token: str):
-    analysis_list = []
-    for name, fetcher in ORDERBOOK_FETCHERS.items():
-        try:
-            orderbook = fetcher(token)  # TODO convert to async?
-            analysis = analyze_orderbook(orderbook)
-            analysis_list.append(analysis)
-        except Exception as e:
-            analysis_list.append({"exchange": name, "error": str(e)})
+async def _run_single_analysis(
+    session: aiohttp.ClientSession,
+    name: str,
+    fetcher,
+    token: str,
+) -> dict[str, Any]:
+    try:
+        orderbook = await fetcher(session, token)
+        analysis = analyze_orderbook(orderbook)
+        return analysis
+    except Exception as e:
+        logger.warning("Error fetching/analyzing %s for %s: %s", name, token, e)
+        return {"exchange": name, "error": str(e)}
+
+async def get_all_analysis(token: str) -> list[dict[str, Any]]:
+    analysis_list: list[dict[str, Any]] = []
+    async with aiohttp.ClientSession() as session:
+        tasks = []
+        for name, fetcher in ORDERBOOK_FETCHERS.items():
+            tasks.append(_run_single_analysis(session, name, fetcher, token))
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        analysis_list = results
     return analysis_list
 
-def reorganize_by_clip_size(analysis_list):
+def reorganize_by_clip_size(analysis_list: list):
     size_keys = set()
     for analysis in analysis_list:
         if "slippage" in analysis:
@@ -496,28 +537,28 @@ def reorganize_by_clip_size(analysis_list):
 TOKEN_OPTIONS = ["BTC", "ETH", "SOL", "XRP", "HYPE", "BNB"]
 token = st.selectbox("Select Token", TOKEN_OPTIONS, index=0)
 
-with st.spinner(show_time=True):
-    analysis_list = get_all_analysis(token.lower())
+with st.spinner("Fetching orderbooks and computing slippage..."):
+    # run async workflow once per rerun
+    analysis_list = asyncio.run(get_all_analysis(token.lower()))
     tables = reorganize_by_clip_size(analysis_list)
 
-    st.subheader(f"Orderbook snapshot for {token.upper()}")
-    for clip_size, clip_size_data in sorted(tables.items()):
-        clip_size_formatted = f"${clip_size/1000}k"
-        st.text(f'Clip Size: {clip_size_formatted}')
-        st.dataframe(
-            clip_size_data,
-            column_config={
-                'exchange': st.column_config.TextColumn('Exchange', width='small'),
-                'avgBps': st.column_config.NumberColumn('Avg Bps', width='small'),
-                'takerFeeBps': st.column_config.NumberColumn('Taker Fee (Bps)', width='small'),
-                'totalCostBps': st.column_config.NumberColumn('Total Cost (Bps)', width='small'),
-                'note': st.column_config.TextColumn('Note', width='small'),
-            },
-            hide_index=True,
-        )
+st.subheader(f"Orderbook snapshot for {token.upper()}")
+for clip_size, clip_size_data in sorted(tables.items()):
+    clip_size_formatted = f"${clip_size/1000}k"
+    st.text(f'Clip Size: {clip_size_formatted}')
+    st.dataframe(
+        clip_size_data,
+        column_config={
+            'exchange': st.column_config.TextColumn('Exchange', width='small'),
+            'avgBps': st.column_config.NumberColumn('Avg Bps', width='small'),
+            'takerFeeBps': st.column_config.NumberColumn('Taker Fee (Bps)', width='small'),
+            'totalCostBps': st.column_config.NumberColumn('Total Cost (Bps)', width='small'),
+            'note': st.column_config.TextColumn('Note', width='small'),
+        },
+        hide_index=True,
+    )
 
 
-# TODO convert to async
 # TODO add auto refresh every 5min? put last updated datetime
 # TODO check actual pricefor calculation if correct
 # TODO change manual check for clip size for loop
