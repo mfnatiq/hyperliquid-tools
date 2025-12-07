@@ -22,13 +22,17 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 CLIP_SIZES = [1_000, 10_000, 50_000, 100_000, 500_000]
-TAKER_FEES_BPS = {
-    "Hyperliquid": 4.5,
-    "Extended": 2.5,
-    "Lighter": 2,
-    "Paradex": 0,
-    "Pacifica": 4,
-}
+
+TAKER_FEES_BPS = pd.DataFrame(
+    [
+        { "Exchange": "Hyperliquid", "Taker Fee (Bps)": 4, "Assumption": ">5M 14D volume, 0 HYPE staked" },
+        { "Exchange": "Extended", "Taker Fee (Bps)": 2.5, "Assumption": "" },
+        { "Exchange": "Lighter", "Taker Fee (Bps)": 2, "Assumption": "Premium Account" },
+        { "Exchange": "Paradex", "Taker Fee (Bps)": 0, "Assumption": "" },
+        { "Exchange": "Pacifica", "Taker Fee (Bps)": 4, "Assumption": "" },
+    ]
+)
+TAKER_FEES_BPS = TAKER_FEES_BPS.sort_values('Exchange')
 
 
 async def _fetch_json(
@@ -226,6 +230,7 @@ ORDERBOOK_FETCHERS = {
     "Lighter": fetch_lighter_orderbook,
     "Pacifica": fetch_pacifica_orderbook,
 }
+ORDERBOOK_FETCHERS = dict(sorted(ORDERBOOK_FETCHERS.items()))
 
 # region slippage calculations
 def calculate_slippage(orderbook, size_usd, side="buy"):
@@ -334,7 +339,11 @@ def analyze_orderbook(orderbook):
     mid_price = (best_bid + best_ask) / 2
     spread = ((best_ask - best_bid) / best_bid) * 100
 
-    taker_fee_bps = (TAKER_FEES_BPS.get(orderbook["exchange"], 0))
+    try:
+        taker_fee_bps = TAKER_FEES_BPS.loc[TAKER_FEES_BPS['Exchange'] == orderbook['exchange']].iloc[0]['Taker Fee (Bps)']
+    except Exception as e:
+        logger.exception(e)
+        taker_fee_bps = 0
 
     result = {
         "exchange": orderbook["exchange"],
@@ -396,17 +405,16 @@ def analyze_orderbook(orderbook):
 # endregion
 
 
-TAKER_FEES_BPS = dict(sorted(TAKER_FEES_BPS.items()))
-ORDERBOOK_FETCHERS = dict(sorted(ORDERBOOK_FETCHERS.items()))
-df_taker_fees_bps = pd.DataFrame(
-    [{ "Exchange": k, "Taker Fee (bps)": v } for k, v in TAKER_FEES_BPS.items()]
-)
 st.subheader("Base Taker Fees")
-st.dataframe(df_taker_fees_bps, hide_index=True)
+st.dataframe(
+    TAKER_FEES_BPS,
+    column_order=('Exchange', 'Taker Fee (Bps)', 'Assumption'),
+    hide_index=True
+)
 
 placeholder = st.empty()
 
-exchanges = list(TAKER_FEES_BPS.keys())
+exchanges = list(ORDERBOOK_FETCHERS.keys())
 
 # region organise data
 async def _run_single_analysis(
