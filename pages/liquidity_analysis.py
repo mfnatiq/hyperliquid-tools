@@ -57,13 +57,17 @@ async def _fetch_json(
 
 
 # region l2 orderbook fetchers
-async def fetch_hyperliquid_orderbook(session: aiohttp.ClientSession, token: str):
+async def fetch_hyperliquid_orderbook(session: aiohttp.ClientSession, token: str, *, aggregated: bool=False):
+    body: dict[str, Any] = {"type": "l2Book", "coin": token.upper()}
+    if aggregated:  # special case for hyperliquid as l2 book only returns 20 levels, which may be insufficient for larger clip sizes
+        # coarser buckets to get larger notional per level
+        body.update({"nSigFigs": 4})
+
     data = await _fetch_json(
         session,
         "POST",
         "https://api.hyperliquid.xyz/info",
-        json_body={"type": "l2Book", "coin": token.upper()},
-        timeout=15,
+        json_body=body,
     )
 
     if not data.get("levels") or len(data["levels"]) < 2:
@@ -72,7 +76,9 @@ async def fetch_hyperliquid_orderbook(session: aiohttp.ClientSession, token: str
     bids = [{"price": float(l["px"]), "qty": float(l["sz"])} for l in data["levels"][0]]
     asks = [{"price": float(l["px"]), "qty": float(l["sz"])} for l in data["levels"][1]]
 
-    return {"bids": bids, "asks": asks, "exchange": "Hyperliquid", "token": token}
+    return {"bids": bids, "asks": asks, "exchange": "Hyperliquid", "token": token, "aggregated": aggregated}
+async def fetch_hyperliquid_orderbook_default(session, token):
+    return await fetch_hyperliquid_orderbook(session, token, aggregated=False)
 
 
 async def fetch_paradex_orderbook(session: aiohttp.ClientSession, token: str):
@@ -80,9 +86,8 @@ async def fetch_paradex_orderbook(session: aiohttp.ClientSession, token: str):
     data = await _fetch_json(
         session,
         "GET",
-        f"https://api.prod.Paradex.trade/v1/orderbook/{pair}/interactive?depth=100",
+        f"https://api.prod.paradex.trade/v1/orderbook/{pair}/interactive?depth=100",
         headers={"Accept": "application/json"},
-        timeout=10,
     )
 
     if not data.get("bids") or not data.get("asks"):
@@ -126,8 +131,7 @@ async def fetch_extended_orderbook(session: aiohttp.ClientSession, token: str):
     data = await _fetch_json(
         session,
         "GET",
-        f"https://api.starknet.Extended.exchange/api/v1/info/markets/{market}/orderbook",
-        timeout=10,
+        f"https://api.starknet.extended.exchange/api/v1/info/markets/{market}/orderbook",
     )
 
     if data.get("status") != "OK" or "data" not in data:
@@ -144,7 +148,6 @@ async def fetch_lighter_orderbook(session: aiohttp.ClientSession, token: str):
         session,
         "GET",
         "https://mainnet.zklighter.elliot.ai/api/v1/orderBookDetails",
-        timeout=10,
     )
 
     market = next(
@@ -163,8 +166,7 @@ async def fetch_lighter_orderbook(session: aiohttp.ClientSession, token: str):
     data = await _fetch_json(
         session,
         "GET",
-        f"https://mainnet.zklighter.elliot.ai/api/v1/orderBookOrders?market_id={mid}&limit=50",
-        timeout=10,
+        f"https://mainnet.zklighter.elliot.ai/api/v1/orderBookOrders?market_id={mid}&limit=250",
     )
 
     bids = sorted(
@@ -197,7 +199,7 @@ async def fetch_pacifica_orderbook(session: aiohttp.ClientSession, token: str):
     data = await _fetch_json(
         session,
         "GET",
-        f"https://api.Pacifica.fi/api/v1/book?symbol={symbol}",
+        f"https://api.pacifica.fi/api/v1/book?symbol={symbol}&agg_level=100",
         timeout=10,
     )
 
@@ -224,7 +226,7 @@ async def fetch_pacifica_orderbook(session: aiohttp.ClientSession, token: str):
 # endregion
 
 ORDERBOOK_FETCHERS = {
-    "Hyperliquid": fetch_hyperliquid_orderbook,
+    "Hyperliquid": fetch_hyperliquid_orderbook_default,
     "Paradex": fetch_paradex_orderbook,
     "Extended": fetch_extended_orderbook,
     "Lighter": fetch_lighter_orderbook,
@@ -319,9 +321,11 @@ def calculate_slippage(orderbook, size_usd, side="buy"):
     }
 
 
-def analyze_orderbook(orderbook):
+def analyze_orderbook(orderbook: dict, agg_orderbook: dict | None = None):
+    exchange = orderbook["exchange"]
+
     if not orderbook["bids"] or not orderbook["asks"]:
-        return {"exchange": orderbook["exchange"], "error": "Empty orderbook"}
+        return {"exchange": exchange, "error": "Empty orderbook"}
 
     best_bid = max(b["price"] for b in orderbook["bids"])
     best_ask = min(a["price"] for a in orderbook["asks"])
@@ -335,7 +339,7 @@ def analyze_orderbook(orderbook):
         taker_fee_bps = 0
 
     result = {
-        "exchange": orderbook["exchange"],
+        "exchange": exchange,
         "token": orderbook["token"],
         "midPrice": round(mid_price, 2),
         "spreadBps": round(spread * 100, 2),
@@ -345,16 +349,24 @@ def analyze_orderbook(orderbook):
     }
 
     for size in CLIP_SIZES:
-        bid_slippage = calculate_slippage(orderbook, size, "buy")
-        ask_slippage = calculate_slippage(orderbook, size, "sell")
+        # decide which book to use for this clip size
+        book_to_use = orderbook
+        is_approximation = False
+        if agg_orderbook is not None and book_depth_usd(orderbook) < size:  # most granular depth insufficient
+            logger.info(f'using agg orderbook for {exchange} for clip size {size}')
+            book_to_use = agg_orderbook
+            is_approximation = True
+
+        bid_slippage = calculate_slippage(book_to_use, size, "buy")
+        ask_slippage = calculate_slippage(book_to_use, size, "sell")
 
         # avg slippage
         if bid_slippage["slippage"] is not None and ask_slippage["slippage"] is not None:
             avg_slippage = (bid_slippage["slippage"] + ask_slippage["slippage"]) / 2
         elif not bid_slippage["slippage"]:
-            logger.error(f'Unable to calculate slippage for {orderbook['exchange']} for buy side for size {size}')
+            logger.error(f'Unable to calculate slippage for {exchange} for buy side for size {size}')
         else:
-            logger.error(f'Unable to calculate slippage for {orderbook['exchange']} for ask side for size {size}')
+            logger.error(f'Unable to calculate slippage for {exchange} for ask side for size {size}')
 
         # avg effective spread
         if (
@@ -386,6 +398,7 @@ def analyze_orderbook(orderbook):
                 "buy": bid_slippage.get("levelsUsed", 0),
                 "sell": ask_slippage.get("levelsUsed", 0),
             },
+            "is_approximation": is_approximation,
         }
 
     return result
@@ -393,6 +406,12 @@ def analyze_orderbook(orderbook):
 
 
 # region organise data
+def book_depth_usd(orderbook: dict) -> float:
+    # conservative: use the shallower side
+    bid_depth = sum(b["price"] * b["qty"] for b in orderbook["bids"])
+    ask_depth = sum(a["price"] * a["qty"] for a in orderbook["asks"])
+    return min(bid_depth, ask_depth)
+
 async def _run_single_analysis(
     session: aiohttp.ClientSession,
     name: str,
@@ -401,13 +420,25 @@ async def _run_single_analysis(
 ) -> dict[str, Any]:
     try:
         orderbook = await fetcher(session, token)
-        analysis = analyze_orderbook(orderbook)
+
+        # hyperliquid-specific: if depth is insufficient for largest clip, fetch with aggregation of levels
+        agg_orderbook = None
+        if name == "Hyperliquid":
+            depth = book_depth_usd(orderbook)
+            max_clip = max(CLIP_SIZES)
+            if depth < max_clip:
+                # fetch with aggregated book to be used separately
+                agg_orderbook = await fetch_hyperliquid_orderbook(
+                    session, token, aggregated=True
+                )
+
+        analysis = analyze_orderbook(orderbook, agg_orderbook=agg_orderbook)
         return analysis
     except Exception as e:
         logger.warning("Error fetching/analyzing %s for %s: %s", name, token, e)
         return {"exchange": name, "error": str(e)}
 
-async def get_all_analysis(token: str) -> list[dict[str, Any]]:
+async def _get_all_analysis(token: str) -> list[dict[str, Any]]:
     analysis_list: list[dict[str, Any]] = []
     async with aiohttp.ClientSession() as session:
         tasks = []
@@ -418,6 +449,10 @@ async def get_all_analysis(token: str) -> list[dict[str, Any]]:
 
         analysis_list = results
     return analysis_list
+
+@st.cache_data(ttl=60)  # cache data
+def get_all_analysis_cached(token: str) -> list[dict[str, Any]]:
+    return asyncio.run(_get_all_analysis(token))
 
 def reorganize_by_clip_size(analysis_list: list):
     size_keys = set()
@@ -440,11 +475,14 @@ def reorganize_by_clip_size(analysis_list: list):
             if not filled:
                 slippage_bps = float("inf")
                 total_cost_bps = float("inf")
-                note = "* insufficient liquidity"
+                note = "insufficient liquidity"
             else:
                 slippage_bps = slippage.get("slippageBps")
                 total_cost_bps = slippage.get("totalCostBps")
+                is_approximation = slippage.get("is_approximation", False)
                 note = ""
+                if is_approximation:
+                    note = "slippage approximated due to aggregated levels (API limitation)"
 
             rows.append({
                 "exchange": analysis["exchange"],
@@ -469,11 +507,10 @@ def reorganize_by_clip_size(analysis_list: list):
 
 # fixed list of tokens for user selection
 TOKEN_OPTIONS = ["BTC", "ETH", "SOL", "XRP", "HYPE", "BNB"]
-token = st.selectbox("Select Token", TOKEN_OPTIONS, index=0)
+token = st.selectbox("Select Token", TOKEN_OPTIONS, index=4)
 
 with st.spinner("Fetching orderbooks and computing slippage..."):
-    # run async workflow once per rerun
-    analysis_list = asyncio.run(get_all_analysis(token.lower()))
+    analysis_list = get_all_analysis_cached(token.lower())
     tables = reorganize_by_clip_size(analysis_list)
 
 st.text("Assumptions")
@@ -494,7 +531,7 @@ st.caption(datetime.now().strftime("Last updated: %Y-%m-%d %H:%M:%S"))
 MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
 def build_rankings_table(df: pd.DataFrame) -> pd.DataFrame:
     df['full_remarks'] = df.apply(
-        lambda r: f"{r['totalCostBps']:.2f} bps (slippage {r['slippageBps']:.2f} + taker fee {r['takerFeeBps']:.2f})",
+        lambda r: f"{r['totalCostBps']:.2f} bps (slippage {r['slippageBps']:.2f} + taker fee {r['takerFeeBps']:.2f}){f' - {r['note']}' if r['note'] != '' else ''}",
         axis=1,
     )
     # sort by total cost bps (lower is better)
