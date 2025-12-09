@@ -1031,8 +1031,6 @@ def main():
                     )
 
             with tab_xyz_trade:
-                st.info('🚧 This feature is in beta')
-
                 if st.session_state.last_tab != "view_xyz_trade_details":
                     track_event("view_xyz_trade_details", { 'addresses_input': addresses_input })
                     st.session_state.last_tab = "view_xyz_trade_details"

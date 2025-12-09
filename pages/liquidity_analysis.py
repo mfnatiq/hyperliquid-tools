@@ -5,6 +5,20 @@ import aiohttp
 import pandas as pd
 import streamlit as st
 
+# css to tighten vertical space for selectbox labels that are collapsed
+st.markdown(
+    """
+    <style>
+    div[data-testid="stSelectbox"] > label {
+        min-height: 0 !important;
+        margin-bottom: 0 !important;
+        padding-bottom: 0 !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 st.set_page_config(
     'Liquidity Analysis',
     "📐",
@@ -23,17 +37,17 @@ logger = logging.getLogger(__name__)
 
 CLIP_SIZES = [1_000, 10_000, 50_000, 100_000, 500_000]
 
-TAKER_FEES_BPS = pd.DataFrame(
+DEFAULT_TAKER_FEES = pd.DataFrame(
     [
         { "Exchange": "Hyperliquid", "Taker Fee (Bps)": 4, "Assumption": ">5M 14D volume, 0 HYPE staked" },
         { "Exchange": "Extended", "Taker Fee (Bps)": 2.5, "Assumption": "" },
         { "Exchange": "Lighter", "Taker Fee (Bps)": 2, "Assumption": "Premium Account" },
         { "Exchange": "Paradex", "Taker Fee (Bps)": 0, "Assumption": "" },
         { "Exchange": "Pacifica", "Taker Fee (Bps)": 4, "Assumption": "" },
-        { "Exchange": "Nado", "Taker Fee (Bps)": 3.3, "Assumption": ">5M 14D volume" },
+        { "Exchange": "Nado", "Taker Fee (Bps)": 3.3, "Assumption": ">5M 30D volume" },
     ]
 )
-TAKER_FEES_BPS = TAKER_FEES_BPS.sort_values('Exchange')
+DEFAULT_TAKER_FEES = DEFAULT_TAKER_FEES.sort_values('Exchange')
 
 
 async def _fetch_json(
@@ -355,7 +369,10 @@ def calculate_slippage(orderbook, size_usd, side="buy"):
     }
 
 
-def analyze_orderbook(orderbook: dict, agg_orderbook: dict | None = None):
+def analyze_orderbook_pure(orderbook: dict, agg_orderbook: dict | None = None):
+    """
+    analyse orderbook slippage only, excluding any fee tiers
+    """
     exchange = orderbook["exchange"]
 
     if not orderbook["bids"] or not orderbook["asks"]:
@@ -366,49 +383,38 @@ def analyze_orderbook(orderbook: dict, agg_orderbook: dict | None = None):
     mid_price = (best_bid + best_ask) / 2
     spread = ((best_ask - best_bid) / best_bid) * 100
 
-    try:
-        taker_fee_bps = TAKER_FEES_BPS.loc[TAKER_FEES_BPS['Exchange'] == orderbook['exchange']].iloc[0]['Taker Fee (Bps)']
-    except Exception as e:
-        logger.exception(e)
-        taker_fee_bps = 0
-
     result = {
         "exchange": exchange,
         "token": orderbook["token"],
         "midPrice": round(mid_price, 2),
         "spreadBps": round(spread * 100, 2),
-        "takerFeeBps": taker_fee_bps,
         "rpiData": orderbook.get("rpiData"),
         "slippage": {},
     }
 
     for size in CLIP_SIZES:
-        # decide which book to use for this clip size
         book_to_use = orderbook
         is_approximation = False
-        if agg_orderbook is not None and book_depth_usd(orderbook) < size:  # most granular depth insufficient
-            logger.info(f'using agg orderbook for {exchange} for clip size {size}')
+        if agg_orderbook is not None and book_depth_usd(orderbook) < size:
+            logger.info(f"using agg orderbook for {exchange} for clip size {size}")
             book_to_use = agg_orderbook
             is_approximation = True
 
         bid_slippage = calculate_slippage(book_to_use, size, "buy")
         ask_slippage = calculate_slippage(book_to_use, size, "sell")
 
-        # avg slippage
         if bid_slippage["slippage"] is not None and ask_slippage["slippage"] is not None:
             avg_slippage = (bid_slippage["slippage"] + ask_slippage["slippage"]) / 2
-        elif not bid_slippage["slippage"]:
-            logger.error(f'Unable to calculate slippage for {exchange} for buy side for size {size}')
         else:
-            logger.error(f'Unable to calculate slippage for {exchange} for ask side for size {size}')
+            avg_slippage = None
 
-        # avg effective spread
         if (
             "effectiveSpreadBps" in bid_slippage
             and "effectiveSpreadBps" in ask_slippage
         ):
             avg_eff_spread = (
-                bid_slippage["effectiveSpreadBps"] + ask_slippage["effectiveSpreadBps"]
+                bid_slippage["effectiveSpreadBps"]
+                + ask_slippage["effectiveSpreadBps"]
             ) / 2
         else:
             avg_eff_spread = (
@@ -418,14 +424,9 @@ def analyze_orderbook(orderbook: dict, agg_orderbook: dict | None = None):
             )
 
         slippage_bps = round(avg_slippage * 100, 3) if avg_slippage is not None else None
-        total_cost_bps = (
-            round(slippage_bps + taker_fee_bps, 3) if slippage_bps is not None else None
-        )
 
         result["slippage"][size] = {
             "slippageBps": slippage_bps,
-            "takerFeeBps": taker_fee_bps,
-            "totalCostBps": total_cost_bps,
             "effectiveSpreadBps": round(avg_eff_spread, 3),
             "filled": bid_slippage["filled"] and ask_slippage["filled"],
             "levels": {
@@ -436,6 +437,7 @@ def analyze_orderbook(orderbook: dict, agg_orderbook: dict | None = None):
         }
 
     return result
+
 # endregion
 
 
@@ -466,13 +468,13 @@ async def _run_single_analysis(
                     session, token, aggregated=True
                 )
 
-        analysis = analyze_orderbook(orderbook, agg_orderbook=agg_orderbook)
+        analysis = analyze_orderbook_pure(orderbook, agg_orderbook=agg_orderbook)
         return analysis
     except Exception as e:
         logger.warning("Error fetching/analyzing %s for %s: %s", name, token, e)
         return {"exchange": name, "error": str(e)}
 
-async def _get_all_analysis(token: str) -> list[dict[str, Any]]:
+async def _get_all_analysis_pure(token: str) -> list[dict[str, Any]]:
     analysis_list: list[dict[str, Any]] = []
     async with aiohttp.ClientSession() as session:
         tasks = []
@@ -485,8 +487,8 @@ async def _get_all_analysis(token: str) -> list[dict[str, Any]]:
     return analysis_list
 
 @st.cache_data(ttl=60)  # cache data
-def get_all_analysis_cached(token: str) -> list[dict[str, Any]]:
-    return asyncio.run(_get_all_analysis(token))
+def get_all_analysis_pure_cached(token: str) -> list[dict[str, Any]]:
+    return asyncio.run(_get_all_analysis_pure(token))
 
 def reorganize_by_clip_size(analysis_list: list):
     size_keys = set()
@@ -541,11 +543,8 @@ def reorganize_by_clip_size(analysis_list: list):
 
 # fixed list of tokens for user selection
 TOKEN_OPTIONS = ["BTC", "ETH", "SOL", "XRP", "HYPE", "BNB"]
-token = st.selectbox("Select Token", TOKEN_OPTIONS, index=4)
-
-with st.spinner("Fetching orderbooks and computing slippage..."):
-    analysis_list = get_all_analysis_cached(token.lower())
-    tables = reorganize_by_clip_size(analysis_list)
+st.subheader("Select Token")
+token = st.selectbox("", TOKEN_OPTIONS, index=4)
 
 st.text("Assumptions")
 st.markdown("""
@@ -553,12 +552,136 @@ st.markdown("""
 - Slippage is calculated based on average of buy side / ask side book
 - Taker fees as follows:
 """)
-st.dataframe(
-    TAKER_FEES_BPS,
-    column_order=('Exchange', 'Taker Fee (Bps)', 'Assumption'),
-    hide_index=True
-)
 
+# region custom fees per exchange
+TAKER_FEE_PROFILES = {
+    "Hyperliquid": [
+        {"bps": 4.5, "assumption": "<5M 14D volume, 0 HYPE staked"},
+        {"bps": 4.0, "assumption": ">5M 14D volume, 0 HYPE staked"},
+        {"bps": 3.5, "assumption": ">25M 14D volume, 0 HYPE staked"},
+        {"bps": 3.0, "assumption": ">100M 14D volume, 0 HYPE staked"},
+        {"bps": 2.8, "assumption": ">500M 14D volume, 0 HYPE staked"},
+        {"bps": 2.6, "assumption": ">2B 14D volume, 0 HYPE staked"},
+        {"bps": 2.4, "assumption": ">7B 14D volume, 0 HYPE staked"},
+    ],
+    "Lighter": [
+        {"bps": 0.0, "assumption": "Free Account"},
+        {"bps": 2.0, "assumption": "Premium Account"},
+    ],
+    "Paradex": [
+        {"bps": 0.0, "assumption": "Free Account"},
+        {"bps": 2.0, "assumption": "Pro Account"},
+    ],
+    "Nado": [
+        {"bps": 3.5, "assumption": "<5M 30D volume"},
+        {"bps": 3.3, "assumption": ">5M 30D volume"},
+        {"bps": 3.0, "assumption": ">25M 30D volume"},
+        {"bps": 2.8, "assumption": ">100M 30D volume"},
+        {"bps": 2.5, "assumption": ">500M 30D volume"},
+        {"bps": 1.8, "assumption": ">1B 30D volume"},
+        {"bps": 1.5, "assumption": ">5B 30D volume"},
+    ],
+}
+
+user_fees_bps: dict[str, float] = {}
+user_assumptions: dict[str, str] = {}
+
+for _, row in DEFAULT_TAKER_FEES.iterrows():
+    exch = row["Exchange"]
+    base_fee = float(row["Taker Fee (Bps)"])
+    base_assumption = row["Assumption"]
+
+    profiles = TAKER_FEE_PROFILES.get(
+        exch,
+        [
+            {
+                "bps": base_fee,
+                "assumption": base_assumption,
+            }
+        ],
+    )
+
+    # build labels from bps + assumption
+    labels = [
+        f"{p['bps']:.2f} bps"
+        + (f" ({p['assumption']})" if p["assumption"] else "")
+        for p in profiles
+    ]
+
+    c1, c2, c_spacer = st.columns([1, 4, 8], vertical_alignment="center")
+    with c1:
+        st.markdown(f"{exch}")
+    with c2:
+        choice_index = st.selectbox(
+            "",
+            options=range(len(labels)),
+            format_func=lambda i: labels[i],
+            index=0,
+            key=f"profile_{exch}",
+            label_visibility="collapsed",
+        )
+    # c_spacer left empty; acts like flexible right side
+
+    selected = profiles[choice_index]
+    user_fees_bps[exch] = selected["bps"]
+    user_assumptions[exch] = selected["assumption"]
+TAKER_FEES_CUSTOMISED = pd.DataFrame(
+    [
+        {"Exchange": exch, "Taker Fee (Bps)": bps, "Assumption": user_assumptions[exch]}
+        for exch, bps in user_fees_bps.items()
+    ]
+)
+# hashable representation of the current fees
+# to invalidate caching when fees manually changed by user
+fee_signature = tuple(
+    (row["Exchange"], float(row["Taker Fee (Bps)"]))
+    for _, row in TAKER_FEES_CUSTOMISED.sort_values("Exchange").iterrows()
+)
+# endregion
+
+# region cache actual orderbook fetching / analysis + add custom taker fees separately
+# 1) fetch / cache raw, fee-less analysis
+with st.spinner("Fetching orderbooks and computing slippage..."):
+    raw_analysis_list = get_all_analysis_pure_cached(token.lower())
+
+# 2) apply current taker fees to the raw analysis
+fee_map = {
+    row["Exchange"]: float(row["Taker Fee (Bps)"])
+    for _, row in TAKER_FEES_CUSTOMISED.iterrows()
+}
+
+analysis_list: list[dict[str, Any]] = []
+for a in raw_analysis_list:
+    if "slippage" not in a:
+        analysis_list.append(a)
+        continue
+
+    exch = a["exchange"]
+    taker_fee_bps = fee_map.get(exch, 0.0)
+
+    new_a = {**a}
+    new_a["takerFeeBps"] = taker_fee_bps
+
+    new_slip = {}
+    for size, s in a["slippage"].items():
+        sbps = s["slippageBps"]
+        total_cost_bps = sbps + taker_fee_bps if sbps is not None else None
+
+        new_slip[size] = {
+            **s,
+            "takerFeeBps": taker_fee_bps,
+            "totalCostBps": total_cost_bps,
+        }
+
+    new_a["slippage"] = new_slip
+    analysis_list.append(new_a)
+
+# 3) build tables from analysis_list (now includes customised fees)
+tables = reorganize_by_clip_size(analysis_list)
+# endregion
+
+
+st.markdown('---')
 st.subheader("Slippage Rankings")
 st.caption(datetime.now().strftime("Last updated: %Y-%m-%d %H:%M:%S"))
 
@@ -596,7 +719,7 @@ def format_rankings_text(df):
     return text
 
 for clip_size, clip_size_data in sorted(tables.items()):
-    st.markdown(f"### **${clip_size/1000}k**")
+    st.markdown(f"### Clip Size: **${clip_size/1000}k**")
 
     col1, col2 = st.columns(2)
 

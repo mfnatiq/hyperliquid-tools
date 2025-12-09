@@ -5,10 +5,6 @@ footer_html = f"""
 <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:400,600&display=swap">
 <style>
 html, body {{ margin: 0; padding: 0; background: transparent; }}
-/* kill extra bottom padding added by streamlit */
-.block-container {{
-    padding-bottom: 130px !important;   /* manually calculated based on footer height */
-}}
 .footer {{
     position: fixed;
     left: 0;
