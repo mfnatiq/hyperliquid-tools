@@ -30,6 +30,7 @@ TAKER_FEES_BPS = pd.DataFrame(
         { "Exchange": "Lighter", "Taker Fee (Bps)": 2, "Assumption": "Premium Account" },
         { "Exchange": "Paradex", "Taker Fee (Bps)": 0, "Assumption": "" },
         { "Exchange": "Pacifica", "Taker Fee (Bps)": 4, "Assumption": "" },
+        { "Exchange": "Nado", "Taker Fee (Bps)": 3.3, "Assumption": ">5M 14D volume" },
     ]
 )
 TAKER_FEES_BPS = TAKER_FEES_BPS.sort_values('Exchange')
@@ -223,7 +224,39 @@ async def fetch_pacifica_orderbook(session: aiohttp.ClientSession, token: str):
     ]
 
     return {"bids": bids, "asks": asks, "exchange": "Pacifica", "token": token}
+
+
+async def fetch_nado_orderbook(session: aiohttp.ClientSession, token: str):
+    market = f"{token.upper()}-PERP"
+    data = await _fetch_json(
+        session,
+        "GET",
+        "https://gateway.prod.nado.xyz/v1/query?type=symbols&product_type=perp",
+    )
+
+    product_id = (
+        data.get("data", {})
+            .get("symbols", {})
+            .get(market, {})
+            .get("product_id")
+    )
+
+    if product_id is None:
+        raise ValueError(f"product id for {market} not found for Nado")
+
+    orderbook_data = await _fetch_json(
+        session,
+        "GET",
+        f"https://gateway.prod.nado.xyz/v1/query?type=market_liquidity&product_id={product_id}&depth=100",
+    )
+
+    ob = orderbook_data["data"]
+    fixed_point_ratio = 1e18
+    bids = [{"price": float(l[0]) / fixed_point_ratio, "qty": float(l[1]) / fixed_point_ratio} for l in ob["bids"]]
+    asks = [{"price": float(l[0]) / fixed_point_ratio, "qty": float(l[1]) / fixed_point_ratio} for l in ob["asks"]]
+    return {"bids": bids, "asks": asks, "exchange": "Nado", "token": token}
 # endregion
+
 
 ORDERBOOK_FETCHERS = {
     "Hyperliquid": fetch_hyperliquid_orderbook_default,
@@ -231,6 +264,7 @@ ORDERBOOK_FETCHERS = {
     "Extended": fetch_extended_orderbook,
     "Lighter": fetch_lighter_orderbook,
     "Pacifica": fetch_pacifica_orderbook,
+    "Nado": fetch_nado_orderbook,
 }
 ORDERBOOK_FETCHERS = dict(sorted(ORDERBOOK_FETCHERS.items()))
 
@@ -383,16 +417,16 @@ def analyze_orderbook(orderbook: dict, agg_orderbook: dict | None = None):
                 or 0
             )
 
-        slippage_bps = round(avg_slippage * 100, 2) if avg_slippage is not None else None
+        slippage_bps = round(avg_slippage * 100, 3) if avg_slippage is not None else None
         total_cost_bps = (
-            round(slippage_bps + taker_fee_bps, 2) if slippage_bps is not None else None
+            round(slippage_bps + taker_fee_bps, 3) if slippage_bps is not None else None
         )
 
         result["slippage"][size] = {
             "slippageBps": slippage_bps,
             "takerFeeBps": taker_fee_bps,
             "totalCostBps": total_cost_bps,
-            "effectiveSpreadBps": round(avg_eff_spread, 2),
+            "effectiveSpreadBps": round(avg_eff_spread, 3),
             "filled": bid_slippage["filled"] and ask_slippage["filled"],
             "levels": {
                 "buy": bid_slippage.get("levelsUsed", 0),
@@ -529,22 +563,28 @@ st.subheader("Slippage Rankings")
 st.caption(datetime.now().strftime("Last updated: %Y-%m-%d %H:%M:%S"))
 
 MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
-def build_rankings_table(df: pd.DataFrame) -> pd.DataFrame:
+def build_rankings_table(df: pd.DataFrame, exclude_fees: bool=False) -> pd.DataFrame:
+    def get_full_remarks(r, exclude_fees: bool=False):
+        if exclude_fees:
+            return f"{r['slippageBps']:.3f} bps (slippage only){f' - {r['note']}' if r['note'] != '' else ''}"
+        return f"{r['totalCostBps']:.3f} bps (slippage {r['slippageBps']:.3f} + taker fee {r['takerFeeBps']:.3f}){f' - {r['note']}' if r['note'] != '' else ''}"
+
     df['full_remarks'] = df.apply(
-        lambda r: f"{r['totalCostBps']:.2f} bps (slippage {r['slippageBps']:.2f} + taker fee {r['takerFeeBps']:.2f}){f' - {r['note']}' if r['note'] != '' else ''}",
+        lambda r: get_full_remarks(r, exclude_fees),
         axis=1,
     )
-    # sort by total cost bps (lower is better)
-    ranked = df.sort_values("totalCostBps", ascending=True).reset_index(drop=True)
+
+    # sort by cost
+    ranked = df.sort_values("slippageBps" if exclude_fees else "totalCostBps", ascending=True).reset_index(drop=True)
     ranked.insert(0, "Rank", ranked.index + 1)
     ranked["Medal"] = ranked["Rank"].map(MEDALS).fillna("")
     cols = ["Medal", "Rank", "exchange", "full_remarks"]
     return ranked[cols]
 
-def render_rankings_text(df):
+def format_rankings_text(df):
     lines = []
     for _, row in df.iterrows():
-        medal = row["Medal"] or "  "    # TODO fix formatting
+        medal = row["Medal"] or "  "    # TODO fix formatting, seems slightly off
         line = (
             f"{medal} "
             f"#{int(row['Rank']):<2} "
@@ -553,15 +593,25 @@ def render_rankings_text(df):
         )
         lines.append(line)
     text = "\n".join(lines)
-
-    # code block: monospaced, no borders, left aligned
-    st.code(text, language=None)
+    return text
 
 for clip_size, clip_size_data in sorted(tables.items()):
-    st.markdown(f"**${clip_size/1000}k**")
+    st.markdown(f"### **${clip_size/1000}k**")
 
-    rankings_df = build_rankings_table(clip_size_data)
-    render_rankings_text(rankings_df)
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.markdown("##### Excluding Taker Fees")
+        rankings_df_no_fees = build_rankings_table(clip_size_data, exclude_fees=True)
+        rankings_df_no_fees_formatted = format_rankings_text(rankings_df_no_fees)
+        # code block: monospaced, no borders, left aligned
+        st.code(rankings_df_no_fees_formatted, language=None)
+
+    with col2:
+        st.markdown("##### Full Cost")
+        rankings_df = build_rankings_table(clip_size_data, exclude_fees=False)
+        rankings_df_formatted = format_rankings_text(rankings_df)
+        st.code(rankings_df_formatted, language=None)
 
 with st.expander("Detailed Breakdown", expanded=False):
     for clip_size, clip_size_data in sorted(tables.items()):
