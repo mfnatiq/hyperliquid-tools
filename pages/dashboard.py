@@ -17,7 +17,6 @@ import streamlit as st
 import streamlit.components.v1 as components
 import plotly.express as px
 from src.bridge.unit_bridge_api import UnitBridgeInfo
-from src.utils.render_utils import footer_html, copy_script
 from src.trade.trade_data import get_candlestick_data
 from src.bridge.unit_bridge_utils import create_bridge_summary, process_bridge_operations
 from src.consts import NON_LOGGED_IN_TRADES_TOTAL, unitStartTime, oneDayInS, acceptedPayments
@@ -1776,11 +1775,3 @@ def display_bridge_data(summary_df: pd.DataFrame | None, top_asset: str, all_ope
 
 if __name__ == '__main__':
     main()
-
-    # region sticky footer
-    # put up here so container emptying doesn't make footer flash
-    # render footer
-    st.markdown(footer_html, unsafe_allow_html=True)
-    # render copy script in a separate component to avoid CSP issues
-    components.html(copy_script, height=0)
-    # endregion
