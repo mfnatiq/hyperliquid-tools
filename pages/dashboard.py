@@ -203,12 +203,20 @@ if 'startup' not in st.session_state:
         announcement()
     st.session_state['startup'] = True
 
-try:
-    info = Info(constants.MAINNET_API_URL, skip_ws=True)
-except Exception as e:
-    logger.error(f'client error occured: {e}')
-    st.error(
-        "Hyperliquid API rate limit reached, please try again in a short while")
+@st.cache_resource(show_spinner=False)
+def safe_get_hyperliquid_info_obj() -> Info:
+    """
+    error handling for getting hyperliquid Info object
+
+    will hard stop if have error getting object (e.g. rate limit errors)
+    """
+    try:
+        return Info(constants.MAINNET_API_URL, skip_ws=True)
+    except Exception as e:
+        logger.error(f"Error creating Info client: {e}")
+        st.error("Hyperliquid API rate limit reached, please try again in a short while")
+        st.stop()   # hard stop
+
 unit_bridge_info = UnitBridgeInfo()
 
 
@@ -221,11 +229,13 @@ def _get_cached_unit_token_mappings() -> dict[str, tuple[str, int]]:
     i.e. if data is actually fetched
     hence reducing unnecessary quick spinner upon fetching from cache
     """
+    info = safe_get_hyperliquid_info_obj()
     return get_unit_token_mappings(info, logger)
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def _get_cached_xyz_token_mappings() -> list[str]:
+    info = safe_get_hyperliquid_info_obj()
     return get_xyz_token_mappings(info)
 
 
@@ -234,11 +244,13 @@ def _get_candlestick_data(_token_ids: list[str], _token_names: list[str]):
     """
     cache daily just to get OHLCV prices
     """
+    info = safe_get_hyperliquid_info_obj()
     return get_candlestick_data(info, _token_ids, _token_names)
 
 
 @st.cache_data(ttl=60, show_spinner=False)
 def get_mid_prices():
+    info = safe_get_hyperliquid_info_obj()
     return info.all_mids()
 
 @st.cache_data(ttl=60, show_spinner=False)
@@ -270,6 +282,7 @@ def load_xyz_data():
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def get_subaccounts_cached(account: str) -> list:
+    info = safe_get_hyperliquid_info_obj()
     subaccounts = info.query_sub_accounts(account)
     return subaccounts if subaccounts is not None else []
 
