@@ -266,7 +266,7 @@ def get_curr_btc_price():
 
 def load_unit_data():
     unit_token_mappings = _get_cached_unit_token_mappings()
-    logger.info(f'unit token mappings: {unit_token_mappings}')
+    logger.info(f'token mappings for unit: {unit_token_mappings}')
     unit_token_list = [t for t, _ in unit_token_mappings.values()]
     unit_candlestick_data = _get_candlestick_data(
         [k for k in unit_token_mappings.keys()], unit_token_list)
