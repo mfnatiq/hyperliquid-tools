@@ -77,3 +77,8 @@ def get_unit_token_mappings(info: Info, logger: Logger) -> dict[str, tuple[str, 
 def get_xyz_token_mappings(info: Info) -> list[str]:
     perp_metadata = info.meta('xyz')
     return list(set(t['name'] for t in perp_metadata['universe']))
+
+
+def get_kinetiq_token_mappings(info: Info) -> list[str]:
+    perp_metadata = info.meta('km')
+    return list(set(t['name'] for t in perp_metadata['universe']))
