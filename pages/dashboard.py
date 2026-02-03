@@ -413,8 +413,10 @@ def get_cached_trade_volumes(
                         volume_by_token[token_name]['Type'][trade_type]['Last Txn'] = trade_time
                     volume_by_token[token_name]['Type'][trade_type]['Volume'] += trade_volume
 
-                    fee_in_quote = f['feeToken'] == 'USDC'  # TODO verify this for non-spot e.g. xyz
-                    if fee_in_quote:
+                    # TODO verify this for non-spot e.g. xyz
+                    fee_in_stables = f['feeToken'] in ['USDC', 'USDH']
+
+                    if fee_in_stables:
                         fee_amt = float(f['fee'])
                         accounts_mapping[account]['Quote Fees'] += fee_amt
                         volume_by_token[token_name]['Quote Fees'] += fee_amt
