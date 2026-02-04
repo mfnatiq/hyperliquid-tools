@@ -1009,7 +1009,7 @@ def main():
                     "⚡ Trade Analysis",
                     "🏆 Leaderboard",
                     "⚡ XYZ Trade Analysis",
-                    "🏆 XYZ Leaderboard (new)",
+                    "🏆 XYZ Leaderboard",
                     "🌉 Bridge Analysis",
                     "🏆 Bridge Leaderboard",
                     # "🔗 HyperEVM Trades (W.I.P)",
@@ -1148,7 +1148,7 @@ def main():
                     # manually-obtained trade volumes
                     ranks = [
                         (f'{len(leaderboard_formatted)}+', addr.lower(), format_currency(total_vol))
-                        for addr, total_vol in total_trade_volume.items()
+                        for addr, total_vol in total_trade_volume_xyz.items()
                     ]
                     ranks_df = pd.DataFrame(ranks, columns=["user_rank", "user_address", "total_volume_usd"])
 
