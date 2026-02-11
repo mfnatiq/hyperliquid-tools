@@ -45,6 +45,7 @@ DEFAULT_TAKER_FEES = pd.DataFrame(
         { "Exchange": "Paradex", "Taker Fee (Bps)": 0, "Assumption": "" },
         { "Exchange": "Pacifica", "Taker Fee (Bps)": 4, "Assumption": "" },
         { "Exchange": "Nado", "Taker Fee (Bps)": 3.3, "Assumption": ">5M 30D volume" },
+        { "Exchange": "Variational", "Taker Fee (Bps)": 0, "Assumption": "" },
     ]
 )
 DEFAULT_TAKER_FEES = DEFAULT_TAKER_FEES.sort_values('Exchange')
@@ -269,6 +270,44 @@ async def fetch_nado_orderbook(session: aiohttp.ClientSession, token: str):
     bids = [{"price": float(l[0]) / fixed_point_ratio, "qty": float(l[1]) / fixed_point_ratio} for l in ob["bids"]]
     asks = [{"price": float(l[0]) / fixed_point_ratio, "qty": float(l[1]) / fixed_point_ratio} for l in ob["asks"]]
     return {"bids": bids, "asks": asks, "exchange": "Nado", "token": token}
+
+
+async def fetch_variational_stats(session: aiohttp.ClientSession) -> dict[str, Any]:
+    VARIATIONAL_BASE_URL = "https://omni-client-api.prod.ap-northeast-1.variational.io"
+    data = await _fetch_json(
+        session,
+        "GET",
+        f"{VARIATIONAL_BASE_URL}/metadata/stats",
+    )
+    # response shape: { "total_volume_24h": "...", "listings": [ {...}, ... ] }
+    listings = data.get("listings", [])
+    # index by ticker upper for convenience
+    return {str(l["ticker"]).upper(): l for l in listings}
+
+async def fetch_variational_orderbook(session: aiohttp.ClientSession, token: str):
+    stats_by_ticker = await fetch_variational_stats(session)
+    listing = stats_by_ticker.get(token.upper())
+    if not listing:
+        raise ValueError(f"Token {token} not available on Variational")
+
+    # mark_price and base_spread_bps are strings; convert as needed
+    mark_price = float(listing["mark_price"])
+    base_spread_bps = float(listing.get("base_spread_bps", "0") or 0.0)
+
+    quotes = listing.get("quotes", {})
+
+    # custom analyze function to compute slippage per CLIP_SIZES from quotes
+    return {
+        "exchange": "Variational",
+        "token": token,
+        "markPrice": mark_price,
+        "baseSpreadBps": base_spread_bps,
+        "quotes": quotes,
+        # dummy fields so existing checks don't blow up
+        "bids": [],
+        "asks": [],
+    }
+
 # endregion
 
 
@@ -279,6 +318,7 @@ ORDERBOOK_FETCHERS = {
     "Lighter": fetch_lighter_orderbook,
     "Pacifica": fetch_pacifica_orderbook,
     "Nado": fetch_nado_orderbook,
+    "Variational": fetch_variational_orderbook,
 }
 ORDERBOOK_FETCHERS = dict(sorted(ORDERBOOK_FETCHERS.items()))
 
@@ -441,6 +481,61 @@ def analyze_orderbook_pure(orderbook: dict, agg_orderbook: dict | None = None):
 # endregion
 
 
+# compute slippage equivalent from variational api
+def _variational_slippage_from_quotes(listing: dict, size_usd: int) -> dict[str, Any]:
+    mark_price = float(listing["markPrice"])
+    quotes = listing.get("quotes", {})
+
+    # exact mapping only
+    size_field_map = {
+        1_000: "size_1k",
+        100_000: "size_100k",
+        # you can also include 1_000_000: "size_1m" if you add 1m to CLIP_SIZES
+    }
+    size_field = size_field_map.get(size_usd)
+
+    # if we don't have an exact mapping, treat as unavailable
+    if size_field is None:
+        return {
+            "slippageBps": None,
+            "effectiveSpreadBps": None,
+            "filled": False,
+            "filledPercent": 0.0,
+            "is_approximation": True,
+            "approximation_reason": "no exact RFQ size for this clip",
+        }
+
+    quote = quotes.get(size_field)
+    if not quote:
+        return {
+            "slippageBps": None,
+            "effectiveSpreadBps": None,
+            "filled": False,
+            "filledPercent": 0.0,
+            "is_approximation": True,
+            "approximation_reason": f"missing RFQ for {size_field}",
+        }
+
+    bid = float(quote["bid"])
+    ask = float(quote["ask"])
+
+    buy_slip_pct = (ask - mark_price) / mark_price * 100
+    sell_slip_pct = (mark_price - bid) / mark_price * 100
+    avg_slip_pct = (buy_slip_pct + sell_slip_pct) / 2
+
+    eff_spread_bps = (ask - bid) / ((ask + bid) / 2) * 10_000
+
+    return {
+        "slippageBps": round(avg_slip_pct * 100, 3),
+        "effectiveSpreadBps": round(eff_spread_bps, 3),
+        "filled": True,
+        "filledPercent": 100.0,
+        "is_approximation": True,  # using RFQ quotes
+        "approximation_reason": "using RFQ",
+    }
+
+
+
 # region organise data
 def book_depth_usd(orderbook: dict) -> float:
     # conservative: use the shallower side
@@ -455,7 +550,31 @@ async def _run_single_analysis(
     token: str,
 ) -> dict[str, Any]:
     try:
-        orderbook = await fetcher(session, token)
+        ob_or_stats = await fetcher(session, token)
+
+        if name == "Variational":
+            # build a result similar to analyze_orderbook_pure, but using quotes
+            listing_info = {
+                "exchange": ob_or_stats["exchange"],
+                "token": ob_or_stats["token"],
+                "markPrice": ob_or_stats["markPrice"],
+            }
+
+            result = {
+                "exchange": "Variational",
+                "token": token,
+                "midPrice": round(ob_or_stats["markPrice"], 2),
+                "spreadBps": ob_or_stats.get("baseSpreadBps"),  # already in bps
+                "rpiData": None,
+                "slippage": {},
+            }
+            for size in CLIP_SIZES:
+                slip = _variational_slippage_from_quotes(ob_or_stats, size)
+                result["slippage"][size] = slip
+            return result
+
+        # existing path for real orderbooks
+        orderbook = ob_or_stats
 
         # hyperliquid-specific: if depth is insufficient for largest clip, fetch with aggregation of levels
         agg_orderbook = None
@@ -507,6 +626,14 @@ def reorganize_by_clip_size(analysis_list: list):
 
             filled = slippage.get("filled", True)
 
+            # if variational RFQ approximation and slippageBps is None (i.e. size_ABC not in api response),
+            # skip the row entirely (do not show this venue for this clip size)
+            if (
+                analysis["exchange"] == "Variational"
+                and slippage.get("approximation_reason", "").startswith("no exact RFQ size")
+            ):
+                continue
+
             # if not fully filled, set infinity
             if not filled:
                 slippage_bps = float("inf")
@@ -516,9 +643,10 @@ def reorganize_by_clip_size(analysis_list: list):
                 slippage_bps = slippage.get("slippageBps")
                 total_cost_bps = slippage.get("totalCostBps")
                 is_approximation = slippage.get("is_approximation", False)
+                approximation_reason = slippage.get("approximation_reason", None)
                 note = ""
                 if is_approximation:
-                    note = "slippage approximated due to aggregated levels (API limitation)"
+                    note = approximation_reason or "slippage approximated due to aggregated levels (API limitation)"
 
             rows.append({
                 "exchange": analysis["exchange"],
