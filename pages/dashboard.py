@@ -186,7 +186,7 @@ def announcement():
 @st.dialog("Latest Updates", width="large", on_dismiss="ignore")
 def updates_announcement():
     st.write("""
-        🚨 2025-11-07: Added XYZ volume to summary
+        🚨 2026-02-02: Added Kinetiq Markets data
 
         Enjoy!
     """)
