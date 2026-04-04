@@ -4,6 +4,9 @@ from hyperliquid.info import Info
 from hyperliquid.utils import constants
 
 
+_LEDGER_PAGE_SIZE = 2000
+
+
 class UnitBridgeInfo():
     def __init__(self, max_concurrent=10):
         self._info = Info(constants.MAINNET_API_URL, skip_ws=True)
@@ -38,10 +41,21 @@ class UnitBridgeInfo():
 
         return all_results
 
-    # TODO check from HL discord if this endpoint has max limit then refactor if needed, currently just fetches everything
     def _get_operations_for_address(self, address: str, start_time: int) -> list:
-        return self._info.post("/info", {
-            "type": "userNonFundingLedgerUpdates",
-            "user": address,
-            "startTime": start_time,
-        })
+        all_entries = []
+        current_start = start_time
+
+        while True:
+            page = self._info.post("/info", {
+                "type": "userNonFundingLedgerUpdates",
+                "user": address,
+                "startTime": current_start,
+            })
+            all_entries.extend(page)
+
+            if len(page) < _LEDGER_PAGE_SIZE:
+                break
+
+            current_start = page[-1]['time'] + 1
+
+        return all_entries
