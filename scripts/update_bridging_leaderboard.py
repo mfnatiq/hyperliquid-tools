@@ -25,6 +25,7 @@ from src.bridge.unit_bridge_utils import create_bridge_summary, process_ledger_b
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     level=logging.INFO,
+    stream=sys.stdout,
 )
 logger = logging.getLogger(__name__)
 

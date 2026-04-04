@@ -1,6 +1,7 @@
 from copy import deepcopy
 import json
 import os
+import sys
 import time
 from dotenv import load_dotenv
 import requests
@@ -22,6 +23,7 @@ import logging
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     level=logging.INFO,
+    stream=sys.stdout,
 )
 logger = logging.getLogger(__name__)
 

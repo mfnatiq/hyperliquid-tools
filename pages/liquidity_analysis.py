@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime
+import sys
 from typing import Any
 import aiohttp
 import pandas as pd
@@ -32,6 +33,7 @@ import logging
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     level=logging.INFO,
+    stream=sys.stdout,
 )
 logger = logging.getLogger(__name__)
 

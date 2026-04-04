@@ -1,6 +1,7 @@
 
 import logging
 import os
+import sys
 from dotenv import load_dotenv
 import pandas as pd
 from sqlalchemy import TIMESTAMP, Column, DateTime, Float, Integer, MetaData, String, Table, create_engine, inspect
@@ -8,6 +9,7 @@ from sqlalchemy import TIMESTAMP, Column, DateTime, Float, Integer, MetaData, St
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     level=logging.INFO,
+    stream=sys.stdout,
 )
 logger = logging.getLogger(__name__)
 

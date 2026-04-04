@@ -1,6 +1,7 @@
 from datetime import datetime
 import pandas as pd
 import os
+import sys
 from dotenv import load_dotenv
 import logging
 from sqlalchemy import DateTime, create_engine, MetaData, Table, Column, String, Float, func, inspect, DateTime, select
@@ -11,6 +12,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     level=logging.INFO,
+    stream=sys.stdout,
 )
 logger = logging.getLogger(__name__)
 

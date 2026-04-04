@@ -1,3 +1,4 @@
+import sys
 from pages.dashboard import display_upgrade_section
 from src.consts import acceptedPayments
 import streamlit as st
@@ -18,6 +19,7 @@ import logging
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     level=logging.INFO,
+    stream=sys.stdout,
 )
 logger = logging.getLogger(__name__)
 

@@ -19,6 +19,7 @@ from src.utils.utils import get_unit_token_mappings
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     level=logging.INFO,
+    stream=sys.stdout,
 )
 logger = logging.getLogger(__name__)
 
