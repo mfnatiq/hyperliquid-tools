@@ -18,7 +18,7 @@ import streamlit.components.v1 as components
 import plotly.express as px
 from src.bridge.unit_bridge_api import UnitBridgeInfo
 from src.trade.trade_data import get_candlestick_data
-from src.bridge.unit_bridge_utils import create_bridge_summary, process_bridge_operations
+from src.bridge.unit_bridge_utils import create_bridge_summary, process_ledger_bridge_operations
 from src.consts import NON_LOGGED_IN_TRADES_TOTAL, unitStartTime, oneDayInS, acceptedPayments
 import uuid
 
@@ -637,7 +637,6 @@ def get_cached_xyz_volumes(
         }
         for t in xyz_token_list
     }
-    # endregion
 
     # try:
     formatted_token_mapping = { t: t for t in xyz_token_list }
@@ -989,8 +988,7 @@ def main():
             df_trade_xyz = create_volume_df(volume_data_xyz['volume_by_token'])
 
             raw_bridge_data = st.session_state['raw_bridge_data']
-            processed_bridge_data, operations_by_address = format_bridge_data(
-                raw_bridge_data, unit_token_mappings, unit_candlestick_data)
+            processed_bridge_data, operations_by_address = format_bridge_data(raw_bridge_data, unit_token_mappings)
             df_bridging, top_bridged_asset = create_bridge_summary(
                 processed_bridge_data)
 
@@ -1667,19 +1665,14 @@ def display_trade_data(
             accounts_mapping.keys()), user_trades_df, token_list)
 
 
-def format_bridge_data(
-    raw_bridge_data: dict,
-    unit_token_mappings: dict[str, tuple[str, int]],
-    unit_candlestick_data: pd.DataFrame,
-):
+def format_bridge_data(raw_bridge_data: dict, unit_token_mappings: dict[str, tuple[str, int]]):
     """
     return both operations by addresses individually as well as combined DF for ease of processing
     """
     all_operations_df = pd.DataFrame()
     operations_by_address = dict()
-    for address, data in raw_bridge_data.items():
-        processed_df = process_bridge_operations(
-            data, unit_token_mappings, unit_candlestick_data, logger)
+    for address, entries in raw_bridge_data.items():
+        processed_df = process_ledger_bridge_operations(entries, address, unit_token_mappings, logger)
         if processed_df is not None and not processed_df.empty:
             operations_by_address[address] = processed_df
             all_operations_df = pd.concat(

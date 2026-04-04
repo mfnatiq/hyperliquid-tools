@@ -7,8 +7,6 @@ import logging
 from sqlalchemy import DateTime, create_engine, func, or_, select, MetaData, Table, Column, String, Float, Integer, inspect, DateTime
 from sqlalchemy.dialects.postgresql import TIMESTAMP # for pg specific type
 from sqlalchemy.exc import SQLAlchemyError
-from hyperliquid.info import Info
-from hyperliquid.utils import constants
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
@@ -18,10 +16,11 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 # add src root to search path so src import works
 sys.path.insert(0, project_root)
 
+from hyperliquid.info import Info
+from hyperliquid.utils import constants
 from src.utils.utils import get_unit_token_mappings
 from src.bridge.unit_bridge_api import UnitBridgeInfo
-from src.trade.trade_data import get_candlestick_data
-from src.bridge.unit_bridge_utils import create_bridge_summary, process_bridge_operations
+from src.bridge.unit_bridge_utils import create_bridge_summary, process_ledger_bridge_operations
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -112,15 +111,9 @@ def get_addresses_to_query(limit: int) -> pd.DataFrame:
         logger.error(f'unable to fetch leaderboard: {e}')
     return pd.DataFrame()
 
-def load_data():
+def load_unit_token_mappings():
     info = Info(constants.MAINNET_API_URL, skip_ws=True)
-    unit_token_mappings = get_unit_token_mappings(info, logger)
-    logger.info(f'unit token mappings: {unit_token_mappings}')
-    token_list = [t for t, _ in unit_token_mappings.values()]
-    candlestick_data = get_candlestick_data(
-        info, [k for k in unit_token_mappings.keys()], token_list)
-
-    return unit_token_mappings, token_list, candlestick_data
+    return get_unit_token_mappings(info, logger)
 
 def update_bridging_leaderboard(data: list):
     with engine.begin() as conn:
@@ -143,7 +136,7 @@ def update_bridging_leaderboard(data: list):
 
 if __name__ == "__main__":
     try:
-        unit_token_mappings, token_list, candlestick_data = load_data()
+        unit_token_mappings = load_unit_token_mappings()
 
         start = time.time()
 
@@ -161,9 +154,7 @@ if __name__ == "__main__":
             rows_to_insert = []
 
             for addr, ops in operations.items():
-                processed_bridge_data = process_bridge_operations(
-                    ops, unit_token_mappings, candlestick_data, logger
-                )
+                processed_bridge_data = process_ledger_bridge_operations(ops, addr, unit_token_mappings, logger)
                 df_bridging, top_bridged_asset = create_bridge_summary(
                     processed_bridge_data)
 

@@ -1,121 +1,71 @@
 from logging import Logger
-import numpy as np
 import pandas as pd
 
-def _bridge_asset_name_in_token_list(unit_asset_name: str, bridge_asset_name: str):
-    # some tokens need manual checks
-    # TODO do manual mapping instead?
-    return unit_asset_name.lower().endswith(bridge_asset_name) \
-            or (unit_asset_name == 'UFART' and bridge_asset_name == 'fartcoin') \
-            or (unit_asset_name == 'UUUSPX' and bridge_asset_name == 'spxs') \
-            or (unit_asset_name == 'UDZ' and bridge_asset_name == '2z')
 
-def process_bridge_operations(
-    data_dict: dict,
+def process_ledger_bridge_operations(
+    entries: list,
+    queried_address: str,
     unit_token_mappings: dict[str, tuple[str, int]],
-    candlestick_data: pd.DataFrame,
     logger: Logger,
 ) -> pd.DataFrame | None:
     """
-    process a single dictionary of bridge operations data into a structured df
+    process raw userNonFundingLedgerUpdates entries into a bridge df compatible
+    with create_bridge_summary
+
+    direction:
+        deposit: destination == queried_address
+        withdraw: user == queried_address
+
+    only includes tokens present in unit_token_mappings (i.e. unit bridge tokens)
+    amounts are already normalised (not in wei); usdcValue gives USD directly
     """
-    if not data_dict or 'operations' not in data_dict or not data_dict['operations']:
+    if not entries:
         return None
 
-    operations = data_dict['operations']
-    df = pd.DataFrame(operations)
+    unit_tokens = {token_name.upper() for token_name, _ in unit_token_mappings.values()}
 
-    # parse dates
-    df['opCreatedAt'] = pd.to_datetime(df['opCreatedAt'])
+    spot_transfers = [
+        e for e in entries
+        if e.get('delta', {}).get('type') == 'spotTransfer'
+        and (e.get('delta', {}).get('token') or '').upper() in unit_tokens
+    ]
+    if not spot_transfers:
+        return None
 
-    # convert amounts to float from wei
-    df['sourceAmount'] = pd.to_numeric(df['sourceAmount'], errors='coerce')
+    addr_lower = queried_address.lower()
 
-    # TODO handle fees?
-    # df['destinationFeeAmount'] = pd.to_numeric(
-    #     df['destinationFeeAmount'], errors='coerce')
+    rows = []
+    for e in spot_transfers:
+        d = e['delta']
 
-    # determine txn direction (deposit vs withdraw)
-    df['direction'] = df['destinationChain'].apply(
-        lambda x: 'Deposit' if x == 'hyperliquid' else 'Withdraw'
-    )
+        dest = (d.get('destination') or '').lower()
+        user = (d.get('user') or '').lower()
 
-    amt_cols = ['amount_formatted', 'amount_usd']
+        if dest == addr_lower:
+            direction = 'Deposit'
+        elif user == addr_lower:
+            direction = 'Withdraw'
+        else:
+            logger.warning(f'skipping ledger entry where queried address is neither user nor destination: {e}')
+            continue
 
-    # convert amts based on asset (assuming standard decimals)
-    def convert_amount(
-        row,
-        unit_token_mappings: dict[str, tuple[str, int]],
-        candlestick_data: pd.DataFrame,
-        unique_tokens: list[str]
-    ):
-        amount = row['sourceAmount']
-        asset = row['asset']
+        amount = d.get('amount')
+        usdc_value = d.get('usdcValue')
+        if amount is None or usdc_value is None:
+            continue
 
-        # prices keys are UBTC, UETH etc.
-        # convert to token name
-        found_key = ""
-        for key in unique_tokens:
-            if _bridge_asset_name_in_token_list(key, asset):
-                found_key = key
-                break
-        if found_key == "":
-            logger.warning(
-                f'no matching key found for bridge asset {asset} among available unit tokens ({", ".join(unique_tokens)})')
-            return pd.Series([np.nan, np.nan], index=amt_cols)
+        rows.append({
+            'opCreatedAt': pd.to_datetime(e['time'], unit='ms', utc=True),
+            'asset': d.get('token', '').lower(),
+            'direction': direction,
+            'amount_formatted': float(amount),
+            'amount_usd': float(usdc_value),
+        })
 
-        # convert string to BOD timestamp then get closing prices of that day
-        # target date from the row (treat the row timestamp as UTC)
-        target_date = pd.to_datetime(row['opCreatedAt'], utc=True).date()
+    if not rows:
+        return None
 
-        # filter by token and matching calendar date
-        mask = (
-            (candlestick_data['token_name'] == found_key) &
-            (candlestick_data['start_date'].dt.date == target_date)
-        )
-        found_row = candlestick_data.loc[mask]
-
-        if found_row.empty:
-            logger.warning(
-                f'target date {target_date} for asset {asset} (bridge txn at {row['opCreatedAt']}) not found in price list, ignoring')
-            return pd.Series([np.nan, np.nan], index=amt_cols)
-
-        # assume only have 1 day since candlestick data is fetched daily
-        price = float(found_row['close_price'].iloc[0])
-
-        decimal_places = 18
-        found_decimals = False
-        for asset_name, decimals in unit_token_mappings.values():
-            if _bridge_asset_name_in_token_list(asset_name, asset):
-                # TODO hacky, find out why `spotMeta` endpoint returns 6 for unit monad
-                if asset == 'mon':
-                    decimal_places = 18
-                else:
-                    decimal_places = decimals
-                found_decimals = True
-                break
-        if not found_decimals:
-            logger.warning(f"error: decimal places not found for {asset}, ignoring txns")
-            return pd.Series([np.nan, np.nan], index=amt_cols)
-
-        amount_formatted = amount / (10 ** decimal_places)
-        amount_usd = amount_formatted * price
-
-        return pd.Series([amount_formatted, amount_usd], index=amt_cols)
-
-    unique_tokens = candlestick_data['token_name'].unique().tolist()
-    df[amt_cols] = df.apply(lambda row: convert_amount(
-        row, unit_token_mappings, candlestick_data, unique_tokens), axis=1)
-
-    # filter only completed or nearly completed transactions for volume calculation
-    completed_states = [
-        'done', 'waitForSrcTxFinalization', 'sourceTxDiscovered']
-    df_completed = df[df['state'].isin(completed_states)]
-
-    # filter out cols where price is null / not found
-    df_completed = df_completed.dropna(subset=['amount_usd'])
-
-    return df_completed
+    return pd.DataFrame(rows)
 
 
 def create_bridge_summary(df: pd.DataFrame):
@@ -142,7 +92,7 @@ def create_bridge_summary(df: pd.DataFrame):
         index='asset',
         columns='direction',
         values=['Volume', 'Volume (USD)', 'Count'],
-        fill_value=0,    # TODO
+        fill_value=0,
     )
 
     # pivot datetime data with no fill_value (uses NaT by default)

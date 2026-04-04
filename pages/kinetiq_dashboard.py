@@ -414,7 +414,6 @@ def get_cached_km_volumes(
         }
         for t in km_token_list
     }
-    # endregion
 
     # try:
     formatted_token_mapping = { t: t for t in km_token_list }
