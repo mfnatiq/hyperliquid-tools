@@ -1,10 +1,9 @@
-from datetime import datetime, timedelta, timezone
 import os
 import time
 from dotenv import load_dotenv
 import pandas as pd
 import logging
-from sqlalchemy import DateTime, create_engine, func, or_, select, MetaData, Table, Column, String, Float, Integer, inspect, DateTime
+from sqlalchemy import DateTime, create_engine, func, select, MetaData, Table, Column, String, Float, Integer, inspect, DateTime
 from sqlalchemy.dialects.postgresql import TIMESTAMP # for pg specific type
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -85,29 +84,18 @@ def initialize_database_schema():
         logger.error(f"error initializing database schema: {e}")
         raise
 
-def get_addresses_to_query(limit: int) -> pd.DataFrame:
+def get_addresses_to_query(limit: int, offset: int) -> pd.DataFrame:
     try:
         with engine.connect() as conn:
-            # only fetch those from too long ago
-            prev_time = datetime.now(timezone.utc) - timedelta(hours=12)
-
-            # get either those in trading leaderboard table
-            # or those in bridging table that were fetched a while ago
             results = conn.execute(
                 select(ref_leaderboard_table.c.user_address)
-                .outerjoin(leaderboard_table, ref_leaderboard_table.c.user_address == leaderboard_table.c.user_address)
-                .where(
-                    or_(
-                        leaderboard_table.c.user_address == None,
-                        leaderboard_table.c.last_updated < prev_time
-                    )
-                )
+                .order_by(ref_leaderboard_table.c.user_address)
                 .limit(limit)
+                .offset(offset)
             )
             leaderboard_rows = results.fetchall()
             column_names = results.keys()
-            leaderboard_df = pd.DataFrame(leaderboard_rows, columns=column_names)
-            return leaderboard_df
+            return pd.DataFrame(leaderboard_rows, columns=column_names)
     except Exception as e:
         logger.error(f'unable to fetch leaderboard: {e}')
     return pd.DataFrame()
@@ -146,32 +134,29 @@ if __name__ == "__main__":
 
         num_addresses_processed = 0
 
-        addresses_to_update = list(get_addresses_to_query(limit)['user_address'])
+        offset = 0
+        addresses_to_update = list(get_addresses_to_query(limit, offset)['user_address'])
 
         while len(addresses_to_update) > 0:
-            logger.info(f'fetching bridging data for {len(addresses_to_update)} addresses')
+            logger.info(f'fetching bridging data for {len(addresses_to_update)} addresses (offset {offset})')
             operations = unit_bridge_info.get_operations(addresses_to_update, show_logs=False)
 
             rows_to_insert = []
 
             for addr, ops in operations.items():
                 processed_bridge_data = process_ledger_bridge_operations(ops, addr, unit_token_mappings, logger)
-                df_bridging, top_bridged_asset = create_bridge_summary(
-                    processed_bridge_data)
+                df_bridging, top_bridged_asset = create_bridge_summary(processed_bridge_data)
 
                 if df_bridging is not None:
                     sum_result = df_bridging['Total (USD)'].sum()
-
                     # sum() returns a numpy type: cast to standard float for psycopg2
                     total_vol = float(sum_result) if pd.notna(sum_result) else 0.0
-
                     rows_to_insert.append({
                         'user_address': addr,
                         'total_volume_usd': total_vol,
                         'top_bridged_asset': top_bridged_asset,
                     })
                 else:
-                    # prevent infinite looping
                     rows_to_insert.append({
                         'user_address': addr,
                         'total_volume_usd': 0,
@@ -186,7 +171,8 @@ if __name__ == "__main__":
             else:
                 logger.error("bridging leaderboard update failed")
 
-            addresses_to_update = list(get_addresses_to_query(limit)['user_address'])
+            offset += limit
+            addresses_to_update = list(get_addresses_to_query(limit, offset)['user_address'])
 
         logger.info(f'updating entire leaderboard DB ({num_addresses_processed} addresses) took {(time.time() - start)}s')
     except Exception as e:
