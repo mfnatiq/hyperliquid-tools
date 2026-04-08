@@ -1076,6 +1076,7 @@ def main():
                 else:
                     leaderboard_last_updated = _get_leaderboard_last_updated()
                     st.markdown(f'Last Updated: **{leaderboard_last_updated}**')
+                    st.caption('Powered by [Allium](https://allium.so)')
 
                     leaderboard = _get_leaderboard()
                     leaderboard['total_volume_usd'] = leaderboard['total_volume_usd'].apply(lambda x: format_currency(x))
@@ -1134,6 +1135,7 @@ def main():
                 else:
                     leaderboard_last_updated = _get_xyz_leaderboard_last_updated()
                     st.markdown(f'Last Updated: **{leaderboard_last_updated}**')
+                    st.caption('Powered by [Allium](https://allium.so)')
 
                     leaderboard = _get_xyz_leaderboard()
                     leaderboard['total_volume_usd'] = leaderboard['total_volume_usd'].apply(lambda x: format_currency(x))
