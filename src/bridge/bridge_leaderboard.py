@@ -5,7 +5,7 @@ import sys
 from dotenv import load_dotenv
 import logging
 from typing import Any
-from sqlalchemy import DateTime, create_engine, MetaData, Table, Column, String, Float, func, inspect, DateTime, select
+from sqlalchemy import DateTime, create_engine, MetaData, Table, Column, String, Float, func, inspect, select
 from sqlalchemy.dialects.postgresql import TIMESTAMP # for pg specific type
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert

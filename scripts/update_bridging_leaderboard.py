@@ -3,7 +3,7 @@ import time
 from dotenv import load_dotenv
 import pandas as pd
 import logging
-from sqlalchemy import DateTime, create_engine, func, select, MetaData, Table, Column, String, Float, Integer, inspect, DateTime
+from sqlalchemy import DateTime, create_engine, func, select, MetaData, Table, Column, String, Float, Integer, inspect
 from sqlalchemy.dialects.postgresql import TIMESTAMP # for pg specific type
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.dialects.postgresql import insert as pg_insert
