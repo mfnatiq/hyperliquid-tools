@@ -1,5 +1,6 @@
 from copy import deepcopy
 import json
+from typing import Any
 import os
 import sys
 import time
@@ -20,7 +21,7 @@ import plotly.express as px
 from src.bridge.unit_bridge_api import UnitBridgeInfo
 from src.trade.trade_data import get_candlestick_data
 from src.bridge.unit_bridge_utils import create_bridge_summary, process_ledger_bridge_operations
-from src.consts import NON_LOGGED_IN_TRADES_TOTAL, unitStartTime, oneDayInS, acceptedPayments
+from src.consts import NON_LOGGED_IN_TRADES_TOTAL, unitStartTime, oneDayInS, acceptedPayments, AccountStats
 import uuid
 
 # setup and configure logging
@@ -93,7 +94,7 @@ def track_event(event_name, additional_data: dict = {}):
         "Content-Type": "application/json",
         "User-Agent": "Hyperliquid-Tools/1.0",
     }
-    payload = {
+    payload: dict[str, Any] = {
         "type": "event",
         "payload": {
             "name": event_name,
@@ -123,7 +124,7 @@ def show_login_info(show_button_only: bool = False):
         st.markdown("Log in to view more detailed info", width="content")
     st.button(
         "Login",
-        key=uuid.uuid4(),
+        key=str(uuid.uuid4()),
         on_click=handle_login_click,
         icon=":material/login:",
         type="primary"
@@ -146,6 +147,7 @@ with col2:
                 if user_premium_type == PremiumType.FULL:
                     status_message = "<span style='color: #28a745;'>(Premium)</span>" # green
                 elif user_premium_type == PremiumType.TRIAL:
+                    assert user.trial_expires_at is not None
                     expires_str = user.trial_expires_at.strftime('%Y-%m-%d')
                     status_message = f"<span style='color: #ffc107;'>(Trial ends {expires_str})</span>" # yellow
                 else:
@@ -322,7 +324,7 @@ def get_cached_trade_volumes(
     token_coin_name_mapping: dict[str, str],
     direction_mapping: dict[str, str],  # map from directions in fills api (for filtering) to display DF e.g. "Open Long": "Buy"
     volume_by_token: dict[str, dict],
-    accounts_mapping: dict[str, dict[str, int | float | str]],
+    accounts_mapping: dict[str, AccountStats],
     total_trade_volume: dict[str, float],
     curr_timestamp_millis: int,
 ):
@@ -339,7 +341,7 @@ def get_cached_trade_volumes(
     for account in accounts_to_query:
         num_fills_total = 0
 
-        total_trade_volume_account = 0
+        total_trade_volume_account = 0.0
 
         # initialisation
         startTime = unitStartTime
@@ -453,7 +455,7 @@ def get_cached_unit_volumes(
     """
     # TODO put this into separate helper function
     # account: { remarks (subaccount of another), num fills }
-    accounts_mapping: dict[str, dict[str, int | float | str]] = dict()
+    accounts_mapping: dict[str, AccountStats] = dict()
 
     total_trade_volume: dict[str, float] = dict()  # { account: total trade volume }
 
@@ -589,7 +591,7 @@ def get_cached_xyz_volumes(
     """
     # TODO put this into separate helper function
     # account: { remarks (subaccount of another), num fills }
-    accounts_mapping: dict[str, dict[str, int | float | str]] = dict()
+    accounts_mapping: dict[str, AccountStats] = dict()
 
     total_trade_volume: dict[str, float] = dict()  # { account: total trade volume }
 
@@ -795,12 +797,15 @@ def display_upgrade_section(id: str):
     hype_amt_override = round(stables_amount / get_curr_hype_price(), 2)
     acceptedPayments['HYPE']['minAmount'] = hype_amt_override
     user = get_user(st.session_state['user_email'], logger)
+    if user is None or user.trial_expires_at is None:
+        st.error("Unable to load user details. Please refresh.")
+        return
     millis = user.trial_expires_at.microsecond // 1000
 
     # add user-specific trial expiry date to accepted payments to ensure uniqueness
     uniqueAcceptedPayments = deepcopy(acceptedPayments)
     for k, v in uniqueAcceptedPayments.items():
-        existingAmt = v['minAmount']
+        existingAmt = float(str(v['minAmount']))
 
         if int(existingAmt) == existingAmt: # no decimals (USDT), add after decimals
             uniqueAcceptedPayments[k]['minAmount'] = existingAmt + millis / 1000

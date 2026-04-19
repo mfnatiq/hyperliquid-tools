@@ -604,7 +604,7 @@ async def _get_all_analysis_pure(token: str) -> list[dict[str, Any]]:
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        analysis_list = results
+        analysis_list = [r for r in results if isinstance(r, dict)]
     return analysis_list
 
 @st.cache_data(ttl=60)  # cache data

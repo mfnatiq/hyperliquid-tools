@@ -4,6 +4,7 @@ import os
 import sys
 from dotenv import load_dotenv
 import logging
+from typing import Any
 from sqlalchemy import DateTime, create_engine, MetaData, Table, Column, String, Float, func, inspect, DateTime, select
 from sqlalchemy.dialects.postgresql import TIMESTAMP # for pg specific type
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -95,7 +96,7 @@ def update_bridge_leaderboard(bridge_data_by_address: list) -> bool:
 
         # on conflict do nothing: if address already exists, wait for its volume update from cron job subsequently
         # i.e. reduce need for table fetching cache invalidation
-        insert_if_not_exists_stmt = stmt.on_conflict_do_nothing(
+        insert_if_not_exists_stmt: Any = stmt.on_conflict_do_nothing(
             index_elements=['user_address']
         )
 

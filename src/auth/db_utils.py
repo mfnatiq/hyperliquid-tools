@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from sqlalchemy import create_engine, text, Row
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
 from web3 import Web3
+from eth_typing import HexStr
 from logging import Logger
 from src.utils.render_utils import donation_address
 from eth_abi import decode
@@ -81,7 +82,7 @@ def _row_to_user_object(row: Optional[Row], logger: Logger) -> Optional[User]:
             upgraded_at=_to_datetime(row.upgraded_at, logger),
             bypass_payment=bool(row.bypass_payment),
             remarks=row.remarks,
-            created_at=_to_datetime(row.created_at, logger)
+            created_at=_to_datetime(row.created_at, logger) or datetime.now(timezone.utc)
         )
     except (TypeError, AttributeError, ValueError) as e:
         logger.error(
@@ -145,7 +146,7 @@ def init_db(logger: Logger):
                 return
             count = conn.execute(
                 text(f"SELECT COUNT(*) FROM {USERS_TABLE}")).scalar()
-            if count > 0:
+            if count and count > 0:
                 logger.info("users table already has data, skipping seeding")
                 return
             for row in seed_data:
@@ -273,6 +274,8 @@ def upgrade_to_premium(
 ) -> str | None:  # error message if any (if None, verification was successful)
     # must be mutually exclusive with get_user_premium_type()
     user = get_user(email, logger)
+    if user is None:
+        return "User not found. Please refresh and try again."
     payment_verification_error = _verify_valid_payment(
         email, user, payment_txn_hash, payment_chain, acceptedPayments, logger)
     if payment_verification_error is not None:
@@ -381,7 +384,7 @@ def _verify_valid_payment(
     logger.info(f"fetching txn receipt for hash: {payment_txn_hash}")
 
     try:
-        tx_receipt = w3.eth.get_transaction_receipt(payment_txn_hash)
+        tx_receipt = w3.eth.get_transaction_receipt(HexStr(payment_txn_hash))
 
         # sanity check that payment was after trial started
         block = w3.eth.get_block(tx_receipt['blockNumber'])
@@ -460,7 +463,7 @@ def _verify_valid_payment(
         else:
             # for native token (hype), value is in txn object
             # not in txn hash since no SC i.e. no logs
-            txn = w3.eth.get_transaction(payment_txn_hash)
+            txn = w3.eth.get_transaction(HexStr(payment_txn_hash))
 
             # convert txn value of hype from wei to ether (same number of decimals as HYPE)
             tx_value_wei = txn['value']
@@ -499,3 +502,4 @@ def _verify_valid_payment(
 
             If you have paid a valid amount but on the wrong network, please contact me!
         """
+    return None
