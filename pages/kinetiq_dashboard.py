@@ -256,7 +256,7 @@ def get_cached_trade_volumes(
         total_trade_volume_account = 0.0
 
         # initialisation
-        startTime = kinetiqStartTime   # TODO change to kinetiq start time
+        startTime = kinetiqStartTime
 
         # seems like 2k limit for endpoint counts from the start
         # so start from overall start time then move up til currtime
