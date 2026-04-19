@@ -1,6 +1,7 @@
 
 from datetime import datetime, timezone
 from logging import Logger
+from millify import millify
 from hyperliquid.utils.types import SpotAssetInfo
 from hyperliquid.info import Info
 
@@ -15,18 +16,8 @@ def get_today_timestamp_millis() -> int:
     return int(datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000)
 
 
-# TODO consider millify / numerize inbuilt libraries
-def format_currency(value: float):
-    if value >= 1_000_000_000_000:
-        return f"${value/1_000_000_000_000:.2f}T"
-    if value >= 1_000_000_000:
-        return f"${value/1_000_000_000:.2f}B"
-    if value >= 1_000_000:
-        return f"${value/1_000_000:.2f}M"
-    elif value >= 1_000:
-        return f"${value/1_000:.2f}K"
-    else:
-        return f"${value:.2f}"
+def format_currency(value: float) -> str:
+    return f"${millify(value, precision=2)}"
 
 
 # with caching and show_spinner=false
