@@ -1,5 +1,4 @@
 aiohttp<=3.10.11
-aiohttp-retry
 eth_abi
 eth_utils
 hyperliquid-python-sdk==0.17.0
