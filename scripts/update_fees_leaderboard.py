@@ -26,7 +26,7 @@ sys.path.insert(0, project_root)
 
 from src.consts import unitStartTime
 from src.utils.utils import get_unit_token_mappings
-from src.trade.fees_leaderboard import update_fees_leaderboard
+from src.trade.fees_leaderboard import initialize_database_schema, update_fees_leaderboard
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -152,18 +152,19 @@ def update_all():
             update_fees_leaderboard(fees_by_address)
 
         total_processed += len(addresses)
-        logger.info(f"batch done — {total_processed} addresses processed so far")
+        logger.info(f"batch done - {total_processed} addresses processed so far")
 
         offset += BATCH_SIZE
         addresses = get_addresses_from_trade_leaderboard(BATCH_SIZE, offset)
 
     if total_processed == 0:
-        logger.warning("no addresses found in trade leaderboard — run update_leaderboard.py first to seed addresses")
+        logger.warning("no addresses found in trade leaderboard - run update_leaderboard.py first to seed addresses")
     else:
-        logger.info(f"done — processed {total_processed} addresses total")
+        logger.info(f"done - processed {total_processed} addresses total")
 
 
 if __name__ == "__main__":
     start = time.time()
+    initialize_database_schema()
     update_all()
     logger.info(f"finished in {time.time() - start:.2f}s")
