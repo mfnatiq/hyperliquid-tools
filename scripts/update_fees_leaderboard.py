@@ -26,7 +26,7 @@ sys.path.insert(0, project_root)
 
 from src.consts import unitStartTime
 from src.utils.utils import get_unit_token_mappings
-from src.trade.fees_leaderboard import initialize_database_schema, update_fees_leaderboard
+from src.trade.fees_leaderboard import update_fees_leaderboard, fees_leaderboard_table, metadata as fees_metadata
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -62,6 +62,11 @@ ref_leaderboard_table = Table(
     Column("total_volume_usd", Float),
     Column("user_rank", Integer),
 )
+
+
+def initialize_database_schema() -> None:
+    fees_metadata.create_all(engine)
+    logger.info("fees_leaderboard table checked / created")
 
 
 def get_addresses_from_trade_leaderboard(limit: int, offset: int) -> list[str]:
