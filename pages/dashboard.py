@@ -9,6 +9,7 @@ import requests
 from src.bridge.bridge_leaderboard import get_bridge_leaderboard_with_datetime_last_updated, update_bridge_leaderboard
 from src.auth.db_utils import init_db, PremiumType, get_user_premium_type, upgrade_to_premium, start_trial_if_new_user, get_user
 from src.trade.trade_leaderboard import get_leaderboard_last_updated, get_leaderboard, get_xyz_leaderboard_last_updated, get_xyz_leaderboard
+from src.trade.fees_leaderboard import get_fees_leaderboard_with_datetime_last_updated, update_fees_leaderboard
 from src.utils.utils import DATE_FORMAT, format_currency, get_unit_token_mappings, get_current_timestamp_millis, get_xyz_token_mappings
 from datetime import datetime, timedelta, timezone
 import pandas as pd
@@ -1008,11 +1009,12 @@ def main():
                 st.warning(f'Only showing latest {non_logged_in_limit_trade_count} trades: log in to see full data')
 
             # create tabs
-            tab_summary, tab_trade, tab_trade_leaderboard, tab_xyz_trade, tab_xyz_leaderboard, tab_bridge, tab_bridge_leaderboard = st.tabs(
+            tab_summary, tab_trade, tab_trade_leaderboard, tab_fees_leaderboard, tab_xyz_trade, tab_xyz_leaderboard, tab_bridge, tab_bridge_leaderboard = st.tabs(
                 [
                     "💡 Summary",
                     "⚡ Trade Analysis",
                     "🏆 Leaderboard",
+                    "💸 Fees Leaderboard (W.I.P)",
                     "⚡ XYZ Trade Analysis",
                     "🏆 XYZ Leaderboard",
                     "🌉 Bridge Analysis",
@@ -1049,6 +1051,70 @@ def main():
                         unit_candlestick_data,
                         unit_token_list,
                     )
+
+            with tab_fees_leaderboard:
+                st.info("🚧 Coming soon!")
+
+                # TODO: deploy when fees leaderboard table is populated properly
+                # _get_fees_leaderboard
+
+                # if st.session_state.last_tab != "view_fees_leaderboard":
+                #     track_event("view_fees_leaderboard", { 'addresses_input': addresses_input })
+                #     st.session_state.last_tab = "view_fees_leaderboard"
+
+                # if not is_logged_in():
+                #     show_login_info()
+                # elif user_premium_type == PremiumType.NONE:
+                #     display_upgrade_section("fees_leaderboard_data")
+                # else:
+                #     need_update = update_fees_leaderboard(volume_data['accounts_mapping'])
+                #     if need_update:
+                #         _get_fees_leaderboard.clear()
+
+                #     fees_leaderboard_last_updated, fees_leaderboard = _get_fees_leaderboard()
+                #     st.markdown(f'Last Updated: **{fees_leaderboard_last_updated}**')
+
+                #     if fees_leaderboard.empty:
+                #         st.warning('Error fetching fees leaderboard data, try again later')
+                #     else:
+                #         fees_leaderboard['total_fees_usd'] = fees_leaderboard['total_fees_usd'].apply(lambda x: format_currency(x))
+                #         fees_leaderboard_formatted = fees_leaderboard[['user_rank', 'user_address', 'total_fees_usd']]
+
+                #         accounts_lowercase = [a.lower() for a in accounts]
+                #         fees_leaderboard_searched = fees_leaderboard_formatted[fees_leaderboard_formatted['user_address'].str.lower().isin(accounts_lowercase)]
+                #         st.subheader('Searched Addresses')
+
+                #         # compute fees from locally-fetched fills for searched addresses
+                #         local_fees = [
+                #             (f'{len(fees_leaderboard_formatted)}+', addr.lower(), format_currency(stats['Token Fees'] + stats['Quote Fees']))
+                #             for addr, stats in volume_data['accounts_mapping'].items()
+                #         ]
+                #         local_fees_df = pd.DataFrame(local_fees, columns=["user_rank", "user_address", "total_fees_usd"])
+                #         fees_leaderboard_searched = pd.concat([fees_leaderboard_searched, local_fees_df], ignore_index=True)
+                #         fees_leaderboard_searched = fees_leaderboard_searched.drop_duplicates(subset=["user_address"], keep="first")
+                #         fees_leaderboard_searched.loc[:, 'user_address'] = fees_leaderboard_searched['user_address'].apply(lambda x: x[:6] + '...' + x[-6:])
+                #         st.dataframe(
+                #             fees_leaderboard_searched,
+                #             hide_index=True,
+                #             column_config={
+                #                 'user_rank': st.column_config.TextColumn('Rank'),
+                #                 'user_address': st.column_config.TextColumn('Address'),
+                #                 'total_fees_usd': st.column_config.TextColumn('Total Fees (USD)'),
+                #             },
+                #         )
+
+                #         fees_leaderboard_formatted = fees_leaderboard_formatted.copy()
+                #         fees_leaderboard_formatted.loc[:, 'user_address'] = fees_leaderboard_formatted['user_address'].apply(lambda x: x[:6] + '...' + x[-6:])
+                #         st.subheader('Overall Fees Leaderboard')
+                #         st.dataframe(
+                #             fees_leaderboard_formatted.iloc[:1000],
+                #             hide_index=True,
+                #             column_config={
+                #                 'user_rank': st.column_config.TextColumn('Rank'),
+                #                 'user_address': st.column_config.TextColumn('Address'),
+                #                 'total_fees_usd': st.column_config.TextColumn('Total Fees (USD)'),
+                #             },
+                #         )
 
             with tab_xyz_trade:
                 if st.session_state.last_tab != "view_xyz_trade_details":
@@ -1292,6 +1358,12 @@ def _get_xyz_leaderboard_last_updated():
 @st.cache_data(ttl=3600, show_spinner=False)
 def _get_xyz_leaderboard():
     return get_xyz_leaderboard()
+# endregion
+
+# region fees leaderboard data cached
+@st.cache_data(ttl=3600, show_spinner=False)
+def _get_fees_leaderboard() -> tuple[datetime, pd.DataFrame]:
+    return get_fees_leaderboard_with_datetime_last_updated()
 # endregion
 
 # region bridging leaderboard data cached
