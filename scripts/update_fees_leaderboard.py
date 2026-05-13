@@ -9,7 +9,7 @@ address seeding logic (mirrors update_bridging_leaderboard.py):
 - any address queried via the dashboard that isn't in the trade leaderboard
   gets added via the inline update in fees_leaderboard.update_fees_leaderboard()
 """
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import os
 import sys
@@ -19,7 +19,7 @@ import requests
 from dotenv import load_dotenv
 from hyperliquid.info import Info
 from hyperliquid.utils import constants
-from sqlalchemy import create_engine, MetaData, Table, Column, String, Float, Integer, inspect, select
+from sqlalchemy import create_engine, MetaData, Table, Column, String, Float, Integer, inspect, select, or_
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, project_root)
@@ -69,11 +69,22 @@ def initialize_database_schema() -> None:
     logger.info("fees_leaderboard table checked / created")
 
 
+SKIP_IF_UPDATED_WITHIN_HOURS = 12
+
 def get_addresses_from_trade_leaderboard(limit: int, offset: int) -> list[str]:
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=SKIP_IF_UPDATED_WITHIN_HOURS)
     try:
         with engine.connect() as conn:
             results = conn.execute(
                 select(ref_leaderboard_table.c.user_address)
+                .outerjoin(
+                    fees_leaderboard_table,
+                    ref_leaderboard_table.c.user_address == fees_leaderboard_table.c.user_address,
+                )
+                .where(or_(
+                    fees_leaderboard_table.c.user_address == None,
+                    fees_leaderboard_table.c.last_updated < cutoff,
+                ))
                 .order_by(ref_leaderboard_table.c.user_address)
                 .limit(limit)
                 .offset(offset)
