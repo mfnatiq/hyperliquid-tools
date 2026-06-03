@@ -208,21 +208,22 @@ if 'startup' not in st.session_state:
         announcement()
     st.session_state['startup'] = True
 
+
 @st.cache_resource(show_spinner=False)
+def _create_hyperliquid_info_obj() -> Info:
+    return Info(constants.MAINNET_API_URL, skip_ws=True)
+
 def safe_get_hyperliquid_info_obj() -> Info:
-    """
-    error handling for getting hyperliquid Info object
-
-    will hard stop if have error getting object (e.g. rate limit errors)
-    """
     try:
-        return Info(constants.MAINNET_API_URL, skip_ws=True)
+        return _create_hyperliquid_info_obj()
     except Exception as e:
-        logger.error(f"Error creating Info client: {e}")
-        st.error("Hyperliquid API rate limit reached, please try again in a short while")
-        st.stop()   # hard stop
+        logger.error(f"Error creating Info client: {e}", exc_info=e)
+        st.error("Failed to connect to Hyperliquid API, please try again shortly")
+        st.stop()
 
-unit_bridge_info = UnitBridgeInfo()
+@st.cache_resource(show_spinner=False)
+def _get_unit_bridge_info() -> UnitBridgeInfo:
+    return UnitBridgeInfo(info=safe_get_hyperliquid_info_obj())
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -955,7 +956,7 @@ def main():
                 accounts, xyz_token_list, curr_timestamp_millis)
 
             # note bridge data doesn't apply for subaccounts as you can only bridge to main account
-            raw_bridge_data = unit_bridge_info.get_operations(accounts)
+            raw_bridge_data = _get_unit_bridge_info().get_operations(accounts)
 
         with output_placeholder.container():
             if err is not None:
