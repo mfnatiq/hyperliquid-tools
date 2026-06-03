@@ -3,7 +3,7 @@ from hyperliquid.utils import constants
 
 class HyperliquidClient:
     def post(self, endpoint: str, payload: dict):
-        resp = requests.post(f'{constants.MAINNET_API_URL}/{endpoint}', json=payload)
+        resp = requests.post(f'{constants.MAINNET_API_URL}{endpoint}', json=payload)
         resp.raise_for_status()
         return resp.json()
 
