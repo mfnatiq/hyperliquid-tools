@@ -10,9 +10,8 @@ from src.auth.db_utils import init_db, PremiumType, get_user_premium_type, upgra
 from src.utils.utils import DATE_FORMAT, format_currency, get_current_timestamp_millis, get_kinetiq_token_mappings
 from datetime import datetime, timedelta, timezone
 import pandas as pd
-from hyperliquid.info import Info
-from hyperliquid.utils import constants
 from hyperliquid.utils.error import ClientError, ServerError
+from src.hl_client import HyperliquidClient
 import streamlit as st
 import plotly.express as px
 from src.trade.trade_data import get_candlestick_data
@@ -146,18 +145,16 @@ with col2:
 
 
 @st.cache_resource(show_spinner=False)
-def safe_get_hyperliquid_info_obj() -> Info:
-    """
-    error handling for getting hyperliquid Info object
+def _create_hyperliquid_info_obj() -> HyperliquidClient:
+    return HyperliquidClient()
 
-    will hard stop if have error getting object (e.g. rate limit errors)
-    """
+def safe_get_hyperliquid_info_obj() -> HyperliquidClient:
     try:
-        return Info(constants.MAINNET_API_URL, skip_ws=True)
+        return _create_hyperliquid_info_obj()
     except Exception as e:
-        logger.error(f"Error creating Info client: {e}")
-        st.error("Hyperliquid API rate limit reached, please try again in a short while")
-        st.stop()   # hard stop
+        logger.error(f"Error creating Info client: {e}", exc_info=e)
+        st.error("Failed to connect to Hyperliquid API, please try again shortly")
+        st.stop()
 
 
 @st.cache_data(ttl=3600, show_spinner=False)

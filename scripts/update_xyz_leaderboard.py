@@ -7,8 +7,7 @@ import logging
 from sqlalchemy import DateTime, create_engine, text, MetaData, Table, Column, String, Float, Integer, inspect
 from sqlalchemy.dialects.postgresql import TIMESTAMP # for pg specific type
 from sqlalchemy.exc import SQLAlchemyError
-from hyperliquid.info import Info
-from hyperliquid.utils import constants
+from src.hl_client import HyperliquidClient
 
 import sys
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -88,7 +87,7 @@ def update_leaderboard_data():
     start_time = time.time()
     logger.info("starting leaderboard update process")
 
-    info = Info(constants.MAINNET_API_URL, skip_ws=True)
+    info = HyperliquidClient()
     xyz_token_names = get_xyz_token_mappings(info)
 
     params = {

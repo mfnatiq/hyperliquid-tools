@@ -13,9 +13,8 @@ from src.trade.fees_leaderboard import get_fees_leaderboard_with_datetime_last_u
 from src.utils.utils import DATE_FORMAT, format_currency, get_unit_token_mappings, get_current_timestamp_millis, get_xyz_token_mappings
 from datetime import datetime, timedelta, timezone
 import pandas as pd
-from hyperliquid.info import Info
-from hyperliquid.utils import constants
 from hyperliquid.utils.error import ClientError, ServerError
+from src.hl_client import HyperliquidClient
 import streamlit as st
 import streamlit.components.v1 as components
 import plotly.express as px
@@ -210,10 +209,10 @@ if 'startup' not in st.session_state:
 
 
 @st.cache_resource(show_spinner=False)
-def _create_hyperliquid_info_obj() -> Info:
-    return Info(constants.MAINNET_API_URL, skip_ws=True)
+def _create_hyperliquid_info_obj() -> HyperliquidClient:
+    return HyperliquidClient()
 
-def safe_get_hyperliquid_info_obj() -> Info:
+def safe_get_hyperliquid_info_obj() -> HyperliquidClient:
     try:
         return _create_hyperliquid_info_obj()
     except Exception as e:

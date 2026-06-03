@@ -15,8 +15,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 # add src root to search path so src import works
 sys.path.insert(0, project_root)
 
-from hyperliquid.info import Info
-from hyperliquid.utils import constants
+from src.hl_client import HyperliquidClient
 from src.utils.utils import get_unit_token_mappings
 from src.bridge.unit_bridge_api import UnitBridgeInfo
 from src.bridge.unit_bridge_utils import create_bridge_summary, process_ledger_bridge_operations
@@ -101,7 +100,7 @@ def get_addresses_to_query(limit: int, offset: int) -> pd.DataFrame:
     return pd.DataFrame()
 
 def load_unit_token_mappings():
-    info = Info(constants.MAINNET_API_URL, skip_ws=True)
+    info = HyperliquidClient()
     return get_unit_token_mappings(info, logger)
 
 def update_bridging_leaderboard(data: list):

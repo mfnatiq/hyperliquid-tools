@@ -1,9 +1,9 @@
-from hyperliquid.info import Info
 import pandas as pd
 from src.consts import unitStartTime
+from src.hl_client import HyperliquidClient
 from src.utils.utils import get_today_timestamp_millis
 
-def get_candlestick_data(info: Info, token_ids: list[str], token_names: list[str]) -> pd.DataFrame:
+def get_candlestick_data(info: HyperliquidClient, token_ids: list[str], token_names: list[str]) -> pd.DataFrame:
     rows = []
 
     for k, v in zip(token_ids, token_names):

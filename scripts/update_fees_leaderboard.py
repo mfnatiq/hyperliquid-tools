@@ -17,8 +17,7 @@ import time
 import logging
 import requests
 from dotenv import load_dotenv
-from hyperliquid.info import Info
-from hyperliquid.utils import constants
+from src.hl_client import HyperliquidClient
 from sqlalchemy import create_engine, MetaData, Table, Column, String, Float, Integer, inspect, select, or_
 
 project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -144,7 +143,7 @@ def compute_fees(account: str, token_coin_name_mapping: dict[str, str]) -> float
 
 
 def update_all():
-    info = Info(constants.MAINNET_API_URL, skip_ws=True)
+    info = HyperliquidClient()
     unit_token_mappings = get_unit_token_mappings(info, logger)
     token_coin_name_mapping = {k: v[0] for k, v in unit_token_mappings.items()}
 

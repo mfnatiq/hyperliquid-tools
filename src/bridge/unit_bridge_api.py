@@ -1,15 +1,14 @@
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from hyperliquid.info import Info
-from hyperliquid.utils import constants
+from src.hl_client import HyperliquidClient
 
 
 _LEDGER_PAGE_SIZE = 2000
 
 
 class UnitBridgeInfo():
-    def __init__(self, info: Info | None = None, max_concurrent=10):
-        self._info = info if info is not None else Info(constants.MAINNET_API_URL, skip_ws=True)
+    def __init__(self, info: HyperliquidClient | None = None, max_concurrent=10):
+        self._info = info if info is not None else HyperliquidClient()
         self._max_concurrent = max_concurrent
         self._logger = logging.getLogger(__name__)
 

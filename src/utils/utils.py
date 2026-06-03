@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from logging import Logger
 from millify import millify
 from hyperliquid.utils.types import SpotAssetInfo
-from hyperliquid.info import Info
+from src.hl_client import HyperliquidClient
 
 
 DATE_FORMAT = '%Y-%m-%d %H:%M:%S UTC'
@@ -25,7 +25,7 @@ def format_currency(value: float) -> str:
 # that spinner only runs whenever data is NOT fetched from cache
 # i.e. if data is actually fetched
 # hence reducing unnecessary quick spinner upon fetching from cache
-def get_unit_token_mappings(info: Info, logger: Logger) -> dict[str, tuple[str, int]]:
+def get_unit_token_mappings(info: HyperliquidClient, logger: Logger) -> dict[str, tuple[str, int]]:
     spot_metadata = info.spot_meta()
 
     unit_tokens = (t for t in spot_metadata['tokens']
@@ -65,11 +65,11 @@ def get_unit_token_mappings(info: Info, logger: Logger) -> dict[str, tuple[str, 
     return mapping
 
 
-def get_xyz_token_mappings(info: Info) -> list[str]:
+def get_xyz_token_mappings(info: HyperliquidClient) -> list[str]:
     perp_metadata = info.meta('xyz')
     return list(set(t['name'] for t in perp_metadata['universe']))
 
 
-def get_kinetiq_token_mappings(info: Info) -> list[str]:
+def get_kinetiq_token_mappings(info: HyperliquidClient) -> list[str]:
     perp_metadata = info.meta('km')
     return list(set(t['name'] for t in perp_metadata['universe']))
