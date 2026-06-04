@@ -45,7 +45,7 @@ db_dialect = inspect(engine).dialect.name
 is_postgresql = db_dialect == 'postgresql'
 logger.info(f"detected database dialect: {db_dialect}")
 
-unit_bridge_info = UnitBridgeInfo()
+unit_bridge_info = UnitBridgeInfo(info=HyperliquidClient())
 
 # region table definitions
 metadata = MetaData()
