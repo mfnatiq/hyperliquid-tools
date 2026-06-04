@@ -1,5 +1,9 @@
-from datetime import datetime, timezone
 import os
+import sys
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, project_root)
+
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 import time
 import requests
@@ -8,11 +12,6 @@ from sqlalchemy import DateTime, create_engine, text, MetaData, Table, Column, S
 from sqlalchemy.dialects.postgresql import TIMESTAMP # for pg specific type
 from sqlalchemy.exc import SQLAlchemyError
 from src.hl_client import HyperliquidClient
-
-import sys
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-# add src root to search path so src import works
-sys.path.insert(0, project_root)
 from src.utils.utils import get_unit_token_mappings
 
 logging.basicConfig(

@@ -9,20 +9,19 @@ address seeding logic (mirrors update_bridging_leaderboard.py):
 - any address queried via the dashboard that isn't in the trade leaderboard
   gets added via the inline update in fees_leaderboard.update_fees_leaderboard()
 """
-from datetime import datetime, timedelta, timezone
-import json
 import os
 import sys
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, project_root)
+
+from datetime import datetime, timedelta, timezone
+import json
 import time
 import logging
 import requests
 from dotenv import load_dotenv
-from src.hl_client import HyperliquidClient
 from sqlalchemy import create_engine, MetaData, Table, Column, String, Float, Integer, inspect, select, or_
-
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.insert(0, project_root)
-
+from src.hl_client import HyperliquidClient
 from src.consts import unitStartTime
 from src.utils.utils import get_unit_token_mappings
 from src.trade.fees_leaderboard import update_fees_leaderboard, fees_leaderboard_table, metadata as fees_metadata
