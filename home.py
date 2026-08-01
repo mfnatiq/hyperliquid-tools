@@ -19,6 +19,7 @@ pg = st.navigation(
         'Navigation': [
             st.Page('pages/dashboard.py', title="🔧 Unit Dashboard", default=True),
             st.Page('pages/kinetiq_dashboard.py', title="🔧 Kinetiq Dashboard"),
+            st.Page('pages/hip4_dashboard.py', title="🎯 HIP-4 Markets"),
             st.Page('pages/trial.py', title='⏳ Trial Details'),
             st.Page('pages/liquidity_analysis.py', title='📐 Liquidity Analysis'),
         ]
