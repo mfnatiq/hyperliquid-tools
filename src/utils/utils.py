@@ -71,5 +71,6 @@ def get_xyz_token_mappings(info: HyperliquidClient) -> list[str]:
 
 
 def get_kinetiq_token_mappings(info: HyperliquidClient) -> list[str]:
-    perp_metadata = info.meta('km')
-    return list(set(t['name'] for t in perp_metadata['universe']))
+    perp_metadata_km = info.meta('km')
+    perp_metadata_mkts = info.meta('mkts')
+    return list(set(t['name'] for t in perp_metadata_km['universe'])) + list(set(t['name'] for t in perp_metadata_mkts['universe']))

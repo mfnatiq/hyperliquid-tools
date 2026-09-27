@@ -190,7 +190,7 @@ def announcement():
 @st.dialog("Latest Updates", width="large", on_dismiss="ignore")
 def updates_announcement():
     st.write("""
-        🚨 2026-02-02: Added Kinetiq Markets data
+        🚨 2026-09-27: Fixed Kinetiq Markets data fetching
 
         Enjoy!
     """)
