@@ -183,9 +183,7 @@ def announcement():
     st.write("""
         This site lets you view your HyperUnit trading / bridging volume, along with some other metrics.
 
-        If you like what you see, please consider subscribing :)
-
-        Enjoy!
+        If you like what you see, please consider subscribing :) Enjoy!
     """)
 @st.dialog("Latest Updates", width="large", on_dismiss="ignore")
 def updates_announcement():
