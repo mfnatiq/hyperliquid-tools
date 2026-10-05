@@ -62,7 +62,28 @@ class Snapshot:
         self.vs = vs
         self.missing = [k.upper() for k in a.venues.split(",") if k.upper() not in vs]  # venues that did not respond
         self.fetched_at = datetime.now(timezone.utc)
+        self.books_at = self.fetched_at
+        self._need = need
+        self._pool_size = a.workers
         self._lock = threading.Lock()  # rows() edits the shared args namespace the venues read their fees from
+
+    def refresh_books(self, min_age_s: float = 45.0) -> bool:
+        """refetch the order books of the candidate pairs and nothing else (funding history stays as fetched).
+        skipped when the books are younger than min_age_s, so many open pages share one refresh. a failed
+        fetch keeps the previous book. returns True when it refetched."""
+        with self._lock:
+            if (datetime.now(timezone.utc) - self.books_at).total_seconds() < min_age_s:
+                return False
+            jobs = [(v, t) for k, v in self.vs.items() if v.has_books for t in self._need[k]]
+            with ThreadPoolExecutor(self._pool_size) as pool:
+                for v in self.vs.values():
+                    fs.safe(v.refresh, tag=f"{v.key} refresh")
+                books = pool.map(lambda j: fs.safe(j[0].fetch_book, j[1], tag=f"{j[0].key} book {j[1]}"), jobs)
+                for (v, t), b in zip(jobs, books):
+                    if b is not None:
+                        v.books[t] = b
+            self.books_at = datetime.now(timezone.utc)
+        return True
 
     def rows(self, notional: float, hold_days: float = 3.0, taker_bps: dict[str, float] | None = None) -> list[dict]:
         """graded pairs, best edge first. pairs that were skipped (no fill, break-even too long) are left out."""
