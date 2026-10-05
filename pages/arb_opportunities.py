@@ -194,8 +194,6 @@ def page():
                 "Round-trip Cost (bps)": r["rt_cost_bps"],
                 "Slip Short (bps)": r["slip_short_bps"],
                 "Slip Long (bps)": r["slip_long_bps"],
-                "Fee Short (bps)": r["short_fee_bps"],
-                "Fee Long (bps)": r["long_fee_bps"],
                 "Mid Basis (bps)": r["mid_basis_bps"],
                 "Edge (bps)": r["edge_bps"],
                 "Note": r["note"],
@@ -212,11 +210,21 @@ def page():
         .map(banded(3, 7), subset=["Break-even (days)", "Break-even incl. basis (days)"])
         .format("{:.1f}", subset=numeric, na_rep="-")
     )
+    fee_help = "Taker fees: " + ", ".join(
+        f"{VENUE_NAMES[k]} {taker_bps[k]:.2f} bps" for k in FEE_PRESETS
+    ) + ", Phoenix per market (its own config). Change them under Fees"
     st.dataframe(
         styled,
         hide_index=True,
         use_container_width=True,
         column_config={
+            "Route (short → long)": st.column_config.TextColumn("Route (short → long)", help=fee_help),
+            "Round-trip Cost (bps)": st.column_config.NumberColumn(
+                "Round-trip Cost (bps)",
+                help="2 x (slippage on both legs + taker fees on both legs). Slippage is the VWAP of walking the book "
+                     "for the full notional (bids on the sell leg, asks on the buy leg) against that venue's own mid. "
+                     "Exit is assumed to cost the same as entry",
+            ),
             "Sustain (%)": st.column_config.ProgressColumn("Sustain (%)", min_value=0, max_value=100, format="%.0f%%"),
         },
     )
