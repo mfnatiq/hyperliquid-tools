@@ -22,6 +22,7 @@ pg = st.navigation(
             st.Page('pages/hip4_dashboard.py', title="🎯 HIP-4 Markets"),
             st.Page('pages/trial.py', title='⏳ Trial Details'),
             st.Page('pages/liquidity_analysis.py', title='📐 Liquidity Analysis'),
+            st.Page('pages/arb_opportunities.py', title='💱 Arb Opportunities'),
         ]
     }
 )

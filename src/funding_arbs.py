@@ -17,6 +17,12 @@ AVAILABLE = fs is not None
 FEE_OPTIONS = {"Hyperliquid": "--hl-taker-bps", "Extended": "--ext-taker-bps"}
 
 
+def default_taker_bps() -> dict[str, float]:
+    """registry taker fees for the exchanges in FEE_OPTIONS, to seed the page's inputs."""
+    a = fs.make_parser().parse_args([])
+    return {"Hyperliquid": a.hl_taker_bps, "Extended": a.ext_taker_bps}
+
+
 def scan(notional: float, *, metric: str = "24h", top: int = 25, hold_days: float = 3.0,
          taker_bps: dict[str, float] | None = None) -> list[dict]:
     """graded funding pairs, best first. skipped pairs (no fill, break-even too long) are left out.
