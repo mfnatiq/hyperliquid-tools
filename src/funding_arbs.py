@@ -35,7 +35,7 @@ class Snapshot:
     def __init__(self, metric: str = "24h", min_carry_pct: float = 10.0, top: int = 25):
         # a higher min carry means fewer per-ticker history and book calls, which is what trips venue rate limits
         self.a = fs.make_parser().parse_args(["--venues", fs.FUNDING_VENUES, "--metric", metric,
-                                              "--min-carry", str(min_carry_pct), "--top", str(top), "--sort", "smart"])
+                                              "--min-carry", str(min_carry_pct), "--top", str(top), "--sort", "verdict"])
         a = self.a
         vs = fs.build_venues(a.venues, a)
         pool = ThreadPoolExecutor(a.workers)
@@ -60,6 +60,7 @@ class Snapshot:
         finally:
             pool.shutdown(wait=False)
         self.vs = vs
+        self.missing = [k.upper() for k in a.venues.split(",") if k.upper() not in vs]  # venues that did not respond
         self.fetched_at = datetime.now(timezone.utc)
         self._lock = threading.Lock()  # rows() edits the shared args namespace the venues read their fees from
 
@@ -72,4 +73,7 @@ class Snapshot:
                 if k in FEE_OPTIONS:
                     setattr(a, FEE_OPTIONS[k], bps)
             rows = [fs.grade(fs.analyse(c, self.vs, a), c, a) for c in self.cands]
-        return [r for r in fs.sort_rows(rows, a.sort) if r["verdict"] != "SKIP"]
+            for r in rows:  # each leg's own taker fee (analyse only keeps the sum)
+                r["short_fee_bps"] = self.vs[r["short"]].fee_bps(r["ticker"])
+                r["long_fee_bps"] = self.vs[r["long"]].fee_bps(r["ticker"])
+        return [r for r in fs.sort_rows(rows, "verdict") if r["verdict"] != "SKIP"]  # GOOD, OK, MARGINAL, then break-even

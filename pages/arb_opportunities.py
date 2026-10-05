@@ -10,72 +10,82 @@ st.header("Funding Arb Opportunities")
 if not funding_arbs.AVAILABLE:
     st.info(
         "Install trading-tools to see cross-venue funding carry with entry and exit costs: "
-        "`pip install ../trading-tools` (private repo, needs read access)."
+        "`pip install ../trading-tools` (private repo, needs read access)"
     )
     st.stop()
 
+VENUE_NAMES = {"PHX": "Phoenix", "VAR": "Variational", "RISE": "RISEx", "HL": "Hyperliquid", "EXT": "Extended"}
+
 st.markdown("""
-- Short the venue with the higher funding rate, long the lower one, equal USD on each leg
+- Short the venue with the higher funding rate, long the one with the lower rate, same USD size on each leg
 - Round-trip cost = 2 x (slippage on both legs + taker fees on both legs), i.e. entry plus exit
-- Break-even days = round-trip cost / daily carry. Edge = expected carry over the hold, less round-trip cost and adverse mid basis
-- Venue fees, rate limits and symbol aliases come from trading-tools (`bot/venues.toml`)
+- Break-even days = round-trip cost / daily carry
+- Edge = expected carry over the hold, less round-trip cost and adverse mid basis
 """)
 
-# taker fee presets per venue (bps). the first entry is the trading-tools default
+# region taker fees
+# presets per venue (bps), the first entry is the trading-tools default
 FEE_PRESETS = {
-    "HL": ("Hyperliquid", [(4.5, "<5M 14D volume, 0 HYPE staked"), (4.0, ">5M 14D volume"), (3.5, ">25M 14D volume"),
-                           (3.0, ">100M 14D volume"), (2.8, ">500M 14D volume"), (2.6, ">2B 14D volume"),
-                           (2.4, ">7B 14D volume")]),
-    "EXT": ("Extended", [(2.5, "base"), (2.0, "API tier listed by some sources")]),
-    "RISE": ("RISEx", [(3.0, "tier 1"), (2.0, "low end of the docs range")]),
-    "VAR": ("Variational", [(0.0, "no fee, spread is in the quotes")]),
+    "HL": [(4.5, "<5M 14D volume, 0 HYPE staked"), (4.0, ">5M 14D volume"), (3.5, ">25M 14D volume"),
+           (3.0, ">100M 14D volume"), (2.8, ">500M 14D volume"), (2.6, ">2B 14D volume"), (2.4, ">7B 14D volume")],
+    "EXT": [(2.5, "base"), (2.0, "API tier listed by some sources")],
+    "RISE": [(3.0, "tier 1"), (2.0, "low end of the docs range")],
+    "VAR": [(0.0, "no fee, spread is in the quotes")],
 }
-st.caption("Taker fees. Phoenix is not listed because its fee comes from each market's own config.")
-fee_cols = st.columns(len(FEE_PRESETS))
+
+st.subheader("Taker Fees")
+st.caption("Phoenix charges the fee set on each market, so it has no selector")
 taker_bps = {}
-for col, (key, (name, presets)) in zip(fee_cols, FEE_PRESETS.items()):
+fee_cols = st.columns(len(FEE_PRESETS))
+for col, (key, presets) in zip(fee_cols, FEE_PRESETS.items()):
     with col:
         i = st.selectbox(
-            f"{name} taker",
+            VENUE_NAMES[key],
             range(len(presets)),
             format_func=lambda i, presets=presets: f"{presets[i][0]:.2f} bps ({presets[i][1]})",
             key=f"fee_{key}",
         )
         taker_bps[key] = presets[i][0]
+# endregion
 
-c1, c2, c3, c4 = st.columns(4)
+st.subheader("Settings")
+c1, c2, c3 = st.columns(3)
 with c1:
     notional = st.selectbox("Notional per leg (USD)", [1_000, 10_000, 50_000, 100_000, 500_000], index=1)
 with c2:
     metric = st.selectbox("Funding metric", ["24h", "7d", "last"], index=0)
 with c3:
     hold_days = st.number_input("Hold (days)", min_value=0.5, max_value=30.0, value=3.0, step=0.5)
-with c4:
-    min_carry = st.number_input(
-        "Min carry (APR %)", min_value=0.0, value=10.0, step=5.0,
-        help="Pairs below this carry are never fetched. Lower it to see more pairs; it costs more API calls.",
-    )
+min_carry = st.slider(
+    "Min carry (APR %)", min_value=10, max_value=200, value=10, step=5,
+    help="Pairs below this carry are never fetched, so a higher value means fewer API calls",
+)
 
 
 @st.cache_resource(ttl=600, show_spinner=False)
 def get_snapshot(metric: str, min_carry: float):
-    """funding history and order books, fetched once per 10 minutes for everyone. a failure is not cached."""
+    """funding history and order books, fetched once per 10 minutes for everyone, a failure is not cached"""
     return funding_arbs.Snapshot(metric=metric, min_carry_pct=min_carry)
 
 
 try:
-    with st.spinner("Fetching funding and order books from each venue (up to a minute)..."):
+    with st.spinner("Fetching funding and order books from each venue (up to a minute)"):
         snapshot = get_snapshot(metric, float(min_carry))
 except Exception as e:
-    st.error(f"Could not fetch venue data: {e}. Wait a minute and reload; venue APIs rate limit repeated calls.")
+    st.error(f"Could not fetch venue data: {e}. Wait a minute and reload, venue APIs rate limit repeated calls")
     st.stop()
 
 # priced from the cached snapshot, so changing notional, hold or fees makes no API calls
 rows = snapshot.rows(float(notional), float(hold_days), taker_bps)
-st.caption(f"Venue data fetched {snapshot.fetched_at:%Y-%m-%d %H:%M:%S} UTC, refreshed every 10 minutes.")
+
+used = ", ".join(VENUE_NAMES.get(k, k) for k in snapshot.vs)
+st.caption(f"Venues used: {used}")
+if snapshot.missing:
+    st.warning("No data from " + ", ".join(VENUE_NAMES.get(k, k) for k in snapshot.missing) + ", so pairs with them are missing")
+st.caption(f"Venue data fetched {snapshot.fetched_at:%Y-%m-%d %H:%M:%S} UTC, refreshed every 10 minutes")
 
 if not rows:
-    st.write("No pairs passed the filters. Try a lower min carry or a smaller notional.")
+    st.write("No pairs passed the filters, try a lower min carry or a smaller notional")
     st.stop()
 
 pct = lambda x: None if x is None else x * 100
@@ -89,7 +99,8 @@ df = pd.DataFrame(
             "Carry (APR %)": pct(r["carry_apr"]),
             "Slip Short (bps)": r["slip_short_bps"],
             "Slip Long (bps)": r["slip_long_bps"],
-            "Taker Fees (bps)": r["fee_bps"],
+            "Fee Short (bps)": r["short_fee_bps"],
+            "Fee Long (bps)": r["long_fee_bps"],
             "Mid Basis (bps)": r["mid_basis_bps"],
             "Round-trip Cost (bps)": r["rt_cost_bps"],
             "Break-even (days)": r["breakeven_d"],
@@ -102,8 +113,39 @@ df = pd.DataFrame(
         for r in rows
     ]
 )
-st.dataframe(df, hide_index=True, use_container_width=True)
-st.caption(
-    "Mid basis > 0 is favourable. Sustain = share of the last 7 days' shared hours with carry in our favour. "
-    "Spread risk is Med above 5 bps and High above 12 bps of slippage plus adverse basis, or when a leg is thinner than the notional."
+
+# region colour coding, green is good and red is bad
+GREEN, AMBER, RED = "rgba(46,160,67,0.35)", "rgba(210,153,34,0.35)", "rgba(248,81,73,0.35)"
+
+
+def banded(good: float, ok: float):
+    """lower is better: green up to `good`, amber up to `ok`, red above"""
+    def style(v):
+        if v is None or pd.isna(v):
+            return ""
+        return f"background-color: {GREEN if v <= good else AMBER if v <= ok else RED}"
+    return style
+
+
+VERDICT_COLOURS = {"GOOD": GREEN, "OK": AMBER, "MARGINAL": RED}
+RISK_COLOURS = {"Low": GREEN, "Med": AMBER, "High": RED}
+colour_map = lambda m: (lambda v: f"background-color: {m[v]}" if v in m else "")
+
+styled = (
+    df.style
+    .map(colour_map(VERDICT_COLOURS), subset=["Verdict"])
+    .map(colour_map(RISK_COLOURS), subset=["Spread Risk"])
+    .map(banded(20, 40), subset=["Round-trip Cost (bps)"])
+    .map(banded(3, 7), subset=["Break-even (days)", "Break-even incl. basis (days)"])
+    .format("{:.1f}", subset=df.select_dtypes("number").columns, na_rep="-")
 )
+st.dataframe(styled, hide_index=True, use_container_width=True)
+st.caption(
+    "Sorted GOOD, then OK, then MARGINAL, and by break-even within each. "
+    "Green is cheap or quick to pay back: round-trip cost up to 20 bps, break-even up to 3 days. "
+    "Amber is up to 40 bps and 7 days, red is above that. "
+    "Mid basis above 0 is favourable. "
+    "Sustain is the share of the last 7 days' shared hours with the carry in our favour. "
+    "Spread risk is Med above 5 bps and High above 12 bps of slippage plus adverse basis, or when a leg is thinner than the notional"
+)
+# endregion
