@@ -39,8 +39,9 @@ st.markdown(
 )
 
 
-HOLD_DAYS = 3.0  # the hold used for the Edge column
-FUNDING_TTL_S, BOOKS_EVERY_S = 1800, 120
+HOLD_DAYS = 3.0  # hold used for the Edge column
+FUNDING_TTL_S = 300
+BOOKS_EVERY_S = 120
 
 
 @st.cache_resource(ttl=FUNDING_TTL_S, show_spinner=False)
@@ -224,17 +225,17 @@ def table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max
     with st.expander("Info and assumptions"):
         st.markdown(
             "\n".join(f"- {line}" for line in [
-                "Short the venue with the higher funding rate, long the other, same USD size on each leg.",
-                "Round-trip cost = 2 x (slippage + taker fees on both legs), i.e. entry plus exit.",
-                f"Taker fees in bps, from trading-tools' venues.toml: {fees}. Phoenix uses the fee set on each market.",
-                "Break-even = round-trip cost / daily carry.",
-                f"Edge = expected carry over a {HOLD_DAYS:g} day hold, less round-trip cost and adverse basis.",
-                "Green is cheap or quick to repay: round-trip cost up to 20 bps, break-even up to 3 days.",
-                "Amber is up to 40 bps and 7 days, red is above.",
-                "Mid basis above 0 is favourable.",
-                "Spread risk is Med above 5 bps and High above 12 bps of slippage plus adverse basis, or when a leg is thinner than the position.",
-                f"Funding history fetched {snapshot.fetched_at:%H:%M:%S} UTC (every {FUNDING_TTL_S // 60} minutes).",
-                f"Order books {snapshot.books_at:%H:%M:%S} UTC (every {BOOKS_EVERY_S // 60} minutes).",
+                "Short the venue with the higher funding rate, long the other, same USD size on each leg",
+                "Round-trip cost = 2 x (slippage + taker fees on both legs), i.e. entry plus exit",
+                f"Taker fees in bps, from trading-tools' venues.toml: {fees}. Phoenix uses the fee set on each market",
+                "Break-even = round-trip cost / daily carry",
+                f"Edge = expected carry over a {HOLD_DAYS:g} day hold, less round-trip cost and adverse basis",
+                "Green is cheap or quick to repay: round-trip cost up to 20 bps, break-even up to 3 days",
+                "Amber is up to 40 bps and 7 days, red is above",
+                "Mid basis above 0 is favourable",
+                "Spread risk is Med above 5 bps and High above 12 bps of slippage plus adverse basis, or when a leg is thinner than the position",
+                f"Funding history fetched {snapshot.fetched_at:%H:%M:%S} UTC (every {FUNDING_TTL_S // 60} minutes)",
+                f"Order books {snapshot.books_at:%H:%M:%S} UTC (every {BOOKS_EVERY_S // 60} minutes)",
             ])
         )
 
