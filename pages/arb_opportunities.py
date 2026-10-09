@@ -26,15 +26,6 @@ SORTS = {
     "Break-even": lambda r: r["be_all_d"] if r["be_all_d"] is not None else 1e9,
 }
 
-# taker fee presets per venue (bps), the first entry is the trading-tools default
-FEE_PRESETS = {
-    "HL": [(4.5, "<5M 14D volume, 0 HYPE staked"), (4.0, ">5M 14D volume"), (3.5, ">25M 14D volume"),
-           (3.0, ">100M 14D volume"), (2.8, ">500M 14D volume"), (2.6, ">2B 14D volume"), (2.4, ">7B 14D volume")],
-    "EXT": [(2.5, "base"), (2.0, "API tier listed by some sources")],
-    "RISE": [(3.0, "tier 1"), (2.0, "low end of the docs range")],
-    "VAR": [(0.0, "no fee, spread is in the quotes")],
-}
-
 GREEN, AMBER, RED = "rgba(46,160,67,0.35)", "rgba(210,153,34,0.35)", "rgba(248,81,73,0.35)"
 
 st.markdown(
@@ -51,9 +42,13 @@ st.markdown(
 )
 
 
-@st.cache_resource(ttl=600, show_spinner=False)
+HOLD_DAYS = 3.0  # the hold used for the Edge column
+FUNDING_TTL_S, BOOKS_EVERY_S = 1800, 120
+
+
+@st.cache_resource(ttl=FUNDING_TTL_S, show_spinner=False)
 def get_snapshot(metric: str, min_carry: float):
-    """funding history and order books, fetched once per 10 minutes for everyone, a failure is not cached"""
+    """funding history and order books, fetched once per 30 minutes for everyone, a failure is not cached"""
     return funding_arbs.Snapshot(metric=metric, min_carry_pct=min_carry)
 
 
@@ -69,23 +64,24 @@ def banded(good: float, ok: float):
 colour_map = lambda m: (lambda v: f"background-color: {m[v]}" if v in m else "")
 
 
-@st.fragment(run_every=60)
-def page():
-    """re-runs on its own every minute (order books only) and on any widget change, without rerunning the app"""
-    # region controls
-    bar = st.columns([2.2, 1.6, 1.1, 1.1, 2.4], vertical_alignment="center")
-    status_slot = bar[0].empty()
-    sort_by = bar[1].segmented_control("Sort", list(SORTS), default="Verdict", label_visibility="collapsed")
-    sort_by = sort_by or "Verdict"
-
-    with bar[2].popover("Filters", use_container_width=True):
+def controls():
+    """widgets live outside the fragment, so only a change here reruns the page"""
+    bar = st.columns([1.6, 1.1, 2.4], vertical_alignment="center")
+    sort_by = bar[0].segmented_control("Sort", list(SORTS), default="Verdict", label_visibility="collapsed") or "Verdict"
+    with bar[1].popover("Filters", use_container_width=True):
         st.markdown("**Venues**")
         names_sel = st.pills(
             "Venues", list(VENUE_NAMES.values()), default=list(VENUE_NAMES.values()), selection_mode="multi",
             label_visibility="collapsed", key="f_venues",
         ) or []
-        venues_sel = [k for k, name in VENUE_NAMES.items() if name in names_sel]
         st.caption("A pair needs both of its venues selected")
+        notional = st.selectbox("Position per leg (USD)", [1_000, 10_000, 50_000, 100_000, 500_000], index=1, key="s_notional")
+        metric = st.selectbox(
+            "Funding metric", ["24h", "7d", "last"], index=0, key="s_metric",
+            help="Which funding rate the carry uses: the average of the last 24 hours, of the last 7 days, or the latest "
+                 "reading. Every rate is converted to an annual percentage first, so venues that pay hourly or every "
+                 "8 hours compare directly",
+        )
         sustain_min = st.slider(
             "Sustainability, min (%)", 0, 100, 0, step=5, key="f_sustain",
             help="Share of the last 7 days' shared hours with the carry in our favour",
@@ -100,60 +96,57 @@ def page():
         )
         risk_max = st.select_slider("Spread risk, max", ["Low", "Med", "High"], value="High", key="f_risk")
         counts_slot = st.empty()
+    search = bar[2].text_input(
+        "Search", placeholder="Filter by token, e.g. BTC", label_visibility="collapsed", key="f_search",
+        help="Narrows the table below to tickers containing this text. It only sees the pairs already listed, "
+             "it does not look up other markets",
+    )
+    return sort_by, [k for k, name in VENUE_NAMES.items() if name in names_sel], float(notional), metric, \
+        sustain_min, be_max, min_carry, risk_max, search.strip(), counts_slot
 
-    with bar[3].popover("Fees", use_container_width=True):
-        st.markdown("**Taker fees**")
-        st.caption("Phoenix charges the fee set on each market, so it has no selector")
-        taker_bps = {}
-        for key, presets in FEE_PRESETS.items():
-            i = st.selectbox(
-                VENUE_NAMES[key], range(len(presets)), key=f"fee_{key}",
-                format_func=lambda i, presets=presets: f"{presets[i][0]:.2f} bps ({presets[i][1]})",
-            )
-            taker_bps[key] = presets[i][0]
-        st.markdown("**Position**")
-        notional = st.selectbox("Notional per leg (USD)", [1_000, 10_000, 50_000, 100_000, 500_000], index=1, key="s_notional")
-        hold_days = st.number_input("Hold (days)", min_value=0.5, max_value=30.0, value=3.0, step=0.5, key="s_hold")
-        metric = st.selectbox("Funding metric", ["24h", "7d", "last"], index=0, key="s_metric")
 
-    search = bar[4].text_input("Search", placeholder="Search pairs", label_visibility="collapsed", key="f_search")
-    # endregion
+sort_by, venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max, search, counts_slot = controls()
 
+chips = []
+if len(venues_sel) != len(VENUE_NAMES):
+    chips.append(f"Venues {len(venues_sel)}/{len(VENUE_NAMES)}")
+if sustain_min > 0:
+    chips.append(f"Sustain ≥ {sustain_min}%")
+if be_max < 14:
+    chips.append(f"Break-even ≤ {be_max:g}d")
+if min_carry > 10:
+    chips.append(f"Carry ≥ {min_carry}%")
+if risk_max != "High":
+    chips.append(f"Risk ≤ {risk_max}")
+if search:
+    chips.append(f"Search “{search}”")
+if chips:
+    st.markdown("".join(f'<span class="chip">{html.escape(c)}</span>' for c in chips), unsafe_allow_html=True)
+
+status_slot = st.empty()
+table_slot = st.container()
+
+
+@st.fragment(run_every=BOOKS_EVERY_S)
+def table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max, search, sort_by):
+    """re-runs on its own and refreshes the order books and this table only, not the controls above it"""
     try:
         with st.spinner("Fetching funding and order books from each venue (up to a minute)"):
             snapshot = get_snapshot(metric, float(min_carry))  # asked for on every run, so it rebuilds when its cache expires
     except Exception as e:
         st.error(f"Could not fetch venue data: {e}. Wait a minute and reload, venue APIs rate limit repeated calls")
         return
-    snapshot.refresh_books()
+    snapshot.refresh_books(min_age_s=BOOKS_EVERY_S - 20)
 
     age = (datetime.now(timezone.utc) - snapshot.books_at).total_seconds()
     status_slot.markdown(
-        f'<span class="live-dot{" stale" if age > 150 else ""}"></span>'
+        f'<span class="live-dot{" stale" if age > 2 * BOOKS_EVERY_S + 30 else ""}"></span>'
         f'<span class="live-text">LIVE {age:.0f}s ago</span>',
         unsafe_allow_html=True,
     )
 
-    # region active filter chips
-    chips = []
-    if len(venues_sel) != len(VENUE_NAMES):
-        chips.append(f"Venues {len(venues_sel)}/{len(VENUE_NAMES)}")
-    if sustain_min > 0:
-        chips.append(f"Sustain ≥ {sustain_min}%")
-    if be_max < 14:
-        chips.append(f"Break-even ≤ {be_max:g}d")
-    if min_carry > 10:
-        chips.append(f"Carry ≥ {min_carry}%")
-    if risk_max != "High":
-        chips.append(f"Risk ≤ {risk_max}")
-    if search.strip():
-        chips.append(f"Search “{search.strip()}”")
-    if chips:
-        st.markdown("".join(f'<span class="chip">{html.escape(c)}</span>' for c in chips), unsafe_allow_html=True)
-    # endregion
-
-    # priced from cached data, so changing notional, hold or fees makes no API calls
-    all_rows = snapshot.rows(float(notional), float(hold_days), taker_bps)
+    # priced from cached data, so changing the position makes no API calls
+    all_rows = snapshot.rows(notional, HOLD_DAYS)
 
     def keep(r):
         return (
@@ -161,7 +154,7 @@ def page():
             and (sustain_min == 0 or (r["sustain"] is not None and r["sustain"] * 100 >= sustain_min))
             and r["be_all_d"] is not None and r["be_all_d"] <= be_max
             and RISK_RANK.get(r["risk"], 0) <= RISK_RANK[risk_max]
-            and search.strip().upper() in r["ticker"].upper()
+            and search.upper() in r["ticker"].upper()
         )
 
     rows = [r for r in all_rows if keep(r)]
@@ -169,8 +162,6 @@ def page():
         rows = sorted(rows, key=SORTS[sort_by])
     counts_slot.caption(f"{len(rows)} of {len(all_rows)} pairs")
 
-    used = ", ".join(VENUE_NAMES.get(k, k) for k in snapshot.vs)
-    st.caption(f"Venues used: {used}")
     if snapshot.missing:
         st.warning("No data from " + ", ".join(VENUE_NAMES.get(k, k) for k in snapshot.missing) + ", so pairs with them are missing")
 
@@ -210,36 +201,46 @@ def page():
         .map(banded(3, 7), subset=["Break-even (days)", "Break-even incl. basis (days)"])
         .format("{:.1f}", subset=numeric, na_rep="-")
     )
-    fee_help = "Taker fees: " + ", ".join(
-        f"{VENUE_NAMES[k]} {taker_bps[k]:.2f} bps" for k in FEE_PRESETS
-    ) + ", Phoenix per market (its own config). Change them under Fees"
     st.dataframe(
         styled,
         hide_index=True,
         use_container_width=True,
+        height=min(38 + 35 * len(df), 900),
         column_config={
-            "Route (short → long)": st.column_config.TextColumn("Route (short → long)", help=fee_help),
+            "Verdict": st.column_config.TextColumn(
+                "Verdict",
+                help="GOOD: break-even incl. basis within 3 days and no warning. OK: within 7 days and at most one warning. "
+                     "Otherwise MARGINAL. Warnings: basis against us, unstable carry, a leg thinner than the position "
+                     "within 10 bps, a stale Variational quote. A short break-even with a warning grades lower, so the "
+                     "shortest break-even is not always the best verdict",
+            ),
             "Round-trip Cost (bps)": st.column_config.NumberColumn(
                 "Round-trip Cost (bps)",
                 help="2 x (slippage on both legs + taker fees on both legs). Slippage is the VWAP of walking the book "
-                     "for the full notional (bids on the sell leg, asks on the buy leg) against that venue's own mid. "
+                     "for the full position (bids on the sell leg, asks on the buy leg) against that venue's own mid. "
                      "Exit is assumed to cost the same as entry",
             ),
             "Sustain (%)": st.column_config.ProgressColumn("Sustain (%)", min_value=0, max_value=100, format="%.0f%%"),
         },
     )
-    st.caption(
-        "Short the venue with the higher funding rate, long the other, same USD size on each leg. "
-        "Round-trip cost = 2 x (slippage + taker fees on both legs), i.e. entry plus exit. "
-        "Break-even = round-trip cost / daily carry. "
-        "Edge = expected carry over the hold, less round-trip cost and adverse basis. "
-        "Green is cheap or quick to repay: round-trip cost up to 20 bps, break-even up to 3 days. "
-        "Amber is up to 40 bps and 7 days, red is above. "
-        "Mid basis above 0 is favourable. "
-        "Spread risk is Med above 5 bps and High above 12 bps of slippage plus adverse basis, or when a leg is thinner than the notional. "
-        f"Funding history fetched {snapshot.fetched_at:%H:%M:%S} UTC (every 10 minutes), "
-        f"order books {snapshot.books_at:%H:%M:%S} UTC (every minute)"
-    )
+    fees = ", ".join(f"{VENUE_NAMES.get(k, k)} {v:g}" for k, v in funding_arbs.taker_bps().items() if k in VENUE_NAMES)
+    with st.expander("Info and assumptions"):
+        st.markdown(
+            "\n".join(f"- {line}" for line in [
+                "Short the venue with the higher funding rate, long the other, same USD size on each leg.",
+                "Round-trip cost = 2 x (slippage + taker fees on both legs), i.e. entry plus exit.",
+                f"Taker fees in bps, from trading-tools' venues.toml: {fees}. Phoenix uses the fee set on each market.",
+                "Break-even = round-trip cost / daily carry.",
+                f"Edge = expected carry over a {HOLD_DAYS:g} day hold, less round-trip cost and adverse basis.",
+                "Green is cheap or quick to repay: round-trip cost up to 20 bps, break-even up to 3 days.",
+                "Amber is up to 40 bps and 7 days, red is above.",
+                "Mid basis above 0 is favourable.",
+                "Spread risk is Med above 5 bps and High above 12 bps of slippage plus adverse basis, or when a leg is thinner than the position.",
+                f"Funding history fetched {snapshot.fetched_at:%H:%M:%S} UTC (every {FUNDING_TTL_S // 60} minutes).",
+                f"Order books {snapshot.books_at:%H:%M:%S} UTC (every {BOOKS_EVERY_S // 60} minutes).",
+            ])
+        )
 
 
-page()
+with table_slot:
+    table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max, search, sort_by)

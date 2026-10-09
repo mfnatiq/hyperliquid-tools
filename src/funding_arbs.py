@@ -3,8 +3,8 @@
 this is the same scan as `python funding_scan.py`, split in two so the page does not hit the venue APIs on every
 widget change:
   Snapshot(...)   fetches funding history and order books once. cache it for a few minutes.
-  snapshot.rows() prices the pairs for a notional, hold and set of taker fees from that cached data. no network.
-venue fees, rate limits and symbol aliases come from trading-tools' own bot/venues.toml.
+  snapshot.rows() prices the pairs for a notional and hold from that cached data. no network.
+venue fees, rate limits and symbol aliases come only from trading-tools' own bot/venues.toml.
 """
 import threading
 from collections import Counter
@@ -18,14 +18,10 @@ except ImportError:  # trading-tools is a private repo and an optional install
 
 AVAILABLE = fs is not None
 
-# venue key -> funding_scan option holding its taker fee. PHX is absent: Phoenix reports a fee per market.
-FEE_OPTIONS = {"HL": "hl_taker_bps", "EXT": "ext_taker_bps", "RISE": "rise_taker_bps", "VAR": "var_fee_bps"}
 
-
-def default_taker_bps() -> dict[str, float]:
-    """registry taker fees for the venues in FEE_OPTIONS."""
-    a = fs.make_parser().parse_args([])
-    return {k: getattr(a, opt) for k, opt in FEE_OPTIONS.items()}
+def taker_bps() -> dict[str, float]:
+    """taker fee per venue key from venues.toml (Phoenix is per market, so it is left out)."""
+    return {k.upper(): float(v["taker_bps"]) for k, v in fs.REGISTRY.items() if isinstance(v, dict) and "taker_bps" in v}
 
 
 class Snapshot:
@@ -65,7 +61,7 @@ class Snapshot:
         self.books_at = self.fetched_at
         self._need = need
         self._pool_size = a.workers
-        self._lock = threading.Lock()  # rows() edits the shared args namespace the venues read their fees from
+        self._lock = threading.Lock()  # rows() edits the shared args namespace (notional, hold)
 
     def refresh_books(self, min_age_s: float = 45.0) -> bool:
         """refetch the order books of the candidate pairs and nothing else (funding history stays as fetched).
@@ -85,14 +81,11 @@ class Snapshot:
             self.books_at = datetime.now(timezone.utc)
         return True
 
-    def rows(self, notional: float, hold_days: float = 3.0, taker_bps: dict[str, float] | None = None) -> list[dict]:
+    def rows(self, notional: float, hold_days: float = 3.0) -> list[dict]:
         """graded pairs, best edge first. pairs that were skipped (no fill, break-even too long) are left out."""
         with self._lock:
             a = self.a
             a.notional, a.hold_days = notional, hold_days
-            for k, bps in (taker_bps or {}).items():
-                if k in FEE_OPTIONS:
-                    setattr(a, FEE_OPTIONS[k], bps)
             rows = [fs.grade(fs.analyse(c, self.vs, a), c, a) for c in self.cands]
             for r in rows:  # each leg's own taker fee (analyse only keeps the sum)
                 r["short_fee_bps"] = self.vs[r["short"]].fee_bps(r["ticker"])
