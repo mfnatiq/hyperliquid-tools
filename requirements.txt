@@ -18,4 +18,4 @@ web3
 
 # private repo: needs GH_TOKEN (read access to mfnatiq/trading-tools) in the environment at install time, locally and on Railway.
 # pinned to a commit so a change there cannot break this site by surprise. bump the sha on purpose.
-trading-tools @ git+https://${GH_TOKEN}@github.com/mfnatiq/trading-tools@7e0338d2e4914c9f0cf3e7bb1340596786a357e7
+trading-tools @ git+https://${GH_TOKEN}@github.com/mfnatiq/trading-tools@47c5a0fb3e409e143c6936ff1eba20bd2937070f
