@@ -18,14 +18,20 @@ Tested with python 3.13
 - `history.py` keeps price history in fixed-size ring buffers, so the oldest value is overwritten and memory never grows.
   The fine ring is 1s steps for 1h and the coarse ring is 10s steps for 3d, stored as float32. For 36 series (6 venues times
   6 tokens) with mid plus buy and sell VWAP at one clip, that is about 11 MB for the 3-day ring.
-- Planned next: install `trading-tools` as a dependency for the venue adapters and websocket feeds (Hyperliquid, Extended,
-  RISEx, Phoenix), a background store with REST fallback per market, and the page itself. Variational and TxFlow would be
-  REST only.
+- `trading-tools` is installed from `requirements.txt` at a pinned commit and supplies the venue adapters and websocket
+  feeds (Hyperliquid, Extended, RISEx, Phoenix). The Arb Opportunities page uses it today. Planned next: a background store
+  with REST fallback per market, and the live liquidity page. Variational and TxFlow would be REST only.
 
 Tests run with `pytest tests` and need `numpy` and `pytest`. They do not touch the network.
 
 ### Deployment
 
 Currently deployed with Railway (referral code: https://railway.com?referralCode=_uracj)
+
+`trading-tools` is a private repo, so the build needs a token. Create a fine-grained GitHub token with read-only
+"Contents" access to `mfnatiq/trading-tools` only, and add it as a Railway service variable named `GH_TOKEN`. Railway makes
+service variables available during the build, and pip fills in `${GH_TOKEN}` in `requirements.txt`. No other repo link
+is needed. To pick up a new trading-tools version, change the commit sha at the end of that line.
+Locally, export `GH_TOKEN` before `pip install -r requirements.txt`.
 
 Last Updated: 2026-04-19

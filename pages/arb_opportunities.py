@@ -12,8 +12,8 @@ st.header("Funding Arb Opportunities")
 
 if not funding_arbs.AVAILABLE:
     st.info(
-        "Install trading-tools to see cross-venue funding carry with entry and exit costs: "
-        "`pip install ../trading-tools` (private repo, needs read access)"
+        "trading-tools is not installed, so cross-venue funding carry is unavailable. "
+        "It is a private repo: set GH_TOKEN (read access) and run `pip install -r requirements.txt`."
     )
     st.stop()
 
