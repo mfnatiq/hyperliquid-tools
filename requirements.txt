@@ -15,3 +15,7 @@ requests
 SQLAlchemy>=2.1
 streamlit==1.48.0
 web3
+
+# private repo: needs GH_TOKEN (read access to mfnatiq/trading-tools) in the environment at install time, locally and on Railway.
+# pinned to a commit so a change there cannot break this site by surprise. bump the sha on purpose.
+trading-tools @ git+https://${GH_TOKEN}@github.com/mfnatiq/trading-tools@cb8d6b054760f4f8323d92c01b0593745c4353f9
