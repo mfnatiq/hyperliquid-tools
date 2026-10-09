@@ -11,10 +11,7 @@ st.set_page_config("Arb Opportunities", "💱", layout="wide")
 st.header("Funding Arb Opportunities")
 
 if not funding_arbs.AVAILABLE:
-    st.info(
-        "trading-tools is not installed, so cross-venue funding carry is unavailable. "
-        "It is a private repo: set GH_TOKEN (read access) and run `pip install -r requirements.txt`."
-    )
+    st.info("Info on cross-venue funding carry is unavailable")
     st.stop()
 
 VENUE_NAMES = {"PHX": "Phoenix", "VAR": "Variational", "RISE": "RISEx", "HL": "Hyperliquid", "EXT": "Extended"}
@@ -131,7 +128,7 @@ table_slot = st.container()
 def table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max, search, sort_by):
     """re-runs on its own and refreshes the order books and this table only, not the controls above it"""
     try:
-        with st.spinner("Fetching funding and order books from each venue (up to a minute)"):
+        with st.spinner("Fetching funding and order books from each venue"):
             snapshot = get_snapshot(metric, float(min_carry))  # asked for on every run, so it rebuilds when its cache expires
     except Exception as e:
         st.error(f"Could not fetch venue data: {e}. Wait a minute and reload, venue APIs rate limit repeated calls")
