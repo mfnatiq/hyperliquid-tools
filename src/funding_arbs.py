@@ -20,8 +20,12 @@ AVAILABLE = fs is not None
 
 
 def taker_bps() -> dict[str, float]:
-    """taker fee per venue key from venues.toml (Phoenix is per market, so it is left out)."""
-    return {k.upper(): float(v["taker_bps"]) for k, v in fs.REGISTRY.items() if isinstance(v, dict) and "taker_bps" in v}
+    """taker fee per venue key from venues.toml with the active tier applied (Phoenix is per market, so it is left out).
+    QFEX shows its single-stock rate, indices and commodities pay less."""
+    a = fs.make_parser().parse_args([])
+    opts = {"RISE": "rise_taker_bps", "VAR": "var_fee_bps", "HL": "hl_taker_bps", "EXT": "ext_taker_bps",
+            "PAC": "pac_taker_bps", "NADO": "nado_taker_bps", "QFEX": "qfex_taker_bps"}
+    return {k: getattr(a, opt) for k, opt in opts.items()}
 
 
 class Snapshot:
@@ -30,7 +34,7 @@ class Snapshot:
 
     def __init__(self, metric: str = "24h", min_carry_pct: float = 10.0, top: int = 25):
         # a higher min carry means fewer per-ticker history and book calls, which is what trips venue rate limits
-        self.a = fs.make_parser().parse_args(["--venues", fs.FUNDING_VENUES, "--metric", metric,
+        self.a = fs.make_parser().parse_args(["--venues", getattr(fs, "ALL_FUNDING_VENUES", fs.FUNDING_VENUES), "--metric", metric,
                                               "--min-carry", str(min_carry_pct), "--top", str(top), "--sort", "verdict"])
         a = self.a
         vs = fs.build_venues(a.venues, a)
