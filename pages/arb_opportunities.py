@@ -17,7 +17,7 @@ if not funding_arbs.AVAILABLE:
     )
     st.stop()
 
-VENUE_NAMES = {"PHX": "Phoenix", "VAR": "Variational", "RISE": "RISEx", "HL": "Hyperliquid", "EXT": "Extended"}
+VENUE_NAMES = {"PHX": "Phoenix", "VAR": "Variational", "RISE": "RISEx", "HL": "Hyperliquid", "EXT": "Extended", "PAC": "Pacifica", "NADO": "Nado", "QFEX": "QFEX"}
 RISK_RANK = {"Low": 0, "Med": 1, "High": 2}
 SORTS = {
     "Verdict": None,  # the snapshot's own order: GOOD, OK, MARGINAL, then break-even
@@ -229,7 +229,7 @@ def table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max
             "\n".join(f"- {line}" for line in [
                 "Short the venue with the higher funding rate, long the other, same USD size on each leg.",
                 "Round-trip cost = 2 x (slippage + taker fees on both legs), i.e. entry plus exit.",
-                f"Taker fees in bps, from trading-tools' venues.toml: {fees}. Phoenix uses the fee set on each market.",
+                f"Taker fees in bps, from trading-tools' venues.toml: {fees}. Phoenix uses the fee set on each market. QFEX shows its single-stock rate, indices and commodities pay less.",
                 "Break-even = round-trip cost / daily carry.",
                 f"Edge = expected carry over a {HOLD_DAYS:g} day hold, less round-trip cost and adverse basis.",
                 "Green is cheap or quick to repay: round-trip cost up to 20 bps, break-even up to 3 days.",
