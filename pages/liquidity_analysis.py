@@ -67,14 +67,21 @@ async def _fetch_json(
             return await resp.json()
 
 
-CRYPTO_TOKENS = ["BTC", "ETH", "SOL", "XRP", "HYPE", "BNB"]
-# most-traded stocks, indices and gold across the venues that list them (Hyperliquid HIP-3, Lighter, Extended, QFEX, ...)
-TRADFI_TOKENS = ["NVDA", "TSLA", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "COIN", "HOOD", "US500", "QQQ", "GOLD"]
-# venues name indices / gold differently; each fetcher is tried with these in order until one is listed
+# tokens by asset class, alphabetical within each; tradfi names are the ones most listed across these venues
+TOKEN_GROUPS = {
+    "Indices": ["QQQ", "US500"],
+    "Stocks": ["AAPL", "AMZN", "COIN", "GOOGL", "HOOD", "META", "MSFT", "NVDA", "TSLA"],
+    "Commodities": ["GOLD", "OIL", "SILVER"],
+    "Crypto": ["BNB", "BTC", "ETH", "HYPE", "SOL", "XRP"],
+}
+CRYPTO_TOKENS = TOKEN_GROUPS["Crypto"]
+DEFAULT_GROUP, DEFAULT_TOKEN = "Indices", "QQQ"
 SYMBOL_ALIASES = {
     "US500": ["US500", "SPX", "SP500", "SPY", "USA500"],
     "QQQ": ["QQQ", "US100", "NDX", "NAS100", "XYZ100"],
     "GOLD": ["GOLD", "XAU"],
+    "SILVER": ["SILVER", "XAG"],
+    "OIL": ["OIL", "CL", "WTI", "USOIL"],
 }
 # Hyperliquid lists tradfi perps on the trade.xyz HIP-3 dex, as "xyz:<SYMBOL>"
 HYPERLIQUID_HIP3_DEX = "xyz"
@@ -769,9 +776,15 @@ def reorganize_by_clip_size(analysis_list: list):
 # endregion
 
 # fixed list of tokens for user selection
-TOKEN_OPTIONS = CRYPTO_TOKENS + TRADFI_TOKENS
 st.subheader("Select Token")
-token = st.selectbox("Token", TOKEN_OPTIONS, index=4, label_visibility="collapsed")
+group = st.radio("Asset class", list(TOKEN_GROUPS), index=list(TOKEN_GROUPS).index(DEFAULT_GROUP), horizontal=True)
+group_tokens = TOKEN_GROUPS[group]
+token = st.selectbox(
+    "Token",
+    group_tokens,
+    index=group_tokens.index(DEFAULT_TOKEN) if DEFAULT_TOKEN in group_tokens else 0,
+    label_visibility="collapsed",
+)
 
 st.text("Assumptions")
 st.markdown("""
