@@ -874,10 +874,9 @@ else:
 TAKER_FEE_PROFILES["Hyperliquid"] = [
     {"bps": round(bps * _hl_mult, 2), "assumption": f"{vol} 14D volume, 0 HYPE staked{_hl_note}"} for bps, vol in _HL_BASE
 ]
-# Extended lists 5 bps taker on its tradfi markets (DefiLlama's SPX / NDX / XAU pages; trading-tools' venues.toml notes
-# 1 bp for RWA markets). the sources disagree, so the higher one is used
+# Extended's own fee panel: taker 0.025% on crypto, 0.01% on RWA (tradfi) markets; maker 0
 TAKER_FEE_PROFILES["Extended"] = (
-    [{"bps": 2.5, "assumption": ""}] if group == "Crypto" else [{"bps": 5.0, "assumption": "tradfi markets"}]
+    [{"bps": 2.5, "assumption": ""}] if group == "Crypto" else [{"bps": 1.0, "assumption": "RWA markets"}]
 )
 CUSTOM_FEE = "Custom"
 FEE_GRID_COLUMNS = 4
