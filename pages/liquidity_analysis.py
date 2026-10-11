@@ -108,7 +108,7 @@ async def fetch_hyperliquid_orderbook(session: aiohttp.ClientSession, token: str
     bids = [{"price": float(l["px"]), "qty": float(l["sz"])} for l in data["levels"][0]]
     asks = [{"price": float(l["px"]), "qty": float(l["sz"])} for l in data["levels"][1]]
 
-    return {"bids": bids, "asks": asks, "exchange": "Hyperliquid", "token": token, "aggregated": aggregated}
+    return {"bids": bids, "asks": asks, "exchange": "Hyperliquid", "token": token, "aggregated": aggregated, "venueSymbol": coin}
 async def fetch_hyperliquid_orderbook_default(session, token):
     return await fetch_hyperliquid_orderbook(session, token, aggregated=False)
 
@@ -151,7 +151,7 @@ async def fetch_extended_orderbook(session: aiohttp.ClientSession, token: str):
             note = "market closed (off-hours)"
     except Exception as e:
         logger.warning("Extended market info for %s failed: %s", market, e)
-    return {"bids": bids, "asks": asks, "exchange": "Extended", "token": token, "note": note}
+    return {"bids": bids, "asks": asks, "exchange": "Extended", "token": token, "note": note, "venueSymbol": market}
 
 
 LIGHTER_URL = "https://mainnet.zklighter.elliot.ai"
@@ -207,7 +207,7 @@ async def fetch_lighter_orderbook(session: aiohttp.ClientSession, token: str, *,
         key=lambda x: x["price"],
     )
 
-    return {"bids": bids, "asks": asks, "exchange": exchange, "token": token}
+    return {"bids": bids, "asks": asks, "exchange": exchange, "token": token, "venueSymbol": market["symbol"]}
 
 
 async def fetch_lighter_rh_orderbook(session: aiohttp.ClientSession, token: str):
@@ -254,7 +254,8 @@ async def fetch_risex_orderbook(session: aiohttp.ClientSession, token: str):
 
     ob = await _fetch_json(session, "GET", f"https://api.rise.trade/v1/orderbook?market_id={market['market_id']}&limit=250")
     ob = ob.get("data", ob)
-    return {"bids": _levels(ob.get("bids")), "asks": _levels(ob.get("asks")), "exchange": "RISEx", "token": token}
+    return {"bids": _levels(ob.get("bids")), "asks": _levels(ob.get("asks")), "exchange": "RISEx", "token": token,
+            "venueSymbol": market.get("display_base_asset_symbol") or market.get("base_asset_symbol") or (market.get("config") or {}).get("name")}
 
 
 async def fetch_phoenix_orderbook(session: aiohttp.ClientSession, token: str):
@@ -274,7 +275,7 @@ async def fetch_phoenix_orderbook(session: aiohttp.ClientSession, token: str):
     for sym in dict.fromkeys([token.upper(), market["symbol"]]):
         try:
             b = await _fetch_json(session, "GET", f"{url}/v1/view/orderbook/{sym}?include_splines=true")
-            return {"bids": _levels(b.get("bids")), "asks": _levels(b.get("asks")), "exchange": "Phoenix", "token": token}
+            return {"bids": _levels(b.get("bids")), "asks": _levels(b.get("asks")), "exchange": "Phoenix", "token": token, "venueSymbol": sym}
         except RuntimeError as e:
             last_err = e
     raise last_err or ValueError(f"No orderbook for {token} on Phoenix")
@@ -295,7 +296,7 @@ async def fetch_qfex_orderbook(session: aiohttp.ClientSession, token: str):
 
     ob = await _fetch_json(session, "GET", f"{url}/md/orderbook/{ticker_id}", headers=headers)
     ob = ob.get("data", ob) if isinstance(ob, dict) else {}
-    return {"bids": _levels(ob.get("bids")), "asks": _levels(ob.get("asks")), "exchange": "QFEX", "token": token}
+    return {"bids": _levels(ob.get("bids")), "asks": _levels(ob.get("asks")), "exchange": "QFEX", "token": token, "venueSymbol": ticker_id}
 
 
 async def fetch_pacifica_orderbook(session: aiohttp.ClientSession, token: str):
@@ -326,7 +327,7 @@ async def fetch_pacifica_orderbook(session: aiohttp.ClientSession, token: str):
         for level in asks_raw
     ]
 
-    return {"bids": bids, "asks": asks, "exchange": "Pacifica", "token": token}
+    return {"bids": bids, "asks": asks, "exchange": "Pacifica", "token": token, "venueSymbol": symbol}
 
 
 async def fetch_nado_orderbook(session: aiohttp.ClientSession, token: str):
@@ -357,7 +358,7 @@ async def fetch_nado_orderbook(session: aiohttp.ClientSession, token: str):
     fixed_point_ratio = 1e18
     bids = [{"price": float(l[0]) / fixed_point_ratio, "qty": float(l[1]) / fixed_point_ratio} for l in ob["bids"]]
     asks = [{"price": float(l[0]) / fixed_point_ratio, "qty": float(l[1]) / fixed_point_ratio} for l in ob["asks"]]
-    return {"bids": bids, "asks": asks, "exchange": "Nado", "token": token}
+    return {"bids": bids, "asks": asks, "exchange": "Nado", "token": token, "venueSymbol": market}
 
 
 async def fetch_variational_stats(session: aiohttp.ClientSession) -> dict[str, Any]:
@@ -388,6 +389,7 @@ async def fetch_variational_orderbook(session: aiohttp.ClientSession, token: str
     return {
         "exchange": "Variational",
         "token": token,
+        "venueSymbol": listing.get("ticker"),
         "markPrice": mark_price,
         "baseSpreadBps": base_spread_bps,
         "quotes": quotes,
@@ -517,6 +519,7 @@ def analyze_orderbook_pure(orderbook: dict, agg_orderbook: dict | None = None):
     result = {
         "exchange": exchange,
         "token": orderbook["token"],
+        "venueSymbol": orderbook.get("venueSymbol"),
         "midPrice": round(mid_price, 2),
         "spreadBps": round(spread * 100, 2),
         "slippage": {},
@@ -593,7 +596,7 @@ def _variational_slippage_from_quotes(listing: dict, size_usd: int) -> dict[str,
             "filled": False,
             "filledPercent": 0.0,
             "is_approximation": True,
-            "approximation_reason": "no exact RFQ size for this clip",
+            "approximation_reason": "no RFQ quote at this size (Variational quotes $1k and $100k only)",
         }
 
     quote = quotes.get(size_field)
@@ -663,6 +666,7 @@ async def _run_single_analysis(
             result = {
                 "exchange": "Variational",
                 "token": token,
+                "venueSymbol": ob_or_stats.get("venueSymbol"),
                 "midPrice": round(ob_or_stats["markPrice"], 2),
                 "spreadBps": ob_or_stats.get("baseSpreadBps"),  # already in bps
                 "slippage": {},
@@ -708,6 +712,9 @@ async def _get_all_analysis_pure(token: str) -> list[dict[str, Any]]:
 def get_all_analysis_pure_cached(token: str) -> list[dict[str, Any]]:
     return asyncio.run(_get_all_analysis_pure(token))
 
+# notes that only say "this is RFQ"; the (RFQ) tag on the name replaces them
+RFQ_ONLY_NOTES = {"using RFQ", "RFQ market: indicative book only"}
+
 def reorganize_by_clip_size(analysis_list: list):
     size_keys = set()
     for analysis in analysis_list:
@@ -725,19 +732,12 @@ def reorganize_by_clip_size(analysis_list: list):
 
             filled = slippage.get("filled", True)
 
-            # if variational RFQ approximation and slippageBps is None (i.e. size_ABC not in api response),
-            # skip the row entirely (do not show this venue for this clip size)
-            if (
-                analysis["exchange"] == "Variational"
-                and slippage.get("approximation_reason", "").startswith("no exact RFQ size")
-            ):
-                continue
-
             # if not fully filled, set infinity
             if not filled:
                 slippage_bps = float("inf")
                 total_cost_bps = float("inf")
-                note = "insufficient liquidity"
+                # e.g. variational has no RFQ quote at this size; otherwise the book ran out
+                note = slippage.get("approximation_reason") or "insufficient liquidity"
             else:
                 slippage_bps = slippage.get("slippageBps")
                 total_cost_bps = slippage.get("totalCostBps")
@@ -751,11 +751,12 @@ def reorganize_by_clip_size(analysis_list: list):
             exchange = analysis["exchange"]
             if "RFQ" in (slippage.get("approximation_reason") or ""):
                 exchange = f"{exchange} (RFQ)"
-                if "RFQ" in note:
+                if note in RFQ_ONLY_NOTES:
                     note = ""
 
             rows.append({
                 "exchange": exchange,
+                "symbol": analysis.get("venueSymbol") or "",
                 "slippageBps": slippage_bps,
                 "takerFeeBps": slippage.get("takerFeeBps"),
                 "totalCostBps": total_cost_bps,
@@ -910,13 +911,37 @@ st.caption(datetime.now().strftime("Last updated: %Y-%m-%d %H:%M:%S"))
 MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
 RANK_BY = {"Full cost": "totalCostBps", "Slippage only": "slippageBps"}
 
+def _bps(v, places: int) -> str:
+    return "" if v is None or pd.isna(v) else f"{v:.{places}f}"
+
 def build_rankings_table(df: pd.DataFrame, sort_col: str) -> pd.DataFrame:
     # unfilled clips are inf; sort them last and show them blank (the note says why)
     ranked = df.sort_values(sort_col, key=lambda c: c.replace({float("inf"): 1e18})).reset_index(drop=True)
-    ranked.insert(0, "rank", [f"{MEDALS.get(i, '')} {i}".strip() for i in range(1, len(ranked) + 1)])
-    for col in ("slippageBps", "totalCostBps"):
-        ranked[col] = ranked[col].replace({float("inf"): None})
-    return ranked[["rank", "exchange", "totalCostBps", "slippageBps", "takerFeeBps", "note"]]
+    finite = lambda v: None if v == float("inf") else v
+    return pd.DataFrame({
+        # only venues that filled the clip are ranked (and get medals)
+        "Rank": [
+            f"{MEDALS.get(i, '')} {i}".strip() if finite(v) is not None and not pd.isna(v) else "–"
+            for i, v in enumerate(ranked[sort_col], start=1)
+        ],
+        "Exchange": ranked["exchange"],
+        "Symbol": ranked["symbol"],
+        "Total cost (bps)": [_bps(finite(v), 3) for v in ranked["totalCostBps"]],
+        "Slippage (bps)": [_bps(finite(v), 3) for v in ranked["slippageBps"]],
+        "Taker fee (bps)": [_bps(v, 2) for v in ranked["takerFeeBps"]],
+        "Notes": ranked["note"],
+    }).set_index("Rank")
+
+# st.table is plain HTML, so unlike st.dataframe its font size can be set; tabs get the same bump
+st.markdown(
+    """
+    <style>
+    div[data-testid="stTable"] table { font-size: 1rem; }
+    button[data-baseweb="tab"] p { font-size: 1.1rem; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 rank_by = st.radio("Rank by", list(RANK_BY), horizontal=True)
 
@@ -926,16 +951,4 @@ else:
     clip_sizes = sorted(tables)
     for tab, clip_size in zip(st.tabs([f"${c / 1000:g}k" for c in clip_sizes]), clip_sizes):
         with tab:
-            st.dataframe(
-                build_rankings_table(tables[clip_size], RANK_BY[rank_by]),
-                column_config={
-                    "rank": st.column_config.TextColumn("Rank", width="small"),
-                    "exchange": st.column_config.TextColumn("Exchange"),
-                    "totalCostBps": st.column_config.NumberColumn("Total cost (bps)", format="%.3f"),
-                    "slippageBps": st.column_config.NumberColumn("Slippage (bps)", format="%.3f"),
-                    "takerFeeBps": st.column_config.NumberColumn("Taker fee (bps)", format="%.2f"),
-                    "note": st.column_config.TextColumn("Notes", width="large"),
-                },
-                hide_index=True,
-                use_container_width=True,
-            )
+            st.table(build_rankings_table(tables[clip_size], RANK_BY[rank_by]))
