@@ -1164,7 +1164,10 @@ def main():
                     ]
                     ranks_df = pd.DataFrame(ranks, columns=["user_rank", "user_address", "total_volume_usd"])
 
-                    leaderboard_searched_addresses = pd.concat([leaderboard_searched_addresses, ranks_df], ignore_index=True)
+                    # ranks are ints from the table but 'N+' strings for manual lookups; Arrow needs one type
+                    leaderboard_searched_addresses = pd.concat(
+                        [leaderboard_searched_addresses.astype({'user_rank': str}), ranks_df], ignore_index=True
+                    )
                     # keep first one i.e. add if not already in full searched list
                     leaderboard_searched_addresses = leaderboard_searched_addresses.drop_duplicates(subset=["user_address"], keep="first")  # keep DataFrame rows over tuples
                     leaderboard_searched_addresses.loc[:, 'user_address'] = leaderboard_searched_addresses['user_address'].apply(lambda x: x[:6] + '...' + x[-6:])
@@ -1223,7 +1226,10 @@ def main():
                     ]
                     ranks_df = pd.DataFrame(ranks, columns=["user_rank", "user_address", "total_volume_usd"])
 
-                    leaderboard_searched_addresses = pd.concat([leaderboard_searched_addresses, ranks_df], ignore_index=True)
+                    # ranks are ints from the table but 'N+' strings for manual lookups; Arrow needs one type
+                    leaderboard_searched_addresses = pd.concat(
+                        [leaderboard_searched_addresses.astype({'user_rank': str}), ranks_df], ignore_index=True
+                    )
                     # keep first one i.e. add if not already in full searched list
                     leaderboard_searched_addresses = leaderboard_searched_addresses.drop_duplicates(subset=["user_address"], keep="first")  # keep DataFrame rows over tuples
                     leaderboard_searched_addresses.loc[:, 'user_address'] = leaderboard_searched_addresses['user_address'].apply(lambda x: x[:6] + '...' + x[-6:])

@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime
+import html
 import sys
 from typing import Any
 import aiohttp
@@ -39,18 +40,6 @@ logger = logging.getLogger(__name__)
 
 CLIP_SIZES = [1_000, 10_000, 50_000, 100_000, 500_000]
 
-DEFAULT_TAKER_FEES = pd.DataFrame(
-    [
-        { "Exchange": "Hyperliquid", "Taker Fee (Bps)": 4, "Assumption": ">5M 14D volume, 0 HYPE staked" },
-        { "Exchange": "Extended", "Taker Fee (Bps)": 2.5, "Assumption": "" },
-        { "Exchange": "Lighter", "Taker Fee (Bps)": 2, "Assumption": "Premium Account" },
-        { "Exchange": "Paradex", "Taker Fee (Bps)": 0, "Assumption": "" },
-        { "Exchange": "Pacifica", "Taker Fee (Bps)": 4, "Assumption": "" },
-        { "Exchange": "Nado", "Taker Fee (Bps)": 3.3, "Assumption": ">5M 30D volume" },
-        { "Exchange": "Variational", "Taker Fee (Bps)": 0, "Assumption": "" },
-    ]
-)
-DEFAULT_TAKER_FEES = DEFAULT_TAKER_FEES.sort_values('Exchange')
 
 
 async def _fetch_json(
@@ -67,16 +56,51 @@ async def _fetch_json(
     if json_body is not None:
         kwargs["json"] = json_body
 
-    async with session.request(method.upper(), url, **kwargs) as resp:
-        if resp.status >= 400:
-            text = await resp.text()
-            raise RuntimeError(f"HTTP {resp.status} for {url}: {text}")
-        return await resp.json()
+    # gateways (e.g. Lighter's) intermittently return 502/503/504; retry those briefly
+    for attempt in range(3):
+        async with session.request(method.upper(), url, **kwargs) as resp:
+            if resp.status in (502, 503, 504) and attempt < 2:
+                await asyncio.sleep(0.5 * (attempt + 1))
+                continue
+            if resp.status >= 400:
+                text = (await resp.text())[:200]
+                raise RuntimeError(f"HTTP {resp.status} for {url}: {text}")
+            return await resp.json()
+
+
+# tokens by asset class, alphabetical within each; tradfi names are the ones most listed across these venues
+TOKEN_GROUPS = {
+    "Indices": ["QQQ", "US500"],
+    "Stocks": ["AAPL", "COIN", "GOOGL", "HOOD", "META", "MSTR", "NVDA", "TSLA"],
+    "Commodities": ["GOLD", "OIL", "SILVER"],
+    "Crypto": ["BNB", "BTC", "ETH", "HYPE", "SOL", "XRP"],
+}
+CRYPTO_TOKENS = TOKEN_GROUPS["Crypto"]
+DEFAULT_GROUP, DEFAULT_TOKEN = "Indices", "US500"
+SYMBOL_ALIASES = {
+    "US500": ["US500", "SPX", "SP500", "SPY", "USA500"],
+    "QQQ": ["QQQ", "US100", "NDX", "NAS100", "XYZ100"],
+    "GOLD": ["GOLD", "XAU"],
+    "SILVER": ["SILVER", "XAG"],
+    "OIL": ["OIL", "CL", "WTI", "USOIL"],
+}
+# Hyperliquid lists tradfi perps on the trade.xyz HIP-3 dex, as "xyz:<SYMBOL>"
+HYPERLIQUID_HIP3_DEX = "xyz"
+
+
+class NotListed(ValueError):
+    """the venue has no market for this symbol; expected for most venue / token pairs, so not logged as a warning"""
+
+
+def _is_not_listed(e: Exception) -> bool:
+    # venues answer an unknown symbol with a 400 / 404 (e.g. Pacifica "Book not found: QQQ")
+    return isinstance(e, NotListed) or (isinstance(e, RuntimeError) and str(e).startswith(("HTTP 400", "HTTP 404")))
 
 
 # region l2 orderbook fetchers
 async def fetch_hyperliquid_orderbook(session: aiohttp.ClientSession, token: str, *, aggregated: bool=False):
-    body: dict[str, Any] = {"type": "l2Book", "coin": token.upper()}
+    coin = token.upper() if token.upper() in CRYPTO_TOKENS else f"{HYPERLIQUID_HIP3_DEX}:{token.upper()}"
+    body: dict[str, Any] = {"type": "l2Book", "coin": coin}
     if aggregated:  # special case for hyperliquid as l2 book only returns 20 levels, which may be insufficient for larger clip sizes
         # coarser buckets to get larger notional per level
         body.update({"nSigFigs": 4})
@@ -88,84 +112,68 @@ async def fetch_hyperliquid_orderbook(session: aiohttp.ClientSession, token: str
         json_body=body,
     )
 
-    if not data.get("levels") or len(data["levels"]) < 2:
-        raise ValueError(f"Invalid orderbook for {token} on Hyperliquid")
+    if not data or not data.get("levels") or len(data["levels"]) < 2:
+        raise NotListed(f"Token {token} not available on Hyperliquid")
 
     bids = [{"price": float(l["px"]), "qty": float(l["sz"])} for l in data["levels"][0]]
     asks = [{"price": float(l["px"]), "qty": float(l["sz"])} for l in data["levels"][1]]
 
-    return {"bids": bids, "asks": asks, "exchange": "Hyperliquid", "token": token, "aggregated": aggregated}
+    return {"bids": bids, "asks": asks, "exchange": "Hyperliquid", "token": token, "aggregated": aggregated, "venueSymbol": coin}
 async def fetch_hyperliquid_orderbook_default(session, token):
     return await fetch_hyperliquid_orderbook(session, token, aggregated=False)
 
 
-async def fetch_paradex_orderbook(session: aiohttp.ClientSession, token: str):
-    pair = f"{token.upper()}-USD-PERP"
-    data = await _fetch_json(
-        session,
-        "GET",
-        f"https://api.prod.paradex.trade/v1/orderbook/{pair}/interactive?depth=100",
-        headers={"Accept": "application/json"},
-    )
-
-    if not data.get("bids") or not data.get("asks"):
-        raise ValueError(f"Invalid orderbook for {token} on Paradex")
-
-    bids = [{"price": float(px), "qty": float(qty)} for px, qty in data["bids"]]
-    asks = [{"price": float(px), "qty": float(qty)} for px, qty in data["asks"]]
-
-    rpi_data = None
-    if data.get("best_bid_interactive") and data.get("best_ask_interactive"):
-        api_bid = float(data["best_bid_api"][0]) if data.get("best_bid_api") else None
-        api_ask = float(data["best_ask_api"][0]) if data.get("best_ask_api") else None
-        rpi_bid = float(data["best_bid_interactive"][0])
-        rpi_ask = float(data["best_ask_interactive"][0])
-
-        api_spread_bps = (
-            ((api_ask - api_bid) / api_bid) * 10_000 if api_bid and api_ask else None
-        )
-        rpi_spread_bps = ((rpi_ask - rpi_bid) / rpi_bid) * 10_000
-
-        rpi_data = {
-            "apiBid": api_bid,
-            "apiAsk": api_ask,
-            "apiSpreadBps": api_spread_bps,
-            "rpiBid": rpi_bid,
-            "rpiAsk": rpi_ask,
-            "rpiSpreadBps": rpi_spread_bps,
-        }
-
-    return {
-        "bids": bids,
-        "asks": asks,
-        "exchange": "Paradex",
-        "token": token,
-        "rpiData": rpi_data,
-    }
-
-
 async def fetch_extended_orderbook(session: aiohttp.ClientSession, token: str):
-    market = f"{token.upper()}-USD"
-    data = await _fetch_json(
-        session,
-        "GET",
-        f"https://api.starknet.extended.exchange/api/v1/info/markets/{market}/orderbook",
-    )
+    # stock markets are named e.g. NVDA_24_5-USD (24/5 trading); other tradfi markets may not carry the suffix
+    markets = [f"{token.upper()}-USD"] if token.upper() in CRYPTO_TOKENS else [f"{token.upper()}_24_5-USD", f"{token.upper()}-USD"]
+    data: dict[str, Any] = {}
+    for market in markets:
+        try:
+            data = await _fetch_json(
+                session,
+                "GET",
+                f"https://api.starknet.extended.exchange/api/v1/info/markets/{market}/orderbook",
+            )
+        except RuntimeError:
+            continue
+        if data.get("status") == "OK" and (data.get("data") or {}).get("bid") and data["data"].get("ask"):
+            break
 
-    if data.get("status") != "OK" or "data" not in data:
-        raise ValueError(f"Invalid orderbook for {token} on Extended")
+    if data.get("status") != "OK" or not (data.get("data") or {}).get("bid") or not data["data"].get("ask"):
+        raise NotListed(f"Token {token} not available on Extended")
 
     ob = data["data"]
     bids = [{"price": float(l["price"]), "qty": float(l["qty"])} for l in ob["bid"]]
     asks = [{"price": float(l["price"]), "qty": float(l["qty"])} for l in ob["ask"]]
-    return {"bids": bids, "asks": asks, "exchange": "Extended", "token": token}
+
+    # RFQ markets (isRfq) only publish an indicative book, not one you can take against
+    note = ""
+    try:
+        info = await _fetch_json(
+            session,
+            "GET",
+            f"https://api.starknet.extended.exchange/api/v1/info/markets?market={market}",
+        )
+        m: dict[str, Any] = next((x for x in info.get("data", []) if x.get("name") == market), {})
+        if m.get("isRfq"):
+            note = "RFQ market: indicative book only"
+        elif m.get("isOffHours"):
+            note = "market closed (off-hours)"
+    except Exception as e:
+        logger.warning("Extended market info for %s failed: %s", market, e)
+    return {"bids": bids, "asks": asks, "exchange": "Extended", "token": token, "note": note, "venueSymbol": market}
 
 
-async def fetch_lighter_orderbook(session: aiohttp.ClientSession, token: str):
+LIGHTER_URL = "https://mainnet.zklighter.elliot.ai"
+# Lighter's Robinhood Chain deployment (apidocs.rh.lighter.xyz); assumed to serve the same REST API as mainnet
+LIGHTER_RH_URL = "https://api.rh.lighter.xyz"
+
+
+async def fetch_lighter_orderbook(session: aiohttp.ClientSession, token: str, *, base_url: str=LIGHTER_URL, exchange: str="Lighter"):
     d = await _fetch_json(
         session,
         "GET",
-        "https://mainnet.zklighter.elliot.ai/api/v1/orderBookDetails",
+        f"{base_url}/api/v1/orderBookDetails",
     )
 
     market = next(
@@ -178,13 +186,13 @@ async def fetch_lighter_orderbook(session: aiohttp.ClientSession, token: str):
         None,
     )
     if not market:
-        raise ValueError(f"Token {token} not available on Lighter")
+        raise NotListed(f"Token {token} not available on {exchange}")
 
     mid = market["market_id"]
     data = await _fetch_json(
         session,
         "GET",
-        f"https://mainnet.zklighter.elliot.ai/api/v1/orderBookOrders?market_id={mid}&limit=250",
+        f"{base_url}/api/v1/orderBookOrders?market_id={mid}&limit=250",
     )
 
     bids = sorted(
@@ -209,7 +217,97 @@ async def fetch_lighter_orderbook(session: aiohttp.ClientSession, token: str):
         key=lambda x: x["price"],
     )
 
-    return {"bids": bids, "asks": asks, "exchange": "Lighter", "token": token}
+    return {"bids": bids, "asks": asks, "exchange": exchange, "token": token, "venueSymbol": market["symbol"]}
+
+
+async def fetch_lighter_rh_orderbook(session: aiohttp.ClientSession, token: str):
+    return await fetch_lighter_orderbook(session, token, base_url=LIGHTER_RH_URL, exchange="Lighter on Robinhood")
+
+
+def _levels(raw: list | None) -> list[dict[str, float]]:
+    """[price, qty] pairs or {price, quantity|qty|size} dicts -> [{price, qty}]"""
+    out = []
+    for l in raw or []:
+        if isinstance(l, dict):
+            px, qty = l.get("price") or l.get("px"), l.get("quantity") or l.get("qty") or l.get("size") or l.get("sz")
+        else:
+            px, qty = l[0], l[1]
+        if px is not None and qty is not None and float(qty) > 0:
+            out.append({"price": float(px), "qty": float(qty)})
+    return out
+
+
+def _base_symbol(sym: str) -> str:
+    """BTC-PERP / BTC-USD / BTCUSD / BTC-USDC -> BTC"""
+    s = str(sym).upper().split("/")[0]
+    for suffix in ("-PERP", "_PERP", "PERP", "-USDC", "-USDT", "-USD", "USDC", "USDT", "USD"):
+        if s.endswith(suffix) and len(s) > len(suffix):
+            s = s[: -len(suffix)]
+    return s.split("-")[0]
+
+
+async def fetch_risex_orderbook(session: aiohttp.ClientSession, token: str):
+    # RISEx public REST, same calls as trading-tools funding_scan.Rise
+    d = await _fetch_json(session, "GET", "https://api.rise.trade/v1/markets")
+    d = d.get("data", d)
+    market = next(
+        (
+            m
+            for m in d.get("markets", [])
+            if _base_symbol(m.get("display_base_asset_symbol") or m.get("base_asset_symbol") or (m.get("config") or {}).get("name", "")) == token.upper()
+            and m.get("active") is not False
+        ),
+        None,
+    )
+    if not market:
+        raise NotListed(f"Token {token} not available on RISEx")
+
+    ob = await _fetch_json(session, "GET", f"https://api.rise.trade/v1/orderbook?market_id={market['market_id']}&limit=250")
+    ob = ob.get("data", ob)
+    return {"bids": _levels(ob.get("bids")), "asks": _levels(ob.get("asks")), "exchange": "RISEx", "token": token,
+            "venueSymbol": market.get("display_base_asset_symbol") or market.get("base_asset_symbol") or (market.get("config") or {}).get("name")}
+
+
+async def fetch_phoenix_orderbook(session: aiohttp.ClientSession, token: str):
+    # Phoenix perps public REST, same calls as trading-tools funding_scan.Phoenix
+    url = "https://perp-api.phoenix.trade"
+    markets = await _fetch_json(session, "GET", f"{url}/v1/view/exchange/markets")
+    markets = markets.get("data", markets) if isinstance(markets, dict) else markets
+    market = next(
+        (m for m in markets if _base_symbol(m.get("symbol", "")) == token.upper() and m.get("marketStatus") == "active"),
+        None,
+    )
+    if not market:
+        raise NotListed(f"Token {token} not available on Phoenix")
+
+    # the book path takes either the base ticker or the full market symbol
+    last_err: Exception | None = None
+    for sym in dict.fromkeys([token.upper(), market["symbol"]]):
+        try:
+            b = await _fetch_json(session, "GET", f"{url}/v1/view/orderbook/{sym}?include_splines=true")
+            return {"bids": _levels(b.get("bids")), "asks": _levels(b.get("asks")), "exchange": "Phoenix", "token": token, "venueSymbol": sym,
+                    "venueTakerFeeBps": float(market["takerFee"]) * 100 if market.get("takerFee") is not None else None}  # percent -> bps
+        except RuntimeError as e:
+            last_err = e
+    raise last_err or ValueError(f"No orderbook for {token} on Phoenix")
+
+
+async def fetch_qfex_orderbook(session: aiohttp.ClientSession, token: str):
+    # QFEX public REST, same calls as trading-tools funding_scan.QFEX
+    url = "https://api.qfex.com"
+    headers = {"Accept": "application/json"}
+    d = await _fetch_json(session, "GET", f"{url}/md/contracts", headers=headers)
+    contracts = d.get("data", d) if isinstance(d, dict) else d
+    ticker_id = next(
+        (c["ticker_id"] for c in contracts or [] if c.get("ticker_id") and _base_symbol(c["ticker_id"]) == token.upper()),
+        None,
+    )
+    if not ticker_id:
+        raise NotListed(f"Token {token} not available on QFEX")
+
+    ob = await _fetch_json(session, "GET", f"{url}/md/orderbook/{ticker_id}", headers=headers)
+    ob = ob.get("data", ob) if isinstance(ob, dict) else {}
+    return {"bids": _levels(ob.get("bids")), "asks": _levels(ob.get("asks")), "exchange": "QFEX", "token": token, "venueSymbol": ticker_id}
 
 
 async def fetch_pacifica_orderbook(session: aiohttp.ClientSession, token: str):
@@ -229,7 +327,7 @@ async def fetch_pacifica_orderbook(session: aiohttp.ClientSession, token: str):
     asks_raw = orderbook["l"][1] if orderbook["l"] and len(orderbook["l"]) > 1 else []
 
     if not bids_raw or not asks_raw:
-        raise ValueError(f"Empty orderbook for {token} on Pacifica")
+        raise NotListed(f"Empty orderbook for {token} on Pacifica")
 
     bids = [
         {"price": float(level["p"]), "qty": float(level["a"])}
@@ -240,7 +338,7 @@ async def fetch_pacifica_orderbook(session: aiohttp.ClientSession, token: str):
         for level in asks_raw
     ]
 
-    return {"bids": bids, "asks": asks, "exchange": "Pacifica", "token": token}
+    return {"bids": bids, "asks": asks, "exchange": "Pacifica", "token": token, "venueSymbol": symbol}
 
 
 async def fetch_nado_orderbook(session: aiohttp.ClientSession, token: str):
@@ -259,7 +357,7 @@ async def fetch_nado_orderbook(session: aiohttp.ClientSession, token: str):
     )
 
     if product_id is None:
-        raise ValueError(f"product id for {market} not found for Nado")
+        raise NotListed(f"Token {token} not available on Nado")
 
     orderbook_data = await _fetch_json(
         session,
@@ -271,7 +369,7 @@ async def fetch_nado_orderbook(session: aiohttp.ClientSession, token: str):
     fixed_point_ratio = 1e18
     bids = [{"price": float(l[0]) / fixed_point_ratio, "qty": float(l[1]) / fixed_point_ratio} for l in ob["bids"]]
     asks = [{"price": float(l[0]) / fixed_point_ratio, "qty": float(l[1]) / fixed_point_ratio} for l in ob["asks"]]
-    return {"bids": bids, "asks": asks, "exchange": "Nado", "token": token}
+    return {"bids": bids, "asks": asks, "exchange": "Nado", "token": token, "venueSymbol": market}
 
 
 async def fetch_variational_stats(session: aiohttp.ClientSession) -> dict[str, Any]:
@@ -290,7 +388,7 @@ async def fetch_variational_orderbook(session: aiohttp.ClientSession, token: str
     stats_by_ticker = await fetch_variational_stats(session)
     listing = stats_by_ticker.get(token.upper())
     if not listing:
-        raise ValueError(f"Token {token} not available on Variational")
+        raise NotListed(f"Token {token} not available on Variational")
 
     # mark_price and base_spread_bps are strings; convert as needed
     mark_price = float(listing["mark_price"])
@@ -302,6 +400,7 @@ async def fetch_variational_orderbook(session: aiohttp.ClientSession, token: str
     return {
         "exchange": "Variational",
         "token": token,
+        "venueSymbol": listing.get("ticker"),
         "markPrice": mark_price,
         "baseSpreadBps": base_spread_bps,
         "quotes": quotes,
@@ -315,9 +414,12 @@ async def fetch_variational_orderbook(session: aiohttp.ClientSession, token: str
 
 ORDERBOOK_FETCHERS = {
     "Hyperliquid": fetch_hyperliquid_orderbook_default,
-    "Paradex": fetch_paradex_orderbook,
     "Extended": fetch_extended_orderbook,
     "Lighter": fetch_lighter_orderbook,
+    "Lighter on Robinhood": fetch_lighter_rh_orderbook,
+    "RISEx": fetch_risex_orderbook,
+    "Phoenix": fetch_phoenix_orderbook,
+    "QFEX": fetch_qfex_orderbook,
     "Pacifica": fetch_pacifica_orderbook,
     "Nado": fetch_nado_orderbook,
     "Variational": fetch_variational_orderbook,
@@ -428,9 +530,10 @@ def analyze_orderbook_pure(orderbook: dict, agg_orderbook: dict | None = None):
     result = {
         "exchange": exchange,
         "token": orderbook["token"],
+        "venueSymbol": orderbook.get("venueSymbol"),
+        "venueTakerFeeBps": orderbook.get("venueTakerFeeBps"),
         "midPrice": round(mid_price, 2),
         "spreadBps": round(spread * 100, 2),
-        "rpiData": orderbook.get("rpiData"),
         "slippage": {},
     }
 
@@ -438,7 +541,7 @@ def analyze_orderbook_pure(orderbook: dict, agg_orderbook: dict | None = None):
         book_to_use = orderbook
         is_approximation = False
         if agg_orderbook is not None and book_depth_usd(orderbook) < size:
-            logger.info(f"using agg orderbook for {exchange} for clip size {size}")
+            logger.debug("using agg orderbook for %s for clip size %s", exchange, size)
             book_to_use = agg_orderbook
             is_approximation = True
 
@@ -475,7 +578,8 @@ def analyze_orderbook_pure(orderbook: dict, agg_orderbook: dict | None = None):
                 "buy": bid_slippage.get("levelsUsed", 0),
                 "sell": ask_slippage.get("levelsUsed", 0),
             },
-            "is_approximation": is_approximation,
+            "is_approximation": is_approximation or bool(orderbook.get("note")),
+            "approximation_reason": orderbook.get("note") or None,
         }
 
     return result
@@ -504,7 +608,7 @@ def _variational_slippage_from_quotes(listing: dict, size_usd: int) -> dict[str,
             "filled": False,
             "filledPercent": 0.0,
             "is_approximation": True,
-            "approximation_reason": "no exact RFQ size for this clip",
+            "approximation_reason": "no RFQ quote at this size (Variational quotes $1k and $100k only)",
         }
 
     quote = quotes.get(size_field)
@@ -552,7 +656,26 @@ async def _run_single_analysis(
     token: str,
 ) -> dict[str, Any]:
     try:
-        ob_or_stats = await fetcher(session, token)
+        ob_or_stats = None
+        errors: dict[str, Exception] = {}
+        for symbol in SYMBOL_ALIASES.get(token.upper(), [token]):
+            try:
+                ob = await fetcher(session, symbol)
+            except Exception as e:
+                errors[symbol] = e
+                continue
+            # an empty book usually means the venue knows the name but has no such market; try the next alias
+            if name != "Variational" and (not ob.get("bids") or not ob.get("asks")):
+                errors[symbol] = NotListed(f"Empty orderbook for {symbol} on {name}")
+                continue
+            ob_or_stats = ob
+            break
+        if ob_or_stats is None:
+            tried = "; ".join(f"{sym}: {err}" for sym, err in errors.items())
+            if all(_is_not_listed(err) for err in errors.values()):
+                logger.debug("%s does not list %s (tried %s)", name, token, tried)
+                return {"exchange": name, "error": f"not listed on {name}"}
+            raise RuntimeError(f"tried {tried}")
 
         if name == "Variational":
             # build a result similar to analyze_orderbook_pure, but using quotes
@@ -565,9 +688,9 @@ async def _run_single_analysis(
             result = {
                 "exchange": "Variational",
                 "token": token,
+                "venueSymbol": ob_or_stats.get("venueSymbol"),
                 "midPrice": round(ob_or_stats["markPrice"], 2),
                 "spreadBps": ob_or_stats.get("baseSpreadBps"),  # already in bps
-                "rpiData": None,
                 "slippage": {},
             }
             for size in CLIP_SIZES:
@@ -586,7 +709,7 @@ async def _run_single_analysis(
             if depth < max_clip:
                 # fetch with aggregated book to be used separately
                 agg_orderbook = await fetch_hyperliquid_orderbook(
-                    session, token, aggregated=True
+                    session, orderbook["token"], aggregated=True
                 )
 
         analysis = analyze_orderbook_pure(orderbook, agg_orderbook=agg_orderbook)
@@ -611,6 +734,9 @@ async def _get_all_analysis_pure(token: str) -> list[dict[str, Any]]:
 def get_all_analysis_pure_cached(token: str) -> list[dict[str, Any]]:
     return asyncio.run(_get_all_analysis_pure(token))
 
+# notes that only say "this is RFQ"; the (RFQ) tag on the name replaces them
+RFQ_ONLY_NOTES = {"using RFQ", "RFQ market: indicative book only"}
+
 def reorganize_by_clip_size(analysis_list: list):
     size_keys = set()
     for analysis in analysis_list:
@@ -628,19 +754,12 @@ def reorganize_by_clip_size(analysis_list: list):
 
             filled = slippage.get("filled", True)
 
-            # if variational RFQ approximation and slippageBps is None (i.e. size_ABC not in api response),
-            # skip the row entirely (do not show this venue for this clip size)
-            if (
-                analysis["exchange"] == "Variational"
-                and slippage.get("approximation_reason", "").startswith("no exact RFQ size")
-            ):
-                continue
-
             # if not fully filled, set infinity
             if not filled:
                 slippage_bps = float("inf")
                 total_cost_bps = float("inf")
-                note = "insufficient liquidity"
+                # e.g. variational has no RFQ quote at this size; otherwise the book ran out
+                note = slippage.get("approximation_reason") or "insufficient liquidity"
             else:
                 slippage_bps = slippage.get("slippageBps")
                 total_cost_bps = slippage.get("totalCostBps")
@@ -650,8 +769,16 @@ def reorganize_by_clip_size(analysis_list: list):
                 if is_approximation:
                     note = approximation_reason or "slippage approximated due to aggregated levels (API limitation)"
 
+            # RFQ venues / markets are tagged on the name, e.g. "Variational (RFQ)", rather than in the notes
+            exchange = analysis["exchange"]
+            if "RFQ" in (slippage.get("approximation_reason") or ""):
+                exchange = f"{exchange} (RFQ)"
+                if note in RFQ_ONLY_NOTES:
+                    note = ""
+
             rows.append({
-                "exchange": analysis["exchange"],
+                "exchange": exchange,
+                "symbol": analysis.get("venueSymbol") or "",
                 "slippageBps": slippage_bps,
                 "takerFeeBps": slippage.get("takerFeeBps"),
                 "totalCostBps": total_cost_bps,
@@ -672,35 +799,38 @@ def reorganize_by_clip_size(analysis_list: list):
 # endregion
 
 # fixed list of tokens for user selection
-TOKEN_OPTIONS = ["BTC", "ETH", "SOL", "XRP", "HYPE", "BNB"]
 st.subheader("Select Token")
-token = st.selectbox("", TOKEN_OPTIONS, index=4)
+group = st.radio("Asset class", list(TOKEN_GROUPS), index=list(TOKEN_GROUPS).index(DEFAULT_GROUP), horizontal=True)
+group_tokens = TOKEN_GROUPS[group]
+token = st.selectbox(
+    "Token",
+    group_tokens,
+    index=group_tokens.index(DEFAULT_TOKEN) if DEFAULT_TOKEN in group_tokens else 0,
+    label_visibility="collapsed",
+)
 
 st.text("Assumptions")
 st.markdown("""
 - Full clip size can be taken against existing orderbook (this is unlikely in actual execution as market makers can react to taker orders and adjust / cancel as they deem fit)
 - Slippage is calculated based on average of buy side / ask side book
-- Taker fees as follows:
+- Venues marked (RFQ) are priced from quotes, not a live orderbook: Variational slippage comes from its quoted sizes, and Extended RFQ markets only publish an indicative book
+- Taker fees default to each exchange's base tier; change them under **Taker fees** below
 """)
 
 # region custom fees per exchange
-TAKER_FEE_PROFILES = {
-    "Hyperliquid": [
-        {"bps": 4.5, "assumption": "<5M 14D volume, 0 HYPE staked"},
-        {"bps": 4.0, "assumption": ">5M 14D volume, 0 HYPE staked"},
-        {"bps": 3.5, "assumption": ">25M 14D volume, 0 HYPE staked"},
-        {"bps": 3.0, "assumption": ">100M 14D volume, 0 HYPE staked"},
-        {"bps": 2.8, "assumption": ">500M 14D volume, 0 HYPE staked"},
-        {"bps": 2.6, "assumption": ">2B 14D volume, 0 HYPE staked"},
-        {"bps": 2.4, "assumption": ">7B 14D volume, 0 HYPE staked"},
-    ],
+# first entry is the default; every exchange also gets a "Custom" option
+TAKER_FEE_PROFILES: dict[str, list[dict[str, Any]]] = {
     "Lighter": [
-        {"bps": 0.0, "assumption": "Free Account"},
-        {"bps": 2.0, "assumption": "Premium Account"},
+        # standard accounts pay 0 on every market; premium per apidocs.lighter.xyz/docs/account-types
+        {"bps": 0.0, "assumption": "Standard Account"},
+        {"bps": 2.8, "assumption": "Premium Account, 0 LIT staked"},
+        {"bps": 1.96, "assumption": "Premium Account, 500k LIT staked"},
     ],
-    "Paradex": [
-        {"bps": 0.0, "assumption": "Free Account"},
-        {"bps": 2.0, "assumption": "Pro Account"},
+    # assumed to follow mainnet Lighter's account types; not checked against the Robinhood chain docs
+    "Lighter on Robinhood": [
+        {"bps": 0.0, "assumption": "Standard Account"},
+        {"bps": 2.8, "assumption": "Premium Account, 0 LIT staked"},
+        {"bps": 1.96, "assumption": "Premium Account, 500k LIT staked"},
     ],
     "Nado": [
         {"bps": 3.5, "assumption": "<5M 30D volume"},
@@ -711,62 +841,81 @@ TAKER_FEE_PROFILES = {
         {"bps": 1.8, "assumption": ">1B 30D volume"},
         {"bps": 1.5, "assumption": ">5B 30D volume"},
     ],
+    "Pacifica": [{"bps": 4.0, "assumption": ""}],
+    # Phoenix sets the fee per market and its markets endpoint returns it (bps=None means "use the market's fee");
+    # 3.5 bps is the fallback trading-tools uses when a market has none
+    "Phoenix": [{"bps": None, "assumption": "this market's fee, from Phoenix"}, {"bps": 3.5, "assumption": "base"}],
+    "RISEx": [{"bps": 3.0, "assumption": ""}],
+    "Variational": [{"bps": 0.0, "assumption": "spread built into quotes"}],
 }
-
-user_fees_bps: dict[str, float] = {}
-user_assumptions: dict[str, str] = {}
-
-for _, row in DEFAULT_TAKER_FEES.iterrows():
-    exch = row["Exchange"]
-    base_fee = float(row["Taker Fee (Bps)"])
-    base_assumption = row["Assumption"]
-
-    profiles = TAKER_FEE_PROFILES.get(
-        exch,
-        [
-            {
-                "bps": base_fee,
-                "assumption": base_assumption,
-            }
-        ],
-    )
-
-    # build labels from bps + assumption
-    labels = [
-        f"{p['bps']:.2f} bps"
-        + (f" ({p['assumption']})" if p["assumption"] else "")
-        for p in profiles
-    ]
-
-    c1, c2, c_spacer = st.columns([1, 4, 8], vertical_alignment="center")
-    with c1:
-        st.markdown(f"{exch}")
-    with c2:
-        choice_index = st.selectbox(
-            "",
-            options=range(len(labels)),
-            format_func=lambda i: labels[i],
-            index=0,
-            key=f"profile_{exch}",
-            label_visibility="collapsed",
-        )
-    # c_spacer left empty; acts like flexible right side
-
-    selected = profiles[choice_index]
-    user_fees_bps[exch] = selected["bps"]
-    user_assumptions[exch] = selected["assumption"]
-TAKER_FEES_CUSTOMISED = pd.DataFrame(
-    [
-        {"Exchange": exch, "Taker Fee (Bps)": bps, "Assumption": user_assumptions[exch]}
-        for exch, bps in user_fees_bps.items()
-    ]
+# QFEX charges by asset class (docs.qfex.com fees page, 30D effective volume tiers), so its tiers follow the selected class.
+# crypto isn't listed there; it falls back to the stock rates, the higher (conservative) ones
+_QFEX_VOLUME = ["<2M", "2M-10M", "10M-100M", "100M-400M", ">400M"]
+_QFEX_TAKER_BPS = {
+    "Stocks": [10.0, 8.0, 5.0, 2.0, 1.5],
+    "Indices": [5.0, 4.0, 2.0, 1.0, 0.6],
+    "Commodities": [5.0, 4.0, 2.0, 1.0, 0.6],
+}
+TAKER_FEE_PROFILES["QFEX"] = [
+    {"bps": bps, "assumption": f"{vol} 30D volume"}
+    for bps, vol in zip(_QFEX_TAKER_BPS.get(group, _QFEX_TAKER_BPS["Stocks"]), _QFEX_VOLUME)
+]
+# Hyperliquid tradfi markets are trade.xyz HIP-3 perps (docs.trade.xyz/trading/fees): 2x the validator-market fee,
+# cut by >=90% while Growth Mode is on, which covers every tradfi market except gold. 90% is used (the higher fee)
+_HL_BASE = [
+    (4.5, "<5M"), (4.0, ">5M"), (3.5, ">25M"), (3.0, ">100M"), (2.8, ">500M"), (2.6, ">2B"), (2.4, ">7B"),
+]
+if group == "Crypto":
+    _hl_mult, _hl_note = 1.0, ""
+elif token == "GOLD":
+    _hl_mult, _hl_note = 2.0, ", HIP-3 2x (gold has no Growth Mode)"
+else:
+    _hl_mult, _hl_note = 0.2, ", HIP-3 Growth Mode"
+TAKER_FEE_PROFILES["Hyperliquid"] = [
+    {"bps": round(bps * _hl_mult, 2), "assumption": f"{vol} 14D volume, 0 HYPE staked{_hl_note}"} for bps, vol in _HL_BASE
+]
+# Extended lists 5 bps taker on its tradfi markets (DefiLlama's SPX / NDX / XAU pages; trading-tools' venues.toml notes
+# 1 bp for RWA markets). the sources disagree, so the higher one is used
+TAKER_FEE_PROFILES["Extended"] = (
+    [{"bps": 2.5, "assumption": ""}] if group == "Crypto" else [{"bps": 5.0, "assumption": "tradfi markets"}]
 )
-# hashable representation of the current fees
-# to invalidate caching when fees manually changed by user
-fee_signature = tuple(
-    (row["Exchange"], float(row["Taker Fee (Bps)"]))
-    for _, row in TAKER_FEES_CUSTOMISED.sort_values("Exchange").iterrows()
-)
+CUSTOM_FEE = "Custom"
+FEE_GRID_COLUMNS = 4
+
+def _fee_label(p: dict) -> str:
+    if p["bps"] is None:
+        return p["assumption"]
+    return f"{p['bps']:.2f} bps" + (f" ({p['assumption']})" if p["assumption"] else "")
+
+# None = use the fee the venue reported for the fetched market (Phoenix)
+fee_map: dict[str, float | None] = {}
+with st.expander("Taker fees", expanded=False):
+    exchanges = list(ORDERBOOK_FETCHERS)
+    for row_start in range(0, len(exchanges), FEE_GRID_COLUMNS):
+        cols = st.columns(FEE_GRID_COLUMNS)
+        for col, exch in zip(cols, exchanges[row_start:row_start + FEE_GRID_COLUMNS]):
+            profiles = TAKER_FEE_PROFILES[exch]
+            options = [_fee_label(p) for p in profiles] + [CUSTOM_FEE]
+            with col:
+                # these venues' options change with the asset class (or token), so their widgets are keyed by it
+                key = {
+                    "QFEX": f"profile_{exch}_{group}",
+                    "Extended": f"profile_{exch}_{group == 'Crypto'}",
+                    "Hyperliquid": f"profile_{exch}_{_hl_mult}",
+                }.get(exch, f"profile_{exch}")
+                choice = st.selectbox(exch, options, index=0, key=key)
+                if choice == CUSTOM_FEE:
+                    fee_map[exch] = st.number_input(
+                        f"{exch} taker fee (bps)",
+                        min_value=0.0,
+                        max_value=100.0,
+                        value=float(next(p["bps"] for p in profiles if p["bps"] is not None)),
+                        step=0.1,
+                        format="%.2f",
+                        key=f"custom_fee_{exch}",
+                    )
+                else:
+                    fee_map[exch] = profiles[options.index(choice)]["bps"]
 # endregion
 
 # region cache actual orderbook fetching / analysis + add custom taker fees separately
@@ -775,11 +924,6 @@ with st.spinner("Fetching orderbooks and computing slippage..."):
     raw_analysis_list = get_all_analysis_pure_cached(token.lower())
 
 # 2) apply current taker fees to the raw analysis
-fee_map = {
-    row["Exchange"]: float(row["Taker Fee (Bps)"])
-    for _, row in TAKER_FEES_CUSTOMISED.iterrows()
-}
-
 analysis_list: list[dict[str, Any]] = []
 for a in raw_analysis_list:
     if "slippage" not in a:
@@ -788,6 +932,8 @@ for a in raw_analysis_list:
 
     exch = a["exchange"]
     taker_fee_bps = fee_map.get(exch, 0.0)
+    if taker_fee_bps is None:
+        taker_fee_bps = a.get("venueTakerFeeBps") if a.get("venueTakerFeeBps") is not None else 3.5
 
     new_a = {**a}
     new_a["takerFeeBps"] = taker_fee_bps
@@ -816,68 +962,74 @@ st.subheader("Slippage Rankings")
 st.caption(datetime.now().strftime("Last updated: %Y-%m-%d %H:%M:%S"))
 
 MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
-def build_rankings_table(df: pd.DataFrame, exclude_fees: bool=False) -> pd.DataFrame:
-    def get_full_remarks(r, exclude_fees: bool=False):
-        if exclude_fees:
-            return f"{r['slippageBps']:.3f} bps (slippage only){f' - {r['note']}' if r['note'] != '' else ''}"
-        return f"{r['totalCostBps']:.3f} bps (slippage {r['slippageBps']:.3f} + taker fee {r['takerFeeBps']:.3f}){f' - {r['note']}' if r['note'] != '' else ''}"
+RANK_BY = {"Full cost": "totalCostBps", "Slippage only": "slippageBps"}
 
-    df['full_remarks'] = df.apply(
-        lambda r: get_full_remarks(r, exclude_fees),
-        axis=1,
+def _bps(v, places: int) -> str:
+    return "" if v is None or pd.isna(v) else f"{v:.{places}f}"
+
+def build_rankings_table(df: pd.DataFrame, sort_col: str) -> pd.DataFrame:
+    # unfilled clips are inf; sort them last and show them blank (the note says why)
+    ranked = df.sort_values(sort_col, key=lambda c: c.replace({float("inf"): 1e18})).reset_index(drop=True)
+    finite = lambda v: None if v == float("inf") else v
+    return pd.DataFrame({
+        # only venues that filled the clip are ranked (and get medals)
+        "Rank": [
+            f"{MEDALS.get(i, '')} {i}".strip() if finite(v) is not None and not pd.isna(v) else "–"
+            for i, v in enumerate(ranked[sort_col], start=1)
+        ],
+        "Exchange": ranked["exchange"],
+        "Symbol": ranked["symbol"],
+        "Total (bps)": [_bps(finite(v), 3) for v in ranked["totalCostBps"]],
+        "Slippage (bps)": [_bps(finite(v), 3) for v in ranked["slippageBps"]],
+        "Fee (bps)": [_bps(v, 2) for v in ranked["takerFeeBps"]],
+        "Notes": ranked["note"],
+    }).set_index("Rank")
+
+# hand-built HTML table: st.dataframe can't be restyled and st.table greys out the rank and spaces columns unevenly.
+# fixed widths keep exchange / symbol / numbers compact so notes get the remaining space
+RANKINGS_COLUMNS = [  # (header, width, numeric)
+    ("Rank", "6%", False),
+    ("Exchange", "14%", False),
+    ("Symbol", "11%", False),
+    ("Total (bps)", "10%", True),
+    ("Slippage (bps)", "10%", True),
+    ("Fee (bps)", "10%", True),
+    ("Notes", "39%", False),
+]
+st.markdown(
+    """
+    <style>
+    table.rankings { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 1rem; border: 1px solid rgba(128, 128, 128, 0.3); }
+    table.rankings th, table.rankings td { padding: 0.45rem 0.75rem; border: 1px solid rgba(128, 128, 128, 0.2); text-align: left; overflow-wrap: anywhere; }
+    table.rankings thead th { background: rgba(128, 128, 128, 0.08); }
+    table.rankings th { font-weight: 600; opacity: 0.75; white-space: nowrap; }
+    table.rankings .num { text-align: right; font-variant-numeric: tabular-nums; }
+    table.rankings td.rank { white-space: nowrap; }
+    button[data-baseweb="tab"] p { font-size: 1.1rem; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+def rankings_html(df: pd.DataFrame) -> str:
+    rows = df.reset_index()
+    cols = "".join(f'<col style="width:{w}">' for _, w, _ in RANKINGS_COLUMNS)
+    head = "".join(f'<th class="{"num" if n else ""}">{h}</th>' for h, _, n in RANKINGS_COLUMNS)
+    body = "".join(
+        "<tr>" + "".join(
+            f'<td class="{"num" if n else ("rank" if h == "Rank" else "")}">{html.escape(str(r[h]))}</td>'
+            for h, _, n in RANKINGS_COLUMNS
+        ) + "</tr>"
+        for _, r in rows.iterrows()
     )
+    return f'<table class="rankings"><colgroup>{cols}</colgroup><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>'
 
-    # sort by cost
-    ranked = df.sort_values("slippageBps" if exclude_fees else "totalCostBps", ascending=True).reset_index(drop=True)
-    ranked.insert(0, "Rank", ranked.index + 1)
-    ranked["Medal"] = ranked["Rank"].map(MEDALS).fillna("")
-    cols = ["Medal", "Rank", "exchange", "full_remarks"]
-    return ranked[cols]
+rank_by = st.radio("Rank by", list(RANK_BY), horizontal=True)
 
-def format_rankings_text(df):
-    lines = []
-    for _, row in df.iterrows():
-        medal = row["Medal"] or "  "    # TODO fix formatting, seems slightly off
-        line = (
-            f"{medal} "
-            f"#{int(row['Rank']):<2} "
-            f"{row['exchange']:<15} "
-            f"{row['full_remarks']}"
-        )
-        lines.append(line)
-    text = "\n".join(lines)
-    return text
-
-for clip_size, clip_size_data in sorted(tables.items()):
-    st.markdown(f"### Clip Size: **${clip_size/1000}k**")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown("##### Excluding Taker Fees")
-        rankings_df_no_fees = build_rankings_table(clip_size_data, exclude_fees=True)
-        rankings_df_no_fees_formatted = format_rankings_text(rankings_df_no_fees)
-        # code block: monospaced, no borders, left aligned
-        st.code(rankings_df_no_fees_formatted, language=None)
-
-    with col2:
-        st.markdown("##### Full Cost")
-        rankings_df = build_rankings_table(clip_size_data, exclude_fees=False)
-        rankings_df_formatted = format_rankings_text(rankings_df)
-        st.code(rankings_df_formatted, language=None)
-
-with st.expander("Detailed Breakdown", expanded=False):
-    for clip_size, clip_size_data in sorted(tables.items()):
-        clip_size_formatted = f"${clip_size/1000}k"
-        st.markdown(f'Clip Size: **{clip_size_formatted}**')
-        st.dataframe(
-            clip_size_data[["exchange", "slippageBps", "takerFeeBps", "totalCostBps", "note"]],
-            column_config={
-                'exchange': st.column_config.TextColumn('Exchange', width='small'),
-                'slippageBps': st.column_config.NumberColumn('Slippage (Bps)', width='small'),
-                'takerFeeBps': st.column_config.NumberColumn('Taker Fee (Bps)', width='small'),
-                'totalCostBps': st.column_config.NumberColumn('Total Cost (Bps)', width='small'),
-                'note': st.column_config.TextColumn('Note', width='small'),
-            },
-            hide_index=True,
-        )
+if not tables:
+    st.info(f"None of the exchanges returned an orderbook for {token}.")
+else:
+    clip_sizes = sorted(tables)
+    for tab, clip_size in zip(st.tabs([f"${c / 1000:g}k" for c in clip_sizes]), clip_sizes):
+        with tab:
+            st.markdown(rankings_html(build_rankings_table(tables[clip_size], RANK_BY[rank_by])), unsafe_allow_html=True)
