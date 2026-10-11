@@ -928,14 +928,17 @@ def build_rankings_table(df: pd.DataFrame, exclude_fees: bool=False) -> pd.DataF
     return ranked[cols]
 
 def format_rankings_text(df):
+    # pad to the longest name so long venues (e.g. "Lighter (Robinhood)") keep columns aligned;
+    # medals go at the end of the line as emoji render wider than one monospace cell
+    name_width = max((len(str(n)) for n in df["exchange"]), default=0)
+    rank_width = len(f"#{len(df)}")
     lines = []
     for _, row in df.iterrows():
-        medal = row["Medal"] or "  "    # TODO fix formatting, seems slightly off
         line = (
-            f"{medal} "
-            f"#{int(row['Rank']):<2} "
-            f"{row['exchange']:<15} "
+            f"{'#' + str(int(row['Rank'])):<{rank_width}}  "
+            f"{row['exchange']:<{name_width}}  "
             f"{row['full_remarks']}"
+            + (f"  {row['Medal']}" if row["Medal"] else "")
         )
         lines.append(line)
     text = "\n".join(lines)
