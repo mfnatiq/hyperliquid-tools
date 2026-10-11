@@ -88,6 +88,15 @@ SYMBOL_ALIASES = {
 HYPERLIQUID_HIP3_DEX = "xyz"
 
 
+class NotListed(ValueError):
+    """the venue has no market for this symbol; expected for most venue / token pairs, so not logged as a warning"""
+
+
+def _is_not_listed(e: Exception) -> bool:
+    # venues answer an unknown symbol with a 400 / 404 (e.g. Pacifica "Book not found: QQQ")
+    return isinstance(e, NotListed) or (isinstance(e, RuntimeError) and str(e).startswith(("HTTP 400", "HTTP 404")))
+
+
 # region l2 orderbook fetchers
 async def fetch_hyperliquid_orderbook(session: aiohttp.ClientSession, token: str, *, aggregated: bool=False):
     coin = token.upper() if token.upper() in CRYPTO_TOKENS else f"{HYPERLIQUID_HIP3_DEX}:{token.upper()}"
@@ -104,7 +113,7 @@ async def fetch_hyperliquid_orderbook(session: aiohttp.ClientSession, token: str
     )
 
     if not data or not data.get("levels") or len(data["levels"]) < 2:
-        raise ValueError(f"Token {token} not available on Hyperliquid")
+        raise NotListed(f"Token {token} not available on Hyperliquid")
 
     bids = [{"price": float(l["px"]), "qty": float(l["sz"])} for l in data["levels"][0]]
     asks = [{"price": float(l["px"]), "qty": float(l["sz"])} for l in data["levels"][1]]
@@ -131,7 +140,7 @@ async def fetch_extended_orderbook(session: aiohttp.ClientSession, token: str):
             break
 
     if data.get("status") != "OK" or not (data.get("data") or {}).get("bid") or not data["data"].get("ask"):
-        raise ValueError(f"Token {token} not available on Extended")
+        raise NotListed(f"Token {token} not available on Extended")
 
     ob = data["data"]
     bids = [{"price": float(l["price"]), "qty": float(l["qty"])} for l in ob["bid"]]
@@ -177,7 +186,7 @@ async def fetch_lighter_orderbook(session: aiohttp.ClientSession, token: str, *,
         None,
     )
     if not market:
-        raise ValueError(f"Token {token} not available on {exchange}")
+        raise NotListed(f"Token {token} not available on {exchange}")
 
     mid = market["market_id"]
     data = await _fetch_json(
@@ -251,7 +260,7 @@ async def fetch_risex_orderbook(session: aiohttp.ClientSession, token: str):
         None,
     )
     if not market:
-        raise ValueError(f"Token {token} not available on RISEx")
+        raise NotListed(f"Token {token} not available on RISEx")
 
     ob = await _fetch_json(session, "GET", f"https://api.rise.trade/v1/orderbook?market_id={market['market_id']}&limit=250")
     ob = ob.get("data", ob)
@@ -269,7 +278,7 @@ async def fetch_phoenix_orderbook(session: aiohttp.ClientSession, token: str):
         None,
     )
     if not market:
-        raise ValueError(f"Token {token} not available on Phoenix")
+        raise NotListed(f"Token {token} not available on Phoenix")
 
     # the book path takes either the base ticker or the full market symbol
     last_err: Exception | None = None
@@ -293,7 +302,7 @@ async def fetch_qfex_orderbook(session: aiohttp.ClientSession, token: str):
         None,
     )
     if not ticker_id:
-        raise ValueError(f"Token {token} not available on QFEX")
+        raise NotListed(f"Token {token} not available on QFEX")
 
     ob = await _fetch_json(session, "GET", f"{url}/md/orderbook/{ticker_id}", headers=headers)
     ob = ob.get("data", ob) if isinstance(ob, dict) else {}
@@ -317,7 +326,7 @@ async def fetch_pacifica_orderbook(session: aiohttp.ClientSession, token: str):
     asks_raw = orderbook["l"][1] if orderbook["l"] and len(orderbook["l"]) > 1 else []
 
     if not bids_raw or not asks_raw:
-        raise ValueError(f"Empty orderbook for {token} on Pacifica")
+        raise NotListed(f"Empty orderbook for {token} on Pacifica")
 
     bids = [
         {"price": float(level["p"]), "qty": float(level["a"])}
@@ -347,7 +356,7 @@ async def fetch_nado_orderbook(session: aiohttp.ClientSession, token: str):
     )
 
     if product_id is None:
-        raise ValueError(f"product id for {market} not found for Nado")
+        raise NotListed(f"Token {token} not available on Nado")
 
     orderbook_data = await _fetch_json(
         session,
@@ -378,7 +387,7 @@ async def fetch_variational_orderbook(session: aiohttp.ClientSession, token: str
     stats_by_ticker = await fetch_variational_stats(session)
     listing = stats_by_ticker.get(token.upper())
     if not listing:
-        raise ValueError(f"Token {token} not available on Variational")
+        raise NotListed(f"Token {token} not available on Variational")
 
     # mark_price and base_spread_bps are strings; convert as needed
     mark_price = float(listing["mark_price"])
@@ -530,7 +539,7 @@ def analyze_orderbook_pure(orderbook: dict, agg_orderbook: dict | None = None):
         book_to_use = orderbook
         is_approximation = False
         if agg_orderbook is not None and book_depth_usd(orderbook) < size:
-            logger.info(f"using agg orderbook for {exchange} for clip size {size}")
+            logger.debug("using agg orderbook for %s for clip size %s", exchange, size)
             book_to_use = agg_orderbook
             is_approximation = True
 
@@ -646,21 +655,25 @@ async def _run_single_analysis(
 ) -> dict[str, Any]:
     try:
         ob_or_stats = None
-        first_err: Exception | None = None
+        errors: dict[str, Exception] = {}
         for symbol in SYMBOL_ALIASES.get(token.upper(), [token]):
             try:
                 ob = await fetcher(session, symbol)
             except Exception as e:
-                first_err = first_err or e
+                errors[symbol] = e
                 continue
             # an empty book usually means the venue knows the name but has no such market; try the next alias
             if name != "Variational" and (not ob.get("bids") or not ob.get("asks")):
-                first_err = first_err or ValueError(f"Empty orderbook for {symbol} on {name}")
+                errors[symbol] = NotListed(f"Empty orderbook for {symbol} on {name}")
                 continue
             ob_or_stats = ob
             break
         if ob_or_stats is None:
-            raise first_err or ValueError(f"Token {token} not available on {name}")
+            tried = "; ".join(f"{sym}: {err}" for sym, err in errors.items())
+            if all(_is_not_listed(err) for err in errors.values()):
+                logger.debug("%s does not list %s (tried %s)", name, token, tried)
+                return {"exchange": name, "error": f"not listed on {name}"}
+            raise RuntimeError(f"tried {tried}")
 
         if name == "Variational":
             # build a result similar to analyze_orderbook_pure, but using quotes
