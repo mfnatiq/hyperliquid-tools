@@ -849,14 +849,21 @@ TAKER_FEE_PROFILES: dict[str, list[dict[str, Any]]] = {
     "Pacifica": [{"bps": 4.0, "assumption": ""}],
     # Phoenix sets the fee per market; 3.5 bps is the fallback trading-tools uses when a market has none
     "Phoenix": [{"bps": 3.5, "assumption": "base, varies by market"}],
-    # QFEX tiers from trading-tools bot/venues.toml ([qfex.tiers.tier5], under $2m 30D volume)
-    "QFEX": [
-        {"bps": 10.0, "assumption": "<2M 30D volume, single stocks"},
-        {"bps": 5.0, "assumption": "<2M 30D volume, indices / commodities"},
-    ],
     "RISEx": [{"bps": 3.0, "assumption": ""}],
     "Variational": [{"bps": 0.0, "assumption": "spread built into quotes"}],
 }
+# QFEX charges by asset class (docs.qfex.com fees page, 30D effective volume tiers), so its tiers follow the selected class.
+# crypto isn't listed there; it falls back to the stock rates, the higher (conservative) ones
+_QFEX_VOLUME = ["<2M", "2M-10M", "10M-100M", "100M-400M", ">400M"]
+_QFEX_TAKER_BPS = {
+    "Stocks": [10.0, 8.0, 5.0, 2.0, 1.5],
+    "Indices": [5.0, 4.0, 2.0, 1.0, 0.6],
+    "Commodities": [5.0, 4.0, 2.0, 1.0, 0.6],
+}
+TAKER_FEE_PROFILES["QFEX"] = [
+    {"bps": bps, "assumption": f"{vol} 30D volume"}
+    for bps, vol in zip(_QFEX_TAKER_BPS.get(group, _QFEX_TAKER_BPS["Stocks"]), _QFEX_VOLUME)
+]
 CUSTOM_FEE = "Custom"
 FEE_GRID_COLUMNS = 4
 
@@ -872,7 +879,9 @@ with st.expander("Taker fees", expanded=False):
             profiles = TAKER_FEE_PROFILES[exch]
             options = [_fee_label(p) for p in profiles] + [CUSTOM_FEE]
             with col:
-                choice = st.selectbox(exch, options, index=0, key=f"profile_{exch}")
+                # QFEX's options change with the asset class, so its widget is keyed per class
+                key = f"profile_{exch}_{group}" if exch == "QFEX" else f"profile_{exch}"
+                choice = st.selectbox(exch, options, index=0, key=key)
                 if choice == CUSTOM_FEE:
                     fee_map[exch] = st.number_input(
                         f"{exch} taker fee (bps)",
