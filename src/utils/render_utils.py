@@ -7,7 +7,12 @@ donation_address = "0xB17648Ed98C9766B880b5A24eEcAebA19866d1d7"
 # every place that shows a referral reads this list, so a link or code changes in one spot.
 REFERRALS = [
     dict(venue="Variational", url="https://omni.variational.io/?ref=OMNIMAMBO", code="OMNIMAMBO"),
+    dict(venue="TxFlow", url="https://app.txflow.com/r/EJFMW1T960", code="EJFMW1T960"),
+    dict(venue="TxFlow (alt)", url="https://app.txflow.com/r/I6B5D3PAAL", code="I6B5D3PAAL"),
+    dict(venue="Phoenix", url="https://phoenix.trade/?code=O88RSK0C", code="O88RSK0C"),
+    dict(venue="RISEx", url="https://www.rise.trade/invite/mambo", code="mambo"),
     dict(venue="Extended", url="https://app.extended.exchange/join/MAMBO", code="MAMBO"),
+    dict(venue="Nado", url="https://app.nado.xyz/?join=q75b4tC", code="q75b4tC"),
     dict(venue="Pacifica", url="https://app.pacifica.fi/?referral=pacifica", code="pacifica"),
     dict(venue="Bullpen", url="https://bullpen.fi/@bitcoin", code="@bitcoin"),
 ]

@@ -8,13 +8,16 @@ def test_the_donation_address_is_unchanged_because_payments_are_checked_against_
 
 
 def test_every_referral_has_an_https_link_and_a_code_and_each_venue_appears_once():
-    assert [r["venue"] for r in REFERRALS] == ["Variational", "Extended", "Pacifica", "Bullpen"]
+    assert [r["venue"] for r in REFERRALS] == [
+        "Variational", "TxFlow", "TxFlow (alt)", "Phoenix", "RISEx", "Extended", "Nado", "Pacifica", "Bullpen",
+    ]
     assert all(r["url"].startswith("https://") and r["code"] for r in REFERRALS)
 
 
 def test_referral_url_finds_a_venue_whatever_its_case_and_is_none_for_an_unknown_one():
     assert referral_url("extended") == "https://app.extended.exchange/join/MAMBO"
     assert referral_url("VARIATIONAL") == "https://omni.variational.io/?ref=OMNIMAMBO"
+    assert referral_url("txflow") == "https://app.txflow.com/r/EJFMW1T960"
     assert referral_url("Hyperliquid") is None
 
 
