@@ -67,9 +67,23 @@ async def _fetch_json(
             return await resp.json()
 
 
+CRYPTO_TOKENS = ["BTC", "ETH", "SOL", "XRP", "HYPE", "BNB"]
+# most-traded stocks, indices and gold across the venues that list them (Hyperliquid HIP-3, Lighter, Extended, QFEX, ...)
+TRADFI_TOKENS = ["NVDA", "TSLA", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "COIN", "HOOD", "US500", "QQQ", "GOLD"]
+# venues name indices / gold differently; each fetcher is tried with these in order until one is listed
+SYMBOL_ALIASES = {
+    "US500": ["US500", "SPX", "SP500", "SPY", "USA500"],
+    "QQQ": ["QQQ", "US100", "NDX", "NAS100", "XYZ100"],
+    "GOLD": ["GOLD", "XAU"],
+}
+# Hyperliquid lists tradfi perps on the trade.xyz HIP-3 dex, as "xyz:<SYMBOL>"
+HYPERLIQUID_HIP3_DEX = "xyz"
+
+
 # region l2 orderbook fetchers
 async def fetch_hyperliquid_orderbook(session: aiohttp.ClientSession, token: str, *, aggregated: bool=False):
-    body: dict[str, Any] = {"type": "l2Book", "coin": token.upper()}
+    coin = token.upper() if token.upper() in CRYPTO_TOKENS else f"{HYPERLIQUID_HIP3_DEX}:{token.upper()}"
+    body: dict[str, Any] = {"type": "l2Book", "coin": coin}
     if aggregated:  # special case for hyperliquid as l2 book only returns 20 levels, which may be insufficient for larger clip sizes
         # coarser buckets to get larger notional per level
         body.update({"nSigFigs": 4})
@@ -81,8 +95,8 @@ async def fetch_hyperliquid_orderbook(session: aiohttp.ClientSession, token: str
         json_body=body,
     )
 
-    if not data.get("levels") or len(data["levels"]) < 2:
-        raise ValueError(f"Invalid orderbook for {token} on Hyperliquid")
+    if not data or not data.get("levels") or len(data["levels"]) < 2:
+        raise ValueError(f"Token {token} not available on Hyperliquid")
 
     bids = [{"price": float(l["px"]), "qty": float(l["sz"])} for l in data["levels"][0]]
     asks = [{"price": float(l["px"]), "qty": float(l["sz"])} for l in data["levels"][1]]
@@ -138,15 +152,23 @@ async def fetch_paradex_orderbook(session: aiohttp.ClientSession, token: str):
 
 
 async def fetch_extended_orderbook(session: aiohttp.ClientSession, token: str):
-    market = f"{token.upper()}-USD"
-    data = await _fetch_json(
-        session,
-        "GET",
-        f"https://api.starknet.extended.exchange/api/v1/info/markets/{market}/orderbook",
-    )
+    # stock markets are named e.g. NVDA_24_5-USD (24/5 trading); other tradfi markets may not carry the suffix
+    markets = [f"{token.upper()}-USD"] if token.upper() in CRYPTO_TOKENS else [f"{token.upper()}_24_5-USD", f"{token.upper()}-USD"]
+    data: dict[str, Any] = {}
+    for market in markets:
+        try:
+            data = await _fetch_json(
+                session,
+                "GET",
+                f"https://api.starknet.extended.exchange/api/v1/info/markets/{market}/orderbook",
+            )
+        except RuntimeError:
+            continue
+        if data.get("status") == "OK" and "data" in data:
+            break
 
     if data.get("status") != "OK" or "data" not in data:
-        raise ValueError(f"Invalid orderbook for {token} on Extended")
+        raise ValueError(f"Token {token} not available on Extended")
 
     ob = data["data"]
     bids = [{"price": float(l["price"]), "qty": float(l["qty"])} for l in ob["bid"]]
@@ -659,7 +681,16 @@ async def _run_single_analysis(
     token: str,
 ) -> dict[str, Any]:
     try:
-        ob_or_stats = await fetcher(session, token)
+        ob_or_stats = None
+        first_err: Exception | None = None
+        for symbol in SYMBOL_ALIASES.get(token.upper(), [token]):
+            try:
+                ob_or_stats = await fetcher(session, symbol)
+                break
+            except Exception as e:
+                first_err = first_err or e
+        if ob_or_stats is None:
+            raise first_err or ValueError(f"Token {token} not available on {name}")
 
         if name == "Variational":
             # build a result similar to analyze_orderbook_pure, but using quotes
@@ -693,7 +724,7 @@ async def _run_single_analysis(
             if depth < max_clip:
                 # fetch with aggregated book to be used separately
                 agg_orderbook = await fetch_hyperliquid_orderbook(
-                    session, token, aggregated=True
+                    session, orderbook["token"], aggregated=True
                 )
 
         analysis = analyze_orderbook_pure(orderbook, agg_orderbook=agg_orderbook)
@@ -779,7 +810,7 @@ def reorganize_by_clip_size(analysis_list: list):
 # endregion
 
 # fixed list of tokens for user selection
-TOKEN_OPTIONS = ["BTC", "ETH", "SOL", "XRP", "HYPE", "BNB"]
+TOKEN_OPTIONS = CRYPTO_TOKENS + TRADFI_TOKENS
 st.subheader("Select Token")
 token = st.selectbox("Token", TOKEN_OPTIONS, index=4, label_visibility="collapsed")
 
@@ -943,6 +974,9 @@ def format_rankings_text(df):
         lines.append(line)
     text = "\n".join(lines)
     return text
+
+if not tables:
+    st.info(f"None of the exchanges returned an orderbook for {token}.")
 
 for clip_size, clip_size_data in sorted(tables.items()):
     st.markdown(f"### Clip Size: **${clip_size/1000}k**")
