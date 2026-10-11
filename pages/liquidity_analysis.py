@@ -285,7 +285,8 @@ async def fetch_phoenix_orderbook(session: aiohttp.ClientSession, token: str):
     for sym in dict.fromkeys([token.upper(), market["symbol"]]):
         try:
             b = await _fetch_json(session, "GET", f"{url}/v1/view/orderbook/{sym}?include_splines=true")
-            return {"bids": _levels(b.get("bids")), "asks": _levels(b.get("asks")), "exchange": "Phoenix", "token": token, "venueSymbol": sym}
+            return {"bids": _levels(b.get("bids")), "asks": _levels(b.get("asks")), "exchange": "Phoenix", "token": token, "venueSymbol": sym,
+                    "venueTakerFeeBps": float(market["takerFee"]) * 100 if market.get("takerFee") is not None else None}  # percent -> bps
         except RuntimeError as e:
             last_err = e
     raise last_err or ValueError(f"No orderbook for {token} on Phoenix")
@@ -530,6 +531,7 @@ def analyze_orderbook_pure(orderbook: dict, agg_orderbook: dict | None = None):
         "exchange": exchange,
         "token": orderbook["token"],
         "venueSymbol": orderbook.get("venueSymbol"),
+        "venueTakerFeeBps": orderbook.get("venueTakerFeeBps"),
         "midPrice": round(mid_price, 2),
         "spreadBps": round(spread * 100, 2),
         "slippage": {},
@@ -818,24 +820,17 @@ st.markdown("""
 # region custom fees per exchange
 # first entry is the default; every exchange also gets a "Custom" option
 TAKER_FEE_PROFILES: dict[str, list[dict[str, Any]]] = {
-    "Extended": [{"bps": 2.5, "assumption": ""}],
-    "Hyperliquid": [
-        {"bps": 4.5, "assumption": "<5M 14D volume, 0 HYPE staked"},
-        {"bps": 4.0, "assumption": ">5M 14D volume, 0 HYPE staked"},
-        {"bps": 3.5, "assumption": ">25M 14D volume, 0 HYPE staked"},
-        {"bps": 3.0, "assumption": ">100M 14D volume, 0 HYPE staked"},
-        {"bps": 2.8, "assumption": ">500M 14D volume, 0 HYPE staked"},
-        {"bps": 2.6, "assumption": ">2B 14D volume, 0 HYPE staked"},
-        {"bps": 2.4, "assumption": ">7B 14D volume, 0 HYPE staked"},
-    ],
     "Lighter": [
-        {"bps": 0.0, "assumption": "Free Account"},
-        {"bps": 2.0, "assumption": "Premium Account"},
+        # standard accounts pay 0 on every market; premium per apidocs.lighter.xyz/docs/account-types
+        {"bps": 0.0, "assumption": "Standard Account"},
+        {"bps": 2.8, "assumption": "Premium Account, 0 LIT staked"},
+        {"bps": 1.96, "assumption": "Premium Account, 500k LIT staked"},
     ],
     # assumed to follow mainnet Lighter's account types; not checked against the Robinhood chain docs
     "Lighter on Robinhood": [
-        {"bps": 0.0, "assumption": "Free Account"},
-        {"bps": 2.0, "assumption": "Premium Account"},
+        {"bps": 0.0, "assumption": "Standard Account"},
+        {"bps": 2.8, "assumption": "Premium Account, 0 LIT staked"},
+        {"bps": 1.96, "assumption": "Premium Account, 500k LIT staked"},
     ],
     "Nado": [
         {"bps": 3.5, "assumption": "<5M 30D volume"},
@@ -847,8 +842,9 @@ TAKER_FEE_PROFILES: dict[str, list[dict[str, Any]]] = {
         {"bps": 1.5, "assumption": ">5B 30D volume"},
     ],
     "Pacifica": [{"bps": 4.0, "assumption": ""}],
-    # Phoenix sets the fee per market; 3.5 bps is the fallback trading-tools uses when a market has none
-    "Phoenix": [{"bps": 3.5, "assumption": "base, varies by market"}],
+    # Phoenix sets the fee per market and its markets endpoint returns it (bps=None means "use the market's fee");
+    # 3.5 bps is the fallback trading-tools uses when a market has none
+    "Phoenix": [{"bps": None, "assumption": "this market's fee, from Phoenix"}, {"bps": 3.5, "assumption": "base"}],
     "RISEx": [{"bps": 3.0, "assumption": ""}],
     "Variational": [{"bps": 0.0, "assumption": "spread built into quotes"}],
 }
@@ -864,13 +860,35 @@ TAKER_FEE_PROFILES["QFEX"] = [
     {"bps": bps, "assumption": f"{vol} 30D volume"}
     for bps, vol in zip(_QFEX_TAKER_BPS.get(group, _QFEX_TAKER_BPS["Stocks"]), _QFEX_VOLUME)
 ]
+# Hyperliquid tradfi markets are trade.xyz HIP-3 perps (docs.trade.xyz/trading/fees): 2x the validator-market fee,
+# cut by >=90% while Growth Mode is on, which covers every tradfi market except gold. 90% is used (the higher fee)
+_HL_BASE = [
+    (4.5, "<5M"), (4.0, ">5M"), (3.5, ">25M"), (3.0, ">100M"), (2.8, ">500M"), (2.6, ">2B"), (2.4, ">7B"),
+]
+if group == "Crypto":
+    _hl_mult, _hl_note = 1.0, ""
+elif token == "GOLD":
+    _hl_mult, _hl_note = 2.0, ", HIP-3 2x (gold has no Growth Mode)"
+else:
+    _hl_mult, _hl_note = 0.2, ", HIP-3 Growth Mode"
+TAKER_FEE_PROFILES["Hyperliquid"] = [
+    {"bps": round(bps * _hl_mult, 2), "assumption": f"{vol} 14D volume, 0 HYPE staked{_hl_note}"} for bps, vol in _HL_BASE
+]
+# Extended lists 5 bps taker on its tradfi markets (DefiLlama's SPX / NDX / XAU pages; trading-tools' venues.toml notes
+# 1 bp for RWA markets). the sources disagree, so the higher one is used
+TAKER_FEE_PROFILES["Extended"] = (
+    [{"bps": 2.5, "assumption": ""}] if group == "Crypto" else [{"bps": 5.0, "assumption": "tradfi markets"}]
+)
 CUSTOM_FEE = "Custom"
 FEE_GRID_COLUMNS = 4
 
 def _fee_label(p: dict) -> str:
+    if p["bps"] is None:
+        return p["assumption"]
     return f"{p['bps']:.2f} bps" + (f" ({p['assumption']})" if p["assumption"] else "")
 
-fee_map: dict[str, float] = {}
+# None = use the fee the venue reported for the fetched market (Phoenix)
+fee_map: dict[str, float | None] = {}
 with st.expander("Taker fees", expanded=False):
     exchanges = list(ORDERBOOK_FETCHERS)
     for row_start in range(0, len(exchanges), FEE_GRID_COLUMNS):
@@ -879,15 +897,19 @@ with st.expander("Taker fees", expanded=False):
             profiles = TAKER_FEE_PROFILES[exch]
             options = [_fee_label(p) for p in profiles] + [CUSTOM_FEE]
             with col:
-                # QFEX's options change with the asset class, so its widget is keyed per class
-                key = f"profile_{exch}_{group}" if exch == "QFEX" else f"profile_{exch}"
+                # these venues' options change with the asset class (or token), so their widgets are keyed by it
+                key = {
+                    "QFEX": f"profile_{exch}_{group}",
+                    "Extended": f"profile_{exch}_{group == 'Crypto'}",
+                    "Hyperliquid": f"profile_{exch}_{_hl_mult}",
+                }.get(exch, f"profile_{exch}")
                 choice = st.selectbox(exch, options, index=0, key=key)
                 if choice == CUSTOM_FEE:
                     fee_map[exch] = st.number_input(
                         f"{exch} taker fee (bps)",
                         min_value=0.0,
                         max_value=100.0,
-                        value=float(profiles[0]["bps"]),
+                        value=float(next(p["bps"] for p in profiles if p["bps"] is not None)),
                         step=0.1,
                         format="%.2f",
                         key=f"custom_fee_{exch}",
@@ -910,6 +932,8 @@ for a in raw_analysis_list:
 
     exch = a["exchange"]
     taker_fee_bps = fee_map.get(exch, 0.0)
+    if taker_fee_bps is None:
+        taker_fee_bps = a.get("venueTakerFeeBps") if a.get("venueTakerFeeBps") is not None else 3.5
 
     new_a = {**a}
     new_a["takerFeeBps"] = taker_fee_bps
