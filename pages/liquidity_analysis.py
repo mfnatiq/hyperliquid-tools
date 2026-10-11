@@ -921,7 +921,7 @@ else:
                     "totalCostBps": st.column_config.NumberColumn("Total cost (bps)", format="%.3f"),
                     "slippageBps": st.column_config.NumberColumn("Slippage (bps)", format="%.3f"),
                     "takerFeeBps": st.column_config.NumberColumn("Taker fee (bps)", format="%.2f"),
-                    "note": st.column_config.TextColumn("Note", width="large"),
+                    "note": st.column_config.TextColumn("Notes", width="large"),
                 },
                 hide_index=True,
                 use_container_width=True,
