@@ -67,11 +67,16 @@ async def _fetch_json(
     if json_body is not None:
         kwargs["json"] = json_body
 
-    async with session.request(method.upper(), url, **kwargs) as resp:
-        if resp.status >= 400:
-            text = await resp.text()
-            raise RuntimeError(f"HTTP {resp.status} for {url}: {text}")
-        return await resp.json()
+    # gateways (e.g. Lighter's) intermittently return 502/503/504; retry those briefly
+    for attempt in range(3):
+        async with session.request(method.upper(), url, **kwargs) as resp:
+            if resp.status in (502, 503, 504) and attempt < 2:
+                await asyncio.sleep(0.5 * (attempt + 1))
+                continue
+            if resp.status >= 400:
+                text = (await resp.text())[:200]
+                raise RuntimeError(f"HTTP {resp.status} for {url}: {text}")
+            return await resp.json()
 
 
 # region l2 orderbook fetchers
@@ -743,7 +748,7 @@ for _, row in DEFAULT_TAKER_FEES.iterrows():
         st.markdown(f"{exch}")
     with c2:
         choice_index = st.selectbox(
-            "",
+            f"{exch} fee tier",
             options=range(len(labels)),
             format_func=lambda i: labels[i],
             index=0,
