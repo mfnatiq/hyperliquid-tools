@@ -76,7 +76,7 @@ TOKEN_GROUPS = {
     "Crypto": ["BNB", "BTC", "ETH", "HYPE", "SOL", "XRP"],
 }
 CRYPTO_TOKENS = TOKEN_GROUPS["Crypto"]
-DEFAULT_GROUP, DEFAULT_TOKEN = "Indices", "QQQ"
+DEFAULT_GROUP, DEFAULT_TOKEN = "Indices", "US500"
 SYMBOL_ALIASES = {
     "US500": ["US500", "SPX", "SP500", "SPY", "USA500"],
     "QQQ": ["QQQ", "US100", "NDX", "NAS100", "XYZ100"],
