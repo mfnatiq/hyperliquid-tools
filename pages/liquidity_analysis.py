@@ -674,7 +674,7 @@ def reorganize_by_clip_size(analysis_list: list):
 # fixed list of tokens for user selection
 TOKEN_OPTIONS = ["BTC", "ETH", "SOL", "XRP", "HYPE", "BNB"]
 st.subheader("Select Token")
-token = st.selectbox("", TOKEN_OPTIONS, index=4)
+token = st.selectbox("Token", TOKEN_OPTIONS, index=4, label_visibility="collapsed")
 
 st.text("Assumptions")
 st.markdown("""
