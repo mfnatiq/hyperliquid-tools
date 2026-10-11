@@ -106,51 +106,6 @@ async def fetch_hyperliquid_orderbook_default(session, token):
     return await fetch_hyperliquid_orderbook(session, token, aggregated=False)
 
 
-async def fetch_paradex_orderbook(session: aiohttp.ClientSession, token: str):
-    pair = f"{token.upper()}-USD-PERP"
-    data = await _fetch_json(
-        session,
-        "GET",
-        f"https://api.prod.paradex.trade/v1/orderbook/{pair}/interactive?depth=100",
-        headers={"Accept": "application/json"},
-    )
-
-    if not data.get("bids") or not data.get("asks"):
-        raise ValueError(f"Invalid orderbook for {token} on Paradex")
-
-    bids = [{"price": float(px), "qty": float(qty)} for px, qty in data["bids"]]
-    asks = [{"price": float(px), "qty": float(qty)} for px, qty in data["asks"]]
-
-    rpi_data = None
-    if data.get("best_bid_interactive") and data.get("best_ask_interactive"):
-        api_bid = float(data["best_bid_api"][0]) if data.get("best_bid_api") else None
-        api_ask = float(data["best_ask_api"][0]) if data.get("best_ask_api") else None
-        rpi_bid = float(data["best_bid_interactive"][0])
-        rpi_ask = float(data["best_ask_interactive"][0])
-
-        api_spread_bps = (
-            ((api_ask - api_bid) / api_bid) * 10_000 if api_bid and api_ask else None
-        )
-        rpi_spread_bps = ((rpi_ask - rpi_bid) / rpi_bid) * 10_000
-
-        rpi_data = {
-            "apiBid": api_bid,
-            "apiAsk": api_ask,
-            "apiSpreadBps": api_spread_bps,
-            "rpiBid": rpi_bid,
-            "rpiAsk": rpi_ask,
-            "rpiSpreadBps": rpi_spread_bps,
-        }
-
-    return {
-        "bids": bids,
-        "asks": asks,
-        "exchange": "Paradex",
-        "token": token,
-        "rpiData": rpi_data,
-    }
-
-
 async def fetch_extended_orderbook(session: aiohttp.ClientSession, token: str):
     # stock markets are named e.g. NVDA_24_5-USD (24/5 trading); other tradfi markets may not carry the suffix
     markets = [f"{token.upper()}-USD"] if token.upper() in CRYPTO_TOKENS else [f"{token.upper()}_24_5-USD", f"{token.upper()}-USD"]
@@ -439,7 +394,6 @@ async def fetch_variational_orderbook(session: aiohttp.ClientSession, token: str
 
 ORDERBOOK_FETCHERS = {
     "Hyperliquid": fetch_hyperliquid_orderbook_default,
-    "Paradex": fetch_paradex_orderbook,
     "Extended": fetch_extended_orderbook,
     "Lighter": fetch_lighter_orderbook,
     "Lighter on Robinhood": fetch_lighter_rh_orderbook,
@@ -558,7 +512,6 @@ def analyze_orderbook_pure(orderbook: dict, agg_orderbook: dict | None = None):
         "token": orderbook["token"],
         "midPrice": round(mid_price, 2),
         "spreadBps": round(spread * 100, 2),
-        "rpiData": orderbook.get("rpiData"),
         "slippage": {},
     }
 
@@ -705,7 +658,6 @@ async def _run_single_analysis(
                 "token": token,
                 "midPrice": round(ob_or_stats["markPrice"], 2),
                 "spreadBps": ob_or_stats.get("baseSpreadBps"),  # already in bps
-                "rpiData": None,
                 "slippage": {},
             }
             for size in CLIP_SIZES:
@@ -861,10 +813,6 @@ TAKER_FEE_PROFILES: dict[str, list[dict[str, Any]]] = {
         {"bps": 1.5, "assumption": ">5B 30D volume"},
     ],
     "Pacifica": [{"bps": 4.0, "assumption": ""}],
-    "Paradex": [
-        {"bps": 0.0, "assumption": "Free Account"},
-        {"bps": 2.0, "assumption": "Pro Account"},
-    ],
     # Phoenix sets the fee per market; 3.5 bps is the fallback trading-tools uses when a market has none
     "Phoenix": [{"bps": 3.5, "assumption": "base, varies by market"}],
     # QFEX tiers from trading-tools bot/venues.toml ([qfex.tiers.tier5], under $2m 30D volume)
