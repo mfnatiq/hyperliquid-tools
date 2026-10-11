@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime
+import html
 import sys
 from typing import Any
 import aiohttp
@@ -926,22 +927,50 @@ def build_rankings_table(df: pd.DataFrame, sort_col: str) -> pd.DataFrame:
         ],
         "Exchange": ranked["exchange"],
         "Symbol": ranked["symbol"],
-        "Total cost (bps)": [_bps(finite(v), 3) for v in ranked["totalCostBps"]],
+        "Total (bps)": [_bps(finite(v), 3) for v in ranked["totalCostBps"]],
         "Slippage (bps)": [_bps(finite(v), 3) for v in ranked["slippageBps"]],
-        "Taker fee (bps)": [_bps(v, 2) for v in ranked["takerFeeBps"]],
+        "Fee (bps)": [_bps(v, 2) for v in ranked["takerFeeBps"]],
         "Notes": ranked["note"],
     }).set_index("Rank")
 
-# st.table is plain HTML, so unlike st.dataframe its font size can be set; tabs get the same bump
+# hand-built HTML table: st.dataframe can't be restyled and st.table greys out the rank and spaces columns unevenly.
+# fixed widths keep exchange / symbol / numbers compact so notes get the remaining space
+RANKINGS_COLUMNS = [  # (header, width, numeric)
+    ("Rank", "6%", False),
+    ("Exchange", "14%", False),
+    ("Symbol", "11%", False),
+    ("Total (bps)", "10%", True),
+    ("Slippage (bps)", "10%", True),
+    ("Fee (bps)", "10%", True),
+    ("Notes", "39%", False),
+]
 st.markdown(
     """
     <style>
-    div[data-testid="stTable"] table { font-size: 1rem; }
+    table.rankings { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 1rem; }
+    table.rankings th, table.rankings td { padding: 0.45rem 0.75rem; border: none; border-bottom: 1px solid rgba(128, 128, 128, 0.25); text-align: left; overflow-wrap: anywhere; }
+    table.rankings th { font-weight: 600; opacity: 0.75; white-space: nowrap; }
+    table.rankings { border: none; }
+    table.rankings .num { text-align: right; font-variant-numeric: tabular-nums; }
+    table.rankings td.rank { white-space: nowrap; }
     button[data-baseweb="tab"] p { font-size: 1.1rem; }
     </style>
     """,
     unsafe_allow_html=True,
 )
+
+def rankings_html(df: pd.DataFrame) -> str:
+    rows = df.reset_index()
+    cols = "".join(f'<col style="width:{w}">' for _, w, _ in RANKINGS_COLUMNS)
+    head = "".join(f'<th class="{"num" if n else ""}">{h}</th>' for h, _, n in RANKINGS_COLUMNS)
+    body = "".join(
+        "<tr>" + "".join(
+            f'<td class="{"num" if n else ("rank" if h == "Rank" else "")}">{html.escape(str(r[h]))}</td>'
+            for h, _, n in RANKINGS_COLUMNS
+        ) + "</tr>"
+        for _, r in rows.iterrows()
+    )
+    return f'<table class="rankings"><colgroup>{cols}</colgroup><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>'
 
 rank_by = st.radio("Rank by", list(RANK_BY), horizontal=True)
 
@@ -951,4 +980,4 @@ else:
     clip_sizes = sorted(tables)
     for tab, clip_size in zip(st.tabs([f"${c / 1000:g}k" for c in clip_sizes]), clip_sizes):
         with tab:
-            st.table(build_rankings_table(tables[clip_size], RANK_BY[rank_by]))
+            st.markdown(rankings_html(build_rankings_table(tables[clip_size], RANK_BY[rank_by])), unsafe_allow_html=True)
