@@ -160,7 +160,7 @@ async def fetch_extended_orderbook(session: aiohttp.ClientSession, token: str):
             "GET",
             f"https://api.starknet.extended.exchange/api/v1/info/markets?market={market}",
         )
-        m = next((x for x in info.get("data", []) if x.get("name") == market), {})
+        m: dict[str, Any] = next((x for x in info.get("data", []) if x.get("name") == market), {})
         if m.get("isRfq"):
             note = "RFQ market: indicative book only"
         elif m.get("isOffHours"):
@@ -230,7 +230,7 @@ async def fetch_lighter_rh_orderbook(session: aiohttp.ClientSession, token: str)
     return await fetch_lighter_orderbook(session, token, base_url=LIGHTER_RH_URL, exchange="Lighter (Robinhood)")
 
 
-def _levels(raw: list) -> list[dict[str, float]]:
+def _levels(raw: list | None) -> list[dict[str, float]]:
     """[price, qty] pairs or {price, quantity|qty|size} dicts -> [{price, qty}]"""
     out = []
     for l in raw or []:
@@ -793,7 +793,7 @@ st.markdown("""
 
 # region custom fees per exchange
 # first entry is the default; every exchange also gets a "Custom" option
-TAKER_FEE_PROFILES = {
+TAKER_FEE_PROFILES: dict[str, list[dict[str, Any]]] = {
     "Extended": [{"bps": 2.5, "assumption": ""}],
     "Hyperliquid": [
         {"bps": 4.5, "assumption": "<5M 14D volume, 0 HYPE staked"},
