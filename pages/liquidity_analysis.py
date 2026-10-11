@@ -249,7 +249,7 @@ async def fetch_lighter_orderbook(session: aiohttp.ClientSession, token: str, *,
 
 
 async def fetch_lighter_rh_orderbook(session: aiohttp.ClientSession, token: str):
-    return await fetch_lighter_orderbook(session, token, base_url=LIGHTER_RH_URL, exchange="Lighter (Robinhood)")
+    return await fetch_lighter_orderbook(session, token, base_url=LIGHTER_RH_URL, exchange="Lighter on Robinhood")
 
 
 def _levels(raw: list | None) -> list[dict[str, float]]:
@@ -442,7 +442,7 @@ ORDERBOOK_FETCHERS = {
     "Paradex": fetch_paradex_orderbook,
     "Extended": fetch_extended_orderbook,
     "Lighter": fetch_lighter_orderbook,
-    "Lighter (Robinhood)": fetch_lighter_rh_orderbook,
+    "Lighter on Robinhood": fetch_lighter_rh_orderbook,
     "RISEx": fetch_risex_orderbook,
     "Phoenix": fetch_phoenix_orderbook,
     "QFEX": fetch_qfex_orderbook,
@@ -788,8 +788,15 @@ def reorganize_by_clip_size(analysis_list: list):
                 if is_approximation:
                     note = approximation_reason or "slippage approximated due to aggregated levels (API limitation)"
 
+            # RFQ venues / markets are tagged on the name, e.g. "Variational (RFQ)", rather than in the notes
+            exchange = analysis["exchange"]
+            if "RFQ" in (slippage.get("approximation_reason") or ""):
+                exchange = f"{exchange} (RFQ)"
+                if "RFQ" in note:
+                    note = ""
+
             rows.append({
-                "exchange": analysis["exchange"],
+                "exchange": exchange,
                 "slippageBps": slippage_bps,
                 "takerFeeBps": slippage.get("takerFeeBps"),
                 "totalCostBps": total_cost_bps,
@@ -818,7 +825,7 @@ st.text("Assumptions")
 st.markdown("""
 - Full clip size can be taken against existing orderbook (this is unlikely in actual execution as market makers can react to taker orders and adjust / cancel as they deem fit)
 - Slippage is calculated based on average of buy side / ask side book
-- Variational is RFQ: its slippage comes from quoted sizes, not an orderbook. Extended RFQ markets only publish an indicative book and are flagged in the notes
+- Venues marked (RFQ) are priced from quotes, not a live orderbook: Variational slippage comes from its quoted sizes, and Extended RFQ markets only publish an indicative book
 - Taker fees default to each exchange's base tier; change them under **Taker fees** below
 """)
 
@@ -840,7 +847,7 @@ TAKER_FEE_PROFILES: dict[str, list[dict[str, Any]]] = {
         {"bps": 2.0, "assumption": "Premium Account"},
     ],
     # assumed to follow mainnet Lighter's account types; not checked against the Robinhood chain docs
-    "Lighter (Robinhood)": [
+    "Lighter on Robinhood": [
         {"bps": 0.0, "assumption": "Free Account"},
         {"bps": 2.0, "assumption": "Premium Account"},
     ],
@@ -940,74 +947,34 @@ st.subheader("Slippage Rankings")
 st.caption(datetime.now().strftime("Last updated: %Y-%m-%d %H:%M:%S"))
 
 MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
-def build_rankings_table(df: pd.DataFrame, exclude_fees: bool=False) -> pd.DataFrame:
-    def get_full_remarks(r, exclude_fees: bool=False):
-        if exclude_fees:
-            return f"{r['slippageBps']:.3f} bps (slippage only){f' - {r['note']}' if r['note'] != '' else ''}"
-        return f"{r['totalCostBps']:.3f} bps (slippage {r['slippageBps']:.3f} + taker fee {r['takerFeeBps']:.3f}){f' - {r['note']}' if r['note'] != '' else ''}"
+RANK_BY = {"Full cost": "totalCostBps", "Slippage only": "slippageBps"}
 
-    df['full_remarks'] = df.apply(
-        lambda r: get_full_remarks(r, exclude_fees),
-        axis=1,
-    )
+def build_rankings_table(df: pd.DataFrame, sort_col: str) -> pd.DataFrame:
+    # unfilled clips are inf; sort them last and show them blank (the note says why)
+    ranked = df.sort_values(sort_col, key=lambda c: c.replace({float("inf"): 1e18})).reset_index(drop=True)
+    ranked.insert(0, "rank", [f"{MEDALS.get(i, '')} {i}".strip() for i in range(1, len(ranked) + 1)])
+    for col in ("slippageBps", "totalCostBps"):
+        ranked[col] = ranked[col].replace({float("inf"): None})
+    return ranked[["rank", "exchange", "totalCostBps", "slippageBps", "takerFeeBps", "note"]]
 
-    # sort by cost
-    ranked = df.sort_values("slippageBps" if exclude_fees else "totalCostBps", ascending=True).reset_index(drop=True)
-    ranked.insert(0, "Rank", ranked.index + 1)
-    ranked["Medal"] = ranked["Rank"].map(MEDALS).fillna("")
-    cols = ["Medal", "Rank", "exchange", "full_remarks"]
-    return ranked[cols]
-
-def format_rankings_text(df):
-    # pad to the longest name so long venues (e.g. "Lighter (Robinhood)") keep columns aligned;
-    # medals go at the end of the line as emoji render wider than one monospace cell
-    name_width = max((len(str(n)) for n in df["exchange"]), default=0)
-    rank_width = len(f"#{len(df)}")
-    lines = []
-    for _, row in df.iterrows():
-        line = (
-            f"{'#' + str(int(row['Rank'])):<{rank_width}}  "
-            f"{row['exchange']:<{name_width}}  "
-            f"{row['full_remarks']}"
-            + (f"  {row['Medal']}" if row["Medal"] else "")
-        )
-        lines.append(line)
-    text = "\n".join(lines)
-    return text
+rank_by = st.radio("Rank by", list(RANK_BY), horizontal=True)
 
 if not tables:
     st.info(f"None of the exchanges returned an orderbook for {token}.")
-
-for clip_size, clip_size_data in sorted(tables.items()):
-    st.markdown(f"### Clip Size: **${clip_size/1000}k**")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown("##### Excluding Taker Fees")
-        rankings_df_no_fees = build_rankings_table(clip_size_data, exclude_fees=True)
-        rankings_df_no_fees_formatted = format_rankings_text(rankings_df_no_fees)
-        # code block: monospaced, no borders, left aligned
-        st.code(rankings_df_no_fees_formatted, language=None)
-
-    with col2:
-        st.markdown("##### Full Cost")
-        rankings_df = build_rankings_table(clip_size_data, exclude_fees=False)
-        rankings_df_formatted = format_rankings_text(rankings_df)
-        st.code(rankings_df_formatted, language=None)
-
-with st.expander("Detailed Breakdown", expanded=False):
-    for clip_size, clip_size_data in sorted(tables.items()):
-        clip_size_formatted = f"${clip_size/1000}k"
-        st.markdown(f'Clip Size: **{clip_size_formatted}**')
-        st.dataframe(
-            clip_size_data[["exchange", "slippageBps", "takerFeeBps", "totalCostBps", "note"]],
-            column_config={
-                'exchange': st.column_config.TextColumn('Exchange', width='small'),
-                'slippageBps': st.column_config.NumberColumn('Slippage (Bps)', width='small'),
-                'takerFeeBps': st.column_config.NumberColumn('Taker Fee (Bps)', width='small'),
-                'totalCostBps': st.column_config.NumberColumn('Total Cost (Bps)', width='small'),
-                'note': st.column_config.TextColumn('Note', width='small'),
-            },
-            hide_index=True,
-        )
+else:
+    clip_sizes = sorted(tables)
+    for tab, clip_size in zip(st.tabs([f"${c / 1000:g}k" for c in clip_sizes]), clip_sizes):
+        with tab:
+            st.dataframe(
+                build_rankings_table(tables[clip_size], RANK_BY[rank_by]),
+                column_config={
+                    "rank": st.column_config.TextColumn("Rank", width="small"),
+                    "exchange": st.column_config.TextColumn("Exchange"),
+                    "totalCostBps": st.column_config.NumberColumn("Total cost (bps)", format="%.3f"),
+                    "slippageBps": st.column_config.NumberColumn("Slippage (bps)", format="%.3f"),
+                    "takerFeeBps": st.column_config.NumberColumn("Taker fee (bps)", format="%.2f"),
+                    "note": st.column_config.TextColumn("Note", width="large"),
+                },
+                hide_index=True,
+                use_container_width=True,
+            )
