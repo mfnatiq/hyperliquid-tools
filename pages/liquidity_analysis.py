@@ -39,18 +39,6 @@ logger = logging.getLogger(__name__)
 
 CLIP_SIZES = [1_000, 10_000, 50_000, 100_000, 500_000]
 
-DEFAULT_TAKER_FEES = pd.DataFrame(
-    [
-        { "Exchange": "Hyperliquid", "Taker Fee (Bps)": 4, "Assumption": ">5M 14D volume, 0 HYPE staked" },
-        { "Exchange": "Extended", "Taker Fee (Bps)": 2.5, "Assumption": "" },
-        { "Exchange": "Lighter", "Taker Fee (Bps)": 2, "Assumption": "Premium Account" },
-        { "Exchange": "Paradex", "Taker Fee (Bps)": 0, "Assumption": "" },
-        { "Exchange": "Pacifica", "Taker Fee (Bps)": 4, "Assumption": "" },
-        { "Exchange": "Nado", "Taker Fee (Bps)": 3.3, "Assumption": ">5M 30D volume" },
-        { "Exchange": "Variational", "Taker Fee (Bps)": 0, "Assumption": "" },
-    ]
-)
-DEFAULT_TAKER_FEES = DEFAULT_TAKER_FEES.sort_values('Exchange')
 
 
 async def _fetch_json(
@@ -163,14 +151,35 @@ async def fetch_extended_orderbook(session: aiohttp.ClientSession, token: str):
     ob = data["data"]
     bids = [{"price": float(l["price"]), "qty": float(l["qty"])} for l in ob["bid"]]
     asks = [{"price": float(l["price"]), "qty": float(l["qty"])} for l in ob["ask"]]
-    return {"bids": bids, "asks": asks, "exchange": "Extended", "token": token}
+
+    # RFQ markets (isRfq) only publish an indicative book, not one you can take against
+    note = ""
+    try:
+        info = await _fetch_json(
+            session,
+            "GET",
+            f"https://api.starknet.extended.exchange/api/v1/info/markets?market={market}",
+        )
+        m = next((x for x in info.get("data", []) if x.get("name") == market), {})
+        if m.get("isRfq"):
+            note = "RFQ market: indicative book only"
+        elif m.get("isOffHours"):
+            note = "market closed (off-hours)"
+    except Exception as e:
+        logger.warning("Extended market info for %s failed: %s", market, e)
+    return {"bids": bids, "asks": asks, "exchange": "Extended", "token": token, "note": note}
 
 
-async def fetch_lighter_orderbook(session: aiohttp.ClientSession, token: str):
+LIGHTER_URL = "https://mainnet.zklighter.elliot.ai"
+# Lighter's Robinhood Chain deployment (apidocs.rh.lighter.xyz); assumed to serve the same REST API as mainnet
+LIGHTER_RH_URL = "https://api.rh.lighter.xyz"
+
+
+async def fetch_lighter_orderbook(session: aiohttp.ClientSession, token: str, *, base_url: str=LIGHTER_URL, exchange: str="Lighter"):
     d = await _fetch_json(
         session,
         "GET",
-        "https://mainnet.zklighter.elliot.ai/api/v1/orderBookDetails",
+        f"{base_url}/api/v1/orderBookDetails",
     )
 
     market = next(
@@ -183,13 +192,13 @@ async def fetch_lighter_orderbook(session: aiohttp.ClientSession, token: str):
         None,
     )
     if not market:
-        raise ValueError(f"Token {token} not available on Lighter")
+        raise ValueError(f"Token {token} not available on {exchange}")
 
     mid = market["market_id"]
     data = await _fetch_json(
         session,
         "GET",
-        f"https://mainnet.zklighter.elliot.ai/api/v1/orderBookOrders?market_id={mid}&limit=250",
+        f"{base_url}/api/v1/orderBookOrders?market_id={mid}&limit=250",
     )
 
     bids = sorted(
@@ -214,7 +223,95 @@ async def fetch_lighter_orderbook(session: aiohttp.ClientSession, token: str):
         key=lambda x: x["price"],
     )
 
-    return {"bids": bids, "asks": asks, "exchange": "Lighter", "token": token}
+    return {"bids": bids, "asks": asks, "exchange": exchange, "token": token}
+
+
+async def fetch_lighter_rh_orderbook(session: aiohttp.ClientSession, token: str):
+    return await fetch_lighter_orderbook(session, token, base_url=LIGHTER_RH_URL, exchange="Lighter (Robinhood)")
+
+
+def _levels(raw: list) -> list[dict[str, float]]:
+    """[price, qty] pairs or {price, quantity|qty|size} dicts -> [{price, qty}]"""
+    out = []
+    for l in raw or []:
+        if isinstance(l, dict):
+            px, qty = l.get("price") or l.get("px"), l.get("quantity") or l.get("qty") or l.get("size") or l.get("sz")
+        else:
+            px, qty = l[0], l[1]
+        if px is not None and qty is not None and float(qty) > 0:
+            out.append({"price": float(px), "qty": float(qty)})
+    return out
+
+
+def _base_symbol(sym: str) -> str:
+    """BTC-PERP / BTC-USD / BTCUSD / BTC-USDC -> BTC"""
+    s = str(sym).upper().split("/")[0]
+    for suffix in ("-PERP", "_PERP", "PERP", "-USDC", "-USDT", "-USD", "USDC", "USDT", "USD"):
+        if s.endswith(suffix) and len(s) > len(suffix):
+            s = s[: -len(suffix)]
+    return s.split("-")[0]
+
+
+async def fetch_risex_orderbook(session: aiohttp.ClientSession, token: str):
+    # RISEx public REST, same calls as trading-tools funding_scan.Rise
+    d = await _fetch_json(session, "GET", "https://api.rise.trade/v1/markets")
+    d = d.get("data", d)
+    market = next(
+        (
+            m
+            for m in d.get("markets", [])
+            if _base_symbol(m.get("display_base_asset_symbol") or m.get("base_asset_symbol") or (m.get("config") or {}).get("name", "")) == token.upper()
+            and m.get("active") is not False
+        ),
+        None,
+    )
+    if not market:
+        raise ValueError(f"Token {token} not available on RISEx")
+
+    ob = await _fetch_json(session, "GET", f"https://api.rise.trade/v1/orderbook?market_id={market['market_id']}&limit=250")
+    ob = ob.get("data", ob)
+    return {"bids": _levels(ob.get("bids")), "asks": _levels(ob.get("asks")), "exchange": "RISEx", "token": token}
+
+
+async def fetch_phoenix_orderbook(session: aiohttp.ClientSession, token: str):
+    # Phoenix perps public REST, same calls as trading-tools funding_scan.Phoenix
+    url = "https://perp-api.phoenix.trade"
+    markets = await _fetch_json(session, "GET", f"{url}/v1/view/exchange/markets")
+    markets = markets.get("data", markets) if isinstance(markets, dict) else markets
+    market = next(
+        (m for m in markets if _base_symbol(m.get("symbol", "")) == token.upper() and m.get("marketStatus") == "active"),
+        None,
+    )
+    if not market:
+        raise ValueError(f"Token {token} not available on Phoenix")
+
+    # the book path takes either the base ticker or the full market symbol
+    last_err: Exception | None = None
+    for sym in dict.fromkeys([token.upper(), market["symbol"]]):
+        try:
+            b = await _fetch_json(session, "GET", f"{url}/v1/view/orderbook/{sym}?include_splines=true")
+            return {"bids": _levels(b.get("bids")), "asks": _levels(b.get("asks")), "exchange": "Phoenix", "token": token}
+        except RuntimeError as e:
+            last_err = e
+    raise last_err or ValueError(f"No orderbook for {token} on Phoenix")
+
+
+async def fetch_qfex_orderbook(session: aiohttp.ClientSession, token: str):
+    # QFEX public REST, same calls as trading-tools funding_scan.QFEX
+    url = "https://api.qfex.com"
+    headers = {"Accept": "application/json"}
+    d = await _fetch_json(session, "GET", f"{url}/md/contracts", headers=headers)
+    contracts = d.get("data", d) if isinstance(d, dict) else d
+    ticker_id = next(
+        (c["ticker_id"] for c in contracts or [] if c.get("ticker_id") and _base_symbol(c["ticker_id"]) == token.upper()),
+        None,
+    )
+    if not ticker_id:
+        raise ValueError(f"Token {token} not available on QFEX")
+
+    ob = await _fetch_json(session, "GET", f"{url}/md/orderbook/{ticker_id}", headers=headers)
+    ob = ob.get("data", ob) if isinstance(ob, dict) else {}
+    return {"bids": _levels(ob.get("bids")), "asks": _levels(ob.get("asks")), "exchange": "QFEX", "token": token}
 
 
 async def fetch_pacifica_orderbook(session: aiohttp.ClientSession, token: str):
@@ -323,6 +420,10 @@ ORDERBOOK_FETCHERS = {
     "Paradex": fetch_paradex_orderbook,
     "Extended": fetch_extended_orderbook,
     "Lighter": fetch_lighter_orderbook,
+    "Lighter (Robinhood)": fetch_lighter_rh_orderbook,
+    "RISEx": fetch_risex_orderbook,
+    "Phoenix": fetch_phoenix_orderbook,
+    "QFEX": fetch_qfex_orderbook,
     "Pacifica": fetch_pacifica_orderbook,
     "Nado": fetch_nado_orderbook,
     "Variational": fetch_variational_orderbook,
@@ -480,7 +581,8 @@ def analyze_orderbook_pure(orderbook: dict, agg_orderbook: dict | None = None):
                 "buy": bid_slippage.get("levelsUsed", 0),
                 "sell": ask_slippage.get("levelsUsed", 0),
             },
-            "is_approximation": is_approximation,
+            "is_approximation": is_approximation or bool(orderbook.get("note")),
+            "approximation_reason": orderbook.get("note") or None,
         }
 
     return result
@@ -685,11 +787,14 @@ st.text("Assumptions")
 st.markdown("""
 - Full clip size can be taken against existing orderbook (this is unlikely in actual execution as market makers can react to taker orders and adjust / cancel as they deem fit)
 - Slippage is calculated based on average of buy side / ask side book
-- Taker fees as follows:
+- Variational is RFQ: its slippage comes from quoted sizes, not an orderbook. Extended RFQ markets only publish an indicative book and are flagged in the notes
+- Taker fees default to each exchange's base tier; change them under **Taker fees** below
 """)
 
 # region custom fees per exchange
+# first entry is the default; every exchange also gets a "Custom" option
 TAKER_FEE_PROFILES = {
+    "Extended": [{"bps": 2.5, "assumption": ""}],
     "Hyperliquid": [
         {"bps": 4.5, "assumption": "<5M 14D volume, 0 HYPE staked"},
         {"bps": 4.0, "assumption": ">5M 14D volume, 0 HYPE staked"},
@@ -703,9 +808,10 @@ TAKER_FEE_PROFILES = {
         {"bps": 0.0, "assumption": "Free Account"},
         {"bps": 2.0, "assumption": "Premium Account"},
     ],
-    "Paradex": [
+    # assumed to follow mainnet Lighter's account types; not checked against the Robinhood chain docs
+    "Lighter (Robinhood)": [
         {"bps": 0.0, "assumption": "Free Account"},
-        {"bps": 2.0, "assumption": "Pro Account"},
+        {"bps": 2.0, "assumption": "Premium Account"},
     ],
     "Nado": [
         {"bps": 3.5, "assumption": "<5M 30D volume"},
@@ -716,62 +822,49 @@ TAKER_FEE_PROFILES = {
         {"bps": 1.8, "assumption": ">1B 30D volume"},
         {"bps": 1.5, "assumption": ">5B 30D volume"},
     ],
+    "Pacifica": [{"bps": 4.0, "assumption": ""}],
+    "Paradex": [
+        {"bps": 0.0, "assumption": "Free Account"},
+        {"bps": 2.0, "assumption": "Pro Account"},
+    ],
+    # Phoenix sets the fee per market; 3.5 bps is the fallback trading-tools uses when a market has none
+    "Phoenix": [{"bps": 3.5, "assumption": "base, varies by market"}],
+    # QFEX tiers from trading-tools bot/venues.toml ([qfex.tiers.tier5], under $2m 30D volume)
+    "QFEX": [
+        {"bps": 10.0, "assumption": "<2M 30D volume, single stocks"},
+        {"bps": 5.0, "assumption": "<2M 30D volume, indices / commodities"},
+    ],
+    "RISEx": [{"bps": 3.0, "assumption": ""}],
+    "Variational": [{"bps": 0.0, "assumption": "spread built into quotes"}],
 }
+CUSTOM_FEE = "Custom"
+FEE_GRID_COLUMNS = 4
 
-user_fees_bps: dict[str, float] = {}
-user_assumptions: dict[str, str] = {}
+def _fee_label(p: dict) -> str:
+    return f"{p['bps']:.2f} bps" + (f" ({p['assumption']})" if p["assumption"] else "")
 
-for _, row in DEFAULT_TAKER_FEES.iterrows():
-    exch = row["Exchange"]
-    base_fee = float(row["Taker Fee (Bps)"])
-    base_assumption = row["Assumption"]
-
-    profiles = TAKER_FEE_PROFILES.get(
-        exch,
-        [
-            {
-                "bps": base_fee,
-                "assumption": base_assumption,
-            }
-        ],
-    )
-
-    # build labels from bps + assumption
-    labels = [
-        f"{p['bps']:.2f} bps"
-        + (f" ({p['assumption']})" if p["assumption"] else "")
-        for p in profiles
-    ]
-
-    c1, c2, c_spacer = st.columns([1, 4, 8], vertical_alignment="center")
-    with c1:
-        st.markdown(f"{exch}")
-    with c2:
-        choice_index = st.selectbox(
-            f"{exch} fee tier",
-            options=range(len(labels)),
-            format_func=lambda i: labels[i],
-            index=0,
-            key=f"profile_{exch}",
-            label_visibility="collapsed",
-        )
-    # c_spacer left empty; acts like flexible right side
-
-    selected = profiles[choice_index]
-    user_fees_bps[exch] = selected["bps"]
-    user_assumptions[exch] = selected["assumption"]
-TAKER_FEES_CUSTOMISED = pd.DataFrame(
-    [
-        {"Exchange": exch, "Taker Fee (Bps)": bps, "Assumption": user_assumptions[exch]}
-        for exch, bps in user_fees_bps.items()
-    ]
-)
-# hashable representation of the current fees
-# to invalidate caching when fees manually changed by user
-fee_signature = tuple(
-    (row["Exchange"], float(row["Taker Fee (Bps)"]))
-    for _, row in TAKER_FEES_CUSTOMISED.sort_values("Exchange").iterrows()
-)
+fee_map: dict[str, float] = {}
+with st.expander("Taker fees", expanded=False):
+    exchanges = list(ORDERBOOK_FETCHERS)
+    for row_start in range(0, len(exchanges), FEE_GRID_COLUMNS):
+        cols = st.columns(FEE_GRID_COLUMNS)
+        for col, exch in zip(cols, exchanges[row_start:row_start + FEE_GRID_COLUMNS]):
+            profiles = TAKER_FEE_PROFILES[exch]
+            options = [_fee_label(p) for p in profiles] + [CUSTOM_FEE]
+            with col:
+                choice = st.selectbox(exch, options, index=0, key=f"profile_{exch}")
+                if choice == CUSTOM_FEE:
+                    fee_map[exch] = st.number_input(
+                        f"{exch} taker fee (bps)",
+                        min_value=0.0,
+                        max_value=100.0,
+                        value=float(profiles[0]["bps"]),
+                        step=0.1,
+                        format="%.2f",
+                        key=f"custom_fee_{exch}",
+                    )
+                else:
+                    fee_map[exch] = profiles[options.index(choice)]["bps"]
 # endregion
 
 # region cache actual orderbook fetching / analysis + add custom taker fees separately
@@ -780,11 +873,6 @@ with st.spinner("Fetching orderbooks and computing slippage..."):
     raw_analysis_list = get_all_analysis_pure_cached(token.lower())
 
 # 2) apply current taker fees to the raw analysis
-fee_map = {
-    row["Exchange"]: float(row["Taker Fee (Bps)"])
-    for _, row in TAKER_FEES_CUSTOMISED.iterrows()
-}
-
 analysis_list: list[dict[str, Any]] = []
 for a in raw_analysis_list:
     if "slippage" not in a:
