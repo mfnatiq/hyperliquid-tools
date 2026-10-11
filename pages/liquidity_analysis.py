@@ -71,7 +71,7 @@ async def _fetch_json(
 # tokens by asset class, alphabetical within each; tradfi names are the ones most listed across these venues
 TOKEN_GROUPS = {
     "Indices": ["QQQ", "US500"],
-    "Stocks": ["AAPL", "AMZN", "COIN", "CRCL", "GOOGL", "HOOD", "META", "MSFT", "MSTR", "MU", "NVDA", "PLTR", "TSLA"],
+    "Stocks": ["AAPL", "COIN", "GOOGL", "HOOD", "META", "MSTR", "NVDA", "TSLA"],
     "Commodities": ["GOLD", "OIL", "SILVER"],
     "Crypto": ["BNB", "BTC", "ETH", "HYPE", "SOL", "XRP"],
 }
