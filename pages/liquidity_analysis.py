@@ -127,10 +127,10 @@ async def fetch_extended_orderbook(session: aiohttp.ClientSession, token: str):
             )
         except RuntimeError:
             continue
-        if data.get("status") == "OK" and "data" in data:
+        if data.get("status") == "OK" and (data.get("data") or {}).get("bid") and data["data"].get("ask"):
             break
 
-    if data.get("status") != "OK" or "data" not in data:
+    if data.get("status") != "OK" or not (data.get("data") or {}).get("bid") or not data["data"].get("ask"):
         raise ValueError(f"Token {token} not available on Extended")
 
     ob = data["data"]
@@ -649,10 +649,16 @@ async def _run_single_analysis(
         first_err: Exception | None = None
         for symbol in SYMBOL_ALIASES.get(token.upper(), [token]):
             try:
-                ob_or_stats = await fetcher(session, symbol)
-                break
+                ob = await fetcher(session, symbol)
             except Exception as e:
                 first_err = first_err or e
+                continue
+            # an empty book usually means the venue knows the name but has no such market; try the next alias
+            if name != "Variational" and (not ob.get("bids") or not ob.get("asks")):
+                first_err = first_err or ValueError(f"Empty orderbook for {symbol} on {name}")
+                continue
+            ob_or_stats = ob
+            break
         if ob_or_stats is None:
             raise first_err or ValueError(f"Token {token} not available on {name}")
 
@@ -947,10 +953,10 @@ RANKINGS_COLUMNS = [  # (header, width, numeric)
 st.markdown(
     """
     <style>
-    table.rankings { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 1rem; }
-    table.rankings th, table.rankings td { padding: 0.45rem 0.75rem; border: none; border-bottom: 1px solid rgba(128, 128, 128, 0.25); text-align: left; overflow-wrap: anywhere; }
+    table.rankings { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 1rem; border: 1px solid rgba(128, 128, 128, 0.3); }
+    table.rankings th, table.rankings td { padding: 0.45rem 0.75rem; border: 1px solid rgba(128, 128, 128, 0.2); text-align: left; overflow-wrap: anywhere; }
+    table.rankings thead th { background: rgba(128, 128, 128, 0.08); }
     table.rankings th { font-weight: 600; opacity: 0.75; white-space: nowrap; }
-    table.rankings { border: none; }
     table.rankings .num { text-align: right; font-variant-numeric: tabular-nums; }
     table.rankings td.rank { white-space: nowrap; }
     button[data-baseweb="tab"] p { font-size: 1.1rem; }
