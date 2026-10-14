@@ -77,16 +77,22 @@ TOKEN_GROUPS = {
 }
 CRYPTO_TOKENS = TOKEN_GROUPS["Crypto"]
 DEFAULT_GROUP, DEFAULT_TOKEN = "Indices", "US500"
-SYMBOL_ALIASES = {
-    "US500": ["US500", "SPX", "SP500", "SPY", "USA500"],
-    "QQQ": ["QQQ", "US100", "NDX", "NAS100", "XYZ100"],
+# a list is tried on every venue; a dict gives a venue its own exact market names instead ("*" = every other venue)
+# Extended: the S&P 500 is SPX-USD and the Nasdaq 100 is NDX-USD (the generic aliases hit its RFQ markets first)
+SYMBOL_ALIASES: dict[str, list[str] | dict[str, list[str]]] = {
+    "US500": {"*": ["US500", "SPX", "SP500", "SPY", "USA500"], "Extended": ["SPX-USD"]},
+    "QQQ": {"*": ["QQQ", "US100", "NDX", "NAS100", "XYZ100"], "Extended": ["NDX-USD"]},
     "GOLD": ["GOLD", "XAU"],
     "SILVER": ["SILVER", "XAG"],
     "OIL": ["OIL", "CL", "WTI", "USOIL"],
 }
-# per-venue override of SYMBOL_ALIASES: exact market names, tried instead of the generic aliases
-# Extended: the S&P 500 is SPX-USD and the Nasdaq 100 is NDX-USD (not the RFQ markets the generic aliases hit first)
-VENUE_MARKETS = {"Extended": {"US500": ["SPX-USD"], "QQQ": ["NDX-USD"]}}
+
+
+def aliases_for(token: str, venue: str) -> list[str]:
+    aliases = SYMBOL_ALIASES.get(token.upper(), [token])
+    return aliases if isinstance(aliases, list) else aliases.get(venue, aliases["*"])
+
+
 # Hyperliquid lists tradfi perps on the trade.xyz HIP-3 dex, as "xyz:<SYMBOL>"
 HYPERLIQUID_HIP3_DEX = "xyz"
 
@@ -128,7 +134,7 @@ async def fetch_hyperliquid_orderbook_default(session, token):
 
 async def fetch_extended_orderbook(session: aiohttp.ClientSession, token: str):
     # stock markets are named e.g. NVDA_24_5-USD (24/5 trading); other tradfi markets may not carry the suffix
-    if token.upper().endswith("-USD"):  # exact market name from VENUE_MARKETS
+    if token.upper().endswith("-USD"):  # exact market name from SYMBOL_ALIASES
         markets = [token.upper()]
     else:
         markets = [f"{token.upper()}-USD"] if token.upper() in CRYPTO_TOKENS else [f"{token.upper()}_24_5-USD", f"{token.upper()}-USD"]
@@ -664,7 +670,7 @@ async def _run_single_analysis(
     try:
         ob_or_stats = None
         errors: dict[str, Exception] = {}
-        for symbol in VENUE_MARKETS.get(name, {}).get(token.upper()) or SYMBOL_ALIASES.get(token.upper(), [token]):
+        for symbol in aliases_for(token, name):
             try:
                 ob = await fetcher(session, symbol)
             except Exception as e:
