@@ -304,6 +304,21 @@ async def fetch_phoenix_orderbook(session: aiohttp.ClientSession, token: str):
     raise last_err or ValueError(f"No orderbook for {token} on Phoenix")
 
 
+async def fetch_ondo_orderbook(session: aiohttp.ClientSession, token: str):
+    # Ondo Perps public REST (docs.ondoperps.xyz/api-reference/market-data/get-order-book-depth); markets look like QQQ-USD.P
+    url = "https://api.ondoperps.xyz"
+    d = await _fetch_json(session, "GET", f"{url}/v1/markets")
+    pairs = ((d.get("result") or {}).get("perps") or {}).get("tradingPairs") or []
+    market = next((m for m in pairs if (m.get("pair") or {}).get("base", "").upper() == token.upper() and not m.get("disabled")), None)
+    if not market:
+        raise NotListed(f"Token {token} not available on Ondo Perps")
+
+    b = await _fetch_json(session, "GET", f"{url}/v1/perps/depth?market={market['market']}&depth=100")
+    b = b.get("result") or {}
+    return {"bids": _levels(b.get("bids")), "asks": _levels(b.get("asks")), "exchange": "Ondo Perps", "token": token, "venueSymbol": market["market"],
+            "venueTakerFeeBps": float(market["takerFee"]) * 10_000 if market.get("takerFee") is not None else None}  # fraction -> bps
+
+
 async def fetch_qfex_orderbook(session: aiohttp.ClientSession, token: str):
     # QFEX public REST, same calls as trading-tools funding_scan.QFEX
     url = "https://api.qfex.com"
@@ -434,6 +449,7 @@ ORDERBOOK_FETCHERS = {
     "QFEX": fetch_qfex_orderbook,
     "Pacifica": fetch_pacifica_orderbook,
     "Nado": fetch_nado_orderbook,
+    "Ondo Perps": fetch_ondo_orderbook,
     "Variational": fetch_variational_orderbook,
 }
 ORDERBOOK_FETCHERS = dict(sorted(ORDERBOOK_FETCHERS.items()))
@@ -853,6 +869,8 @@ TAKER_FEE_PROFILES: dict[str, list[dict[str, Any]]] = {
         {"bps": 1.8, "assumption": ">1B 30D volume"},
         {"bps": 1.5, "assumption": ">5B 30D volume"},
     ],
+    # Ondo reports each market's taker fee in /v1/markets (docs.ondoperps.xyz/fees): 2.5 bps during the 50%-off promotion, 5 bps base after it
+    "Ondo Perps": [{"bps": None, "assumption": "this market's fee, from Ondo"}, {"bps": 5.0, "assumption": "base, after the promotion"}],
     "Pacifica": [{"bps": 4.0, "assumption": ""}],
     # Phoenix sets the fee per market and its markets endpoint returns it (bps=None means "use the market's fee");
     # 3.5 bps is the fallback trading-tools uses when a market has none
