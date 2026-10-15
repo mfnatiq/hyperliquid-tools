@@ -319,6 +319,33 @@ async def fetch_ondo_orderbook(session: aiohttp.ClientSession, token: str):
             "venueTakerFeeBps": float(market["takerFee"]) * 10_000 if market.get("takerFee") is not None else None}  # fraction -> bps
 
 
+# Arcus lists gold / silver / oil perps on ETFs, so those page tokens map to the ETF tickers (docs.arcus.xyz/concepts/perpetuals/real-world-assets)
+ARCUS_TOKEN_MAP = {"GOLD": "GLD", "SILVER": "SLV", "OIL": "USO"}
+
+
+async def fetch_arcus_orderbook(session: aiohttp.ClientSession, token: str):
+    # Arcus public REST (docs.arcus.xyz/api-reference/public/get-l2-orderbook-snapshot); no key needed
+    url = "https://api.arcus.xyz"
+    base = ARCUS_TOKEN_MAP.get(token.upper(), token.upper())
+    d = await _fetch_json(session, "GET", f"{url}/v1/markets")
+    market = next((m for m in d.get("markets", []) if m.get("baseAsset", "").upper() == base and m.get("status") == "ONLINE"), None)
+    if not market:
+        raise NotListed(f"Token {token} not available on Arcus")
+
+    b = await _fetch_json(session, "GET", f"{url}/v1/l2OrderBook/{market['marketDisplayName']}?nLevels=100")
+
+    # base-tier taker fee from the exchange-wide table (ppm of notional); the page falls back to its default if this call fails
+    fee_bps = None
+    try:
+        tiers = (await _fetch_json(session, "GET", f"{url}/v1/feetiers")).get("tiers") or []
+        base_tier = min(tiers, key=lambda t: t["level"])
+        fee_bps = float(base_tier["taker_fee_ppm"]) / 100  # ppm -> bps
+    except Exception as e:
+        logger.warning("Arcus fee tiers unavailable: %s", e)
+    return {"bids": _levels(b.get("bids")), "asks": _levels(b.get("asks")), "exchange": "Arcus", "token": token,
+            "venueSymbol": market["marketDisplayName"], "venueTakerFeeBps": fee_bps}
+
+
 async def fetch_qfex_orderbook(session: aiohttp.ClientSession, token: str):
     # QFEX public REST, same calls as trading-tools funding_scan.QFEX
     url = "https://api.qfex.com"
@@ -440,6 +467,7 @@ async def fetch_variational_orderbook(session: aiohttp.ClientSession, token: str
 
 
 ORDERBOOK_FETCHERS = {
+    "Arcus": fetch_arcus_orderbook,
     "Hyperliquid": fetch_hyperliquid_orderbook_default,
     "Extended": fetch_extended_orderbook,
     "Lighter": fetch_lighter_orderbook,
@@ -848,6 +876,8 @@ st.markdown("""
 # region custom fees per exchange
 # first entry is the default; every exchange also gets a "Custom" option
 TAKER_FEE_PROFILES: dict[str, list[dict[str, Any]]] = {
+    # Arcus's fee table is read from /v1/feetiers (docs.arcus.xyz/concepts/perpetuals/fees); None = the base tier it reports. Referral discount (5%) not applied
+    "Arcus": [{"bps": None, "assumption": "base tier, from Arcus"}],
     "Lighter": [
         # standard accounts pay 0 on every market; premium per apidocs.lighter.xyz/docs/account-types
         {"bps": 0.0, "assumption": "Standard Account"},
