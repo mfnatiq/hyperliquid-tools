@@ -16,6 +16,7 @@ import pandas as pd
 from hyperliquid.utils.error import ClientError, ServerError
 from src.hl_client import HyperliquidClient
 import streamlit as st
+from src.utils.render_utils import venue_referral
 import streamlit.components.v1 as components
 import plotly.express as px
 from src.bridge.unit_bridge_api import UnitBridgeInfo
@@ -135,6 +136,7 @@ col1, col2 = st.columns([1, 1], vertical_alignment='center')
 with col1:
     with st.container(vertical_alignment='center', horizontal=True, horizontal_alignment="left"):
         st.header("Unit Volume Tracker")
+    venue_referral("Hyperliquid")
 with col2:
     with st.container(vertical_alignment='center', horizontal=True, horizontal_alignment="right"):
         if "user_email" in st.session_state:

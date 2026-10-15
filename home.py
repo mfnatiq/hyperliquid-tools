@@ -1,5 +1,5 @@
 import streamlit as st
-from src.utils.render_utils import support_popover
+from src.utils.render_utils import referrals_popover, site_css, site_footer
 
 pg = st.navigation(
     pages={
@@ -13,14 +13,17 @@ pg = st.navigation(
     }
 )
 
-col1, col2 = st.columns([1, 1], vertical_alignment='center')
-with col1:
-    with st.container(vertical_alignment='center', horizontal=True, horizontal_alignment="left"):
-        st.title("Hyperliquid Tools")
-with col2:
-    with st.container(vertical_alignment='center', horizontal=True, horizontal_alignment="right"):
-        support_popover()
-
-st.divider()
+site_css()
+# rendered before pg.run() so every page gets them, even one that calls st.stop()
+with st.container(key="site_header"):
+    col1, col2 = st.columns([1, 1], vertical_alignment='center')
+    with col1:
+        with st.container(vertical_alignment='center', horizontal=True, horizontal_alignment="left"):
+            st.title("Hyperliquid Tools")
+    with col2:
+        with st.container(vertical_alignment='center', horizontal=True, horizontal_alignment="right"):
+            referrals_popover()
+    st.divider()
+site_footer()
 
 pg.run()

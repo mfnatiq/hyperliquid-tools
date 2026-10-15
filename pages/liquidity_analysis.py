@@ -6,6 +6,7 @@ from typing import Any
 import aiohttp
 import pandas as pd
 import streamlit as st
+from src.utils.render_utils import referral_url
 
 # css to tighten vertical space for selectbox labels that are collapsed
 st.markdown(
@@ -1066,18 +1067,24 @@ st.markdown(
     table.rankings thead th { background: rgba(128, 128, 128, 0.08); }
     table.rankings th { font-weight: 600; opacity: 0.75; }
     table.rankings .num { text-align: right; font-variant-numeric: tabular-nums; }
+    table.rankings td a { color: inherit; text-decoration: underline dotted; text-underline-offset: 3px; }
     button[data-baseweb="tab"] p { font-size: 1.1rem; }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
+def _cell(header: str, value: Any) -> str:
+    text = html.escape(str(value))
+    url = referral_url(str(value)) if header == "Exchange" else None    # exchange names link to the site's referral
+    return f'<a href="{html.escape(url)}" target="_blank" rel="noopener">{text}</a>' if url else text
+
 def rankings_html(df: pd.DataFrame) -> str:
     rows = df.reset_index()
     head = "".join(f'<th class="{"num" if n else ""}">{h}</th>' for h, n in RANKINGS_COLUMNS)
     body = "".join(
         "<tr>" + "".join(
-            f'<td class="{"num" if n else ("notes" if h == "Notes" else "")}">{html.escape(str(r[h]))}</td>'
+            f'<td class="{"num" if n else ("notes" if h == "Notes" else "")}">{_cell(h, r[h])}</td>'
             for h, n in RANKINGS_COLUMNS
         ) + "</tr>"
         for _, r in rows.iterrows()
