@@ -997,25 +997,26 @@ def build_rankings_table(df: pd.DataFrame, sort_col: str) -> pd.DataFrame:
     }).set_index("Rank")
 
 # hand-built HTML table: st.dataframe can't be restyled and st.table greys out the rank and spaces columns unevenly.
-# fixed widths keep exchange / symbol / numbers compact so notes get the remaining space
-RANKINGS_COLUMNS = [  # (header, width, numeric)
-    ("Rank", "6%", False),
-    ("Exchange", "14%", False),
-    ("Symbol", "11%", False),
-    ("Total (bps)", "10%", True),
-    ("Slippage (bps)", "10%", True),
-    ("Fee (bps)", "10%", True),
-    ("Notes", "39%", False),
+# every column sizes to its content on one line; only Notes wraps and takes the leftover width
+RANKINGS_COLUMNS = [  # (header, numeric)
+    ("Rank", False),
+    ("Exchange", False),
+    ("Symbol", False),
+    ("Total (bps)", True),
+    ("Slippage (bps)", True),
+    ("Fee (bps)", True),
+    ("Notes", False),
 ]
 st.markdown(
     """
     <style>
-    table.rankings { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 1rem; border: 1px solid rgba(128, 128, 128, 0.3); }
-    table.rankings th, table.rankings td { padding: 0.45rem 0.75rem; border: 1px solid rgba(128, 128, 128, 0.2); text-align: left; overflow-wrap: anywhere; }
+    div.rankings-wrap { overflow-x: auto; }
+    table.rankings { width: 100%; border-collapse: collapse; font-size: 1rem; border: 1px solid rgba(128, 128, 128, 0.3); }
+    table.rankings th, table.rankings td { padding: 0.45rem 0.75rem; border: 1px solid rgba(128, 128, 128, 0.2); text-align: left; white-space: nowrap; }
+    table.rankings td.notes { white-space: normal; min-width: 16rem; }
     table.rankings thead th { background: rgba(128, 128, 128, 0.08); }
-    table.rankings th { font-weight: 600; opacity: 0.75; white-space: nowrap; }
+    table.rankings th { font-weight: 600; opacity: 0.75; }
     table.rankings .num { text-align: right; font-variant-numeric: tabular-nums; }
-    table.rankings td.rank { white-space: nowrap; }
     button[data-baseweb="tab"] p { font-size: 1.1rem; }
     </style>
     """,
@@ -1024,16 +1025,15 @@ st.markdown(
 
 def rankings_html(df: pd.DataFrame) -> str:
     rows = df.reset_index()
-    cols = "".join(f'<col style="width:{w}">' for _, w, _ in RANKINGS_COLUMNS)
-    head = "".join(f'<th class="{"num" if n else ""}">{h}</th>' for h, _, n in RANKINGS_COLUMNS)
+    head = "".join(f'<th class="{"num" if n else ""}">{h}</th>' for h, n in RANKINGS_COLUMNS)
     body = "".join(
         "<tr>" + "".join(
-            f'<td class="{"num" if n else ("rank" if h == "Rank" else "")}">{html.escape(str(r[h]))}</td>'
-            for h, _, n in RANKINGS_COLUMNS
+            f'<td class="{"num" if n else ("notes" if h == "Notes" else "")}">{html.escape(str(r[h]))}</td>'
+            for h, n in RANKINGS_COLUMNS
         ) + "</tr>"
         for _, r in rows.iterrows()
     )
-    return f'<table class="rankings"><colgroup>{cols}</colgroup><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>'
+    return f'<div class="rankings-wrap"><table class="rankings"><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
 
 rank_by = st.radio("Rank by", list(RANK_BY), horizontal=True)
 
