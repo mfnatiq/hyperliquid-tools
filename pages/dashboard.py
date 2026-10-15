@@ -178,20 +178,26 @@ components.html(f"""
 
 # announcement shows only upon startup
 # main prompt modal only shows for non-premium users
+WHATS_NEW = """
+        **What's new**
+
+        - 2026-10-15: Added Ondo Perps and Arcus venues
+        - 2026-10-15: Fixed Extended S&P 500 / Nasdaq 100 symbols
+        - 2026-10-11: Revamped Liquidity Analysis page, new venues, fees and token groups
+"""
 @st.dialog("Welcome to hyperliquid-tools!", width="large", on_dismiss="ignore")
 def announcement():
     st.write("""
         This site lets you view your HyperUnit trading / bridging volume, along with some other metrics.
-
+    """)
+    st.write(WHATS_NEW)
+    st.write("""
         If you like what you see, please consider subscribing :) Enjoy!
     """)
 @st.dialog("Latest Updates", width="large", on_dismiss="ignore")
 def updates_announcement():
-    st.write("""
-        🚨 2026-09-27: Fixed Kinetiq Markets data fetching
-
-        Enjoy!
-    """)
+    st.write(WHATS_NEW)
+    st.write("Enjoy!")
 if 'startup' not in st.session_state:
     is_full_premium = False
     if 'user_email' in st.session_state:
