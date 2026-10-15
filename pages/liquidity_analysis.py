@@ -886,7 +886,8 @@ else:
 TAKER_FEE_PROFILES["Hyperliquid"] = [
     {"bps": round(bps * _hl_mult, 2), "assumption": f"{vol} 14D volume, 0 HYPE staked{_hl_note}"} for bps, vol in _HL_BASE
 ]
-# Extended's own fee panel: taker 0.025% on crypto, 0.01% on RWA (tradfi) markets; maker 0
+# Extended fees (confirmed by the Extended team, 2026-10-15; they may change): taker 0.025% on crypto perp / spot, 0.010% on RWA markets, maker 0.
+# Indices, stocks and commodities are all RWA, i.e. every group except Crypto
 TAKER_FEE_PROFILES["Extended"] = (
     [{"bps": 2.5, "assumption": ""}] if group == "Crypto" else [{"bps": 1.0, "assumption": "RWA markets"}]
 )
