@@ -78,10 +78,10 @@ TOKEN_GROUPS = {
 CRYPTO_TOKENS = TOKEN_GROUPS["Crypto"]
 DEFAULT_GROUP, DEFAULT_TOKEN = "Indices", "US500"
 # a list is tried on every venue; a dict gives a venue its own exact market names instead ("*" = every other venue)
-# Extended: the S&P 500 is SPX-USD and the Nasdaq 100 is NDX-USD (the generic aliases hit its RFQ markets first)
+# some overrides for extended
 SYMBOL_ALIASES: dict[str, list[str] | dict[str, list[str]]] = {
-    "US500": {"*": ["US500", "SPX", "SP500", "SPY", "USA500"], "Extended": ["SPX-USD"]},
-    "QQQ": {"*": ["QQQ", "US100", "NDX", "NAS100", "XYZ100"], "Extended": ["NDX-USD"]},
+    "US500": {"*": ["US500", "SPX", "SP500", "SPY", "USA500"], "Extended": ["SPX500m-USD"]},
+    "QQQ": {"*": ["QQQ", "US100", "NDX", "NAS100", "XYZ100"], "Extended": ["TECH100m-USD"]},
     "GOLD": ["GOLD", "XAU"],
     "SILVER": ["SILVER", "XAG"],
     "OIL": ["OIL", "CL", "WTI", "USOIL"],
