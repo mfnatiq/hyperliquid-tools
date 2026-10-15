@@ -134,8 +134,8 @@ async def fetch_hyperliquid_orderbook_default(session, token):
 
 async def fetch_extended_orderbook(session: aiohttp.ClientSession, token: str):
     # stock markets are named e.g. NVDA_24_5-USD (24/5 trading); other tradfi markets may not carry the suffix
-    if token.upper().endswith("-USD"):  # exact market name from SYMBOL_ALIASES
-        markets = [token.upper()]
+    if token.upper().endswith("-USD"):  # exact market name from SYMBOL_ALIASES; case-sensitive (e.g. TECH100m-USD)
+        markets = [token]
     else:
         markets = [f"{token.upper()}-USD"] if token.upper() in CRYPTO_TOKENS else [f"{token.upper()}_24_5-USD", f"{token.upper()}-USD"]
     data: dict[str, Any] = {}
