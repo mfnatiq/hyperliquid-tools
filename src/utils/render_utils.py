@@ -16,6 +16,8 @@ REFERRALS = [
     dict(venue="RISEx", url="https://www.rise.trade/invite/mambo", code="mambo"),
     dict(venue="Extended", url="https://app.extended.exchange/join/MAMBO", code="MAMBO", perk="10% off fees"),
     dict(venue="Nado", url="https://app.nado.xyz/?join=q75b4tC", code="q75b4tC"),
+    dict(venue="Lighter", url="https://app.lighter.xyz/?referral=MAMBO&source=none", code="MAMBO",
+         perk="first week of Premium free"),
     dict(venue="Pacifica", url="https://app.pacifica.fi/?referral=pacifica", code="pacifica"),
 ]
 
@@ -50,10 +52,14 @@ def site_css():
     /* Streamlit gives markdown a -1rem bottom margin. reset it so the text centres on the address pill. */
     .st-key-site_footer [data-testid="stMarkdownContainer"] {{ margin-bottom: 0; }}
     .st-key-site_footer .sep {{ margin: 0 15px; }}
-    /* a small pill like the old footer. the right padding leaves room for the copy button of st.code. */
-    .st-key-site_footer pre {{ padding: 0.45rem 2.25rem 0.45rem 0.6rem !important; margin: 0; border-radius: 5px;
+    /* a small box with the address in its centre. the top padding is 1px more because capitals and digits sit
+    above the middle of the line. */
+    .st-key-site_footer pre {{ padding: calc(0.3rem + 1px) 0.6rem 0.3rem !important; margin: 0; border-radius: 5px;
         overflow: visible; white-space: nowrap; }}
-    .st-key-site_footer pre code {{ font-size: 0.85rem; line-height: 1.4; display: block; }}
+    .st-key-site_footer pre code {{ font-size: 0.8rem; line-height: 1.4; display: block; }}
+    /* show the copy button of st.code just right of the box, so the box needs no room for it */
+    .st-key-site_footer [data-testid="stCode"] > div:has(> [data-testid="stCodeCopyButton"]) {{ left: 100%; right: auto;
+        width: auto; padding: 0; align-items: center; }}
     /* the row must not squeeze the address box, or a wider font on Windows spills out of it */
     .st-key-site_footer [data-testid="stElementContainer"] {{ flex-shrink: 0; width: auto !important; }}
     .block-container {{ padding-bottom: 5rem !important; }}  /* stop the footer from covering the end of a page */
