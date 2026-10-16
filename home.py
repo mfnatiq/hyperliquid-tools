@@ -14,7 +14,7 @@ pg = st.navigation(
 )
 
 site_css()
-# rendered before pg.run() so every page gets them, even one that calls st.stop()
+# render these before pg.run(), so a page that calls st.stop() still shows them
 with st.container(key="site_header"):
     col1, col2 = st.columns([1, 1], vertical_alignment='center')
     with col1:

@@ -1078,7 +1078,7 @@ st.markdown(
 
 def _cell(header: str, value: Any) -> str:
     text = html.escape(str(value))
-    url = referral_url(str(value)) if header == "Exchange" else None    # venues with a referral get a Trade button after the name
+    url = referral_url(str(value)) if header == "Exchange" else None    # a venue with a referral gets a Trade button after its name
     return f'{text} <a class="trade" href="{html.escape(url)}" target="_blank" rel="noopener">Trade ↗</a>' if url else text
 
 def rankings_html(df: pd.DataFrame) -> str:
