@@ -13,7 +13,6 @@ REFERRALS = [
     dict(venue="Extended", url="https://app.extended.exchange/join/MAMBO", code="MAMBO"),
     dict(venue="Nado", url="https://app.nado.xyz/?join=q75b4tC", code="q75b4tC"),
     dict(venue="Pacifica", url="https://app.pacifica.fi/?referral=pacifica", code="pacifica"),
-    dict(venue="Bullpen", url="https://bullpen.fi/@bitcoin", code="@bitcoin"),
 ]
 
 
