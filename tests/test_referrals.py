@@ -9,7 +9,7 @@ def test_the_donation_address_is_unchanged_because_payments_are_checked_against_
 
 def test_every_referral_has_an_https_link_and_a_code_and_each_venue_appears_once():
     assert [r["venue"] for r in REFERRALS] == [
-        "Variational", "TxFlow", "Phoenix", "RISEx", "Extended", "Nado", "Pacifica", "Bullpen",
+        "Variational", "TxFlow", "Phoenix", "RISEx", "Extended", "Nado", "Pacifica",
     ]
     assert all(r["url"].startswith("https://") and r["code"] for r in REFERRALS)
 

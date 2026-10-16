@@ -1044,7 +1044,6 @@ def build_rankings_table(df: pd.DataFrame, sort_col: str) -> pd.DataFrame:
         "Slippage (bps)": [_bps(finite(v), 3) for v in ranked["slippageBps"]],
         "Fee (bps)": [_bps(v, 2) for v in ranked["takerFeeBps"]],
         "Notes": ranked["note"],
-        "Trade": [referral_url(e) for e in ranked["exchange"]],
     }).set_index("Rank")
 
 # hand-built HTML table: st.dataframe can't be restyled and st.table greys out the rank and spaces columns unevenly.
@@ -1057,7 +1056,6 @@ RANKINGS_COLUMNS = [  # (header, numeric)
     ("Slippage (bps)", True),
     ("Fee (bps)", True),
     ("Notes", False),
-    ("Trade", False),
 ]
 st.markdown(
     """
@@ -1069,9 +1067,9 @@ st.markdown(
     table.rankings thead th { background: rgba(128, 128, 128, 0.08); }
     table.rankings th { font-weight: 600; opacity: 0.75; }
     table.rankings .num { text-align: right; font-variant-numeric: tabular-nums; }
-    table.rankings a.trade { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 0.4rem; text-decoration: none;
-        border: 1px solid rgba(128, 128, 128, 0.4); color: inherit; font-size: 0.9rem; }
-    table.rankings a.trade:hover { border-color: #ff4b4b; color: #ff4b4b; }
+    table.rankings a.trade { display: inline-block; margin-left: 0.5rem; padding: 0.05rem 0.5rem; border-radius: 0.4rem; text-decoration: none;
+        border: 1px solid rgba(110, 231, 120, 0.45); background: rgba(110, 231, 120, 0.08); color: inherit; font-size: 0.8rem; }
+    table.rankings a.trade:hover { border-color: rgb(110, 231, 120); }
     button[data-baseweb="tab"] p { font-size: 1.1rem; }
     </style>
     """,
@@ -1079,9 +1077,9 @@ st.markdown(
 )
 
 def _cell(header: str, value: Any) -> str:
-    if header == "Trade":    # the venue's referral link as a button, blank for venues without one
-        return f'<a class="trade" href="{html.escape(value)}" target="_blank" rel="noopener">Trade ↗</a>' if value else ""
-    return html.escape(str(value))
+    text = html.escape(str(value))
+    url = referral_url(str(value)) if header == "Exchange" else None    # venues with a referral get a Trade button after the name
+    return f'{text} <a class="trade" href="{html.escape(url)}" target="_blank" rel="noopener">Trade ↗</a>' if url else text
 
 def rankings_html(df: pd.DataFrame) -> str:
     rows = df.reset_index()
