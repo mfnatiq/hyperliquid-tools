@@ -31,13 +31,15 @@ def site_css():
     /* sticky goes on the wrapper Streamlit puts around the container; the container itself can't move inside it */
     [data-testid="stLayoutWrapper"]:has(> .st-key-site_header) {{ position: sticky; top: 3.75rem; z-index: 990; background: {bg}; }}
     .st-key-site_footer {{ position: fixed; left: 0; right: 0; bottom: 0; z-index: 990; background: {bg};
-        padding: 0.4rem 1rem; gap: 0.5rem; border-top: 1px solid rgba(128, 128, 128, 0.2); }}
+        padding: 0.75rem 1rem; gap: 0.5rem; border-top: 1px solid rgba(128, 128, 128, 0.2); }}
     .st-key-site_footer p {{ font-size: 0.9rem; margin: 0; }}
+    /* Streamlit gives markdown a -1rem bottom margin, which pushes the text below the address pill's centre */
+    .st-key-site_footer [data-testid="stMarkdownContainer"] {{ margin-bottom: 0; }}
     .st-key-site_footer .sep {{ margin: 0 15px; }}
     /* a small pill like the old footer's address, with room on the right for st.code's copy button */
-    .st-key-site_footer pre {{ padding: 0.25rem 2.25rem 0.25rem 0.5rem !important; margin: 0; border-radius: 5px; }}
+    .st-key-site_footer pre {{ padding: 0.45rem 2.25rem 0.45rem 0.6rem !important; margin: 0; border-radius: 5px; }}
     .st-key-site_footer pre code {{ font-size: 0.85rem; }}
-    .block-container {{ padding-bottom: 4rem !important; }}  /* so the footer never covers the end of a page */
+    .block-container {{ padding-bottom: 5rem !important; }}  /* so the footer never covers the end of a page */
     [data-testid="stPopoverBody"] p, [data-testid="stPopoverBody"] li {{ font-size: 1.05rem; }}
     /* the header's referrals button is a green pill so it reads as an offer, not a menu */
     .st-key-site_header [data-testid="stPopover"] button {{ background: rgba(110, 231, 120, 0.08);
