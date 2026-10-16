@@ -8,14 +8,21 @@ donation_address = "0xB17648Ed98C9766B880b5A24eEcAebA19866d1d7"
 # perk is what a new user gets for signing up with the code. leave it out when unknown.
 REFERRALS = [
     dict(venue="Hyperliquid", url="https://app.hyperliquid.xyz/join/MAMBO", code="MAMBO", perk="4% off fees"),
-    dict(venue="Variational", url="https://omni.variational.io/?ref=OMNIMAMBO", code="OMNIMAMBO"),
-    dict(venue="TxFlow", url="https://app.txflow.com/r/EJFMW1T960", code="EJFMW1T960"),
-    dict(venue="Phoenix", url="https://phoenix.trade/?code=O88RSK0C", code="O88RSK0C"),
+    dict(venue="Variational", url="https://omni.variational.io/?ref=OMNIMAMBO", code="OMNIMAMBO",
+         perk="12% points boost and Silver tier for 90 days"),
+    dict(venue="TxFlow", url="https://app.txflow.com/r/EJFMW1T960", code="EJFMW1T960",
+         perk="5% off spot and perp fees on the first $25M volume"),
+    dict(venue="Phoenix", url="https://phoenix.trade/?code=O88RSK0C", code="O88RSK0C", perk="10% off fees on the first $100M volume"),
     dict(venue="RISEx", url="https://www.rise.trade/invite/mambo", code="mambo"),
     dict(venue="Extended", url="https://app.extended.exchange/join/MAMBO", code="MAMBO"),
     dict(venue="Nado", url="https://app.nado.xyz/?join=q75b4tC", code="q75b4tC"),
     dict(venue="Pacifica", url="https://app.pacifica.fi/?referral=pacifica", code="pacifica"),
 ]
+
+
+def _md(text):
+    """escape "$" so Streamlit markdown shows it instead of starting a maths block."""
+    return text.replace("$", "\\$")
 
 
 def referral(venue):
@@ -64,7 +71,7 @@ def referrals_popover():
     with st.popover("🎁 Sign up with my :green[**referral codes**]"):
         st.markdown("Signing up through these links supports the site")
         st.markdown("\n".join(
-            f"- [{r['venue']}]({r['url']}) &nbsp; `{r['code']}`" + (f" &nbsp; {r['perk']}" if r.get("perk") else "")
+            f"- [{r['venue']}]({r['url']}) &nbsp; `{r['code']}`" + (f" &nbsp; {_md(r['perk'])}" if r.get("perk") else "")
             for r in REFERRALS
         ))
 
@@ -81,5 +88,5 @@ def venue_referral(venue):
     """show a one-line sign-up link for a venue. show nothing if the venue has no referral."""
     r = referral(venue)
     if r:
-        perk = f" for {r['perk']}" if r.get("perk") else ""
+        perk = f" for {_md(r['perk'])}" if r.get("perk") else ""
         st.caption(f"New to {venue}? [Sign up here]({r['url']}){perk} and support the site")

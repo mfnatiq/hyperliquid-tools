@@ -1067,7 +1067,7 @@ st.markdown(
     table.rankings thead th { background: rgba(128, 128, 128, 0.08); }
     table.rankings th { font-weight: 600; opacity: 0.75; }
     table.rankings .num { text-align: right; font-variant-numeric: tabular-nums; }
-    table.rankings a.trade { display: inline-block; margin-left: 0.5rem; padding: 0.05rem 0.5rem; border-radius: 0.4rem; text-decoration: none;
+    table.rankings a.trade { display: inline-block; vertical-align: middle; position: relative; top: -0.12em; line-height: 1.4; margin-left: 0.5rem; padding: 0.05rem 0.5rem; border-radius: 0.4rem; text-decoration: none;
         border: 1px solid rgba(110, 231, 120, 0.45); background: rgba(110, 231, 120, 0.08); color: inherit; font-size: 0.8rem; }
     table.rankings a.trade:hover { border-color: rgb(110, 231, 120); }
     button[data-baseweb="tab"] p { font-size: 1.1rem; }
