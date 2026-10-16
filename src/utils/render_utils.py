@@ -14,7 +14,7 @@ REFERRALS = [
          perk="5% off spot and perp fees on the first $25M volume"),
     dict(venue="Phoenix", url="https://phoenix.trade/?code=O88RSK0C", code="O88RSK0C", perk="10% off fees on the first $100M volume"),
     dict(venue="RISEx", url="https://www.rise.trade/invite/mambo", code="mambo"),
-    dict(venue="Extended", url="https://app.extended.exchange/join/MAMBO", code="MAMBO"),
+    dict(venue="Extended", url="https://app.extended.exchange/join/MAMBO", code="MAMBO", perk="10% off fees"),
     dict(venue="Nado", url="https://app.nado.xyz/?join=q75b4tC", code="q75b4tC"),
     dict(venue="Pacifica", url="https://app.pacifica.fi/?referral=pacifica", code="pacifica"),
 ]
