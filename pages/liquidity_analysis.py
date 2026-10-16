@@ -6,7 +6,7 @@ from typing import Any
 import aiohttp
 import pandas as pd
 import streamlit as st
-from src.utils.render_utils import referral_url
+from src.utils.render_utils import referral
 
 # css to tighten vertical space for selectbox labels that are collapsed
 st.markdown(
@@ -1078,8 +1078,11 @@ st.markdown(
 
 def _cell(header: str, value: Any) -> str:
     text = html.escape(str(value))
-    url = referral_url(str(value)) if header == "Exchange" else None    # a venue with a referral gets a Trade button after its name
-    return f'{text} <a class="trade" href="{html.escape(url)}" target="_blank" rel="noopener">Trade ↗</a>' if url else text
+    r = referral(str(value)) if header == "Exchange" else None    # a venue with a referral gets a Trade button after its name
+    if not r:
+        return text
+    tip = f' title="{html.escape(r["perk"])}"' if r.get("perk") else ""    # the perk shows on hover, so the table stays clean
+    return f'{text} <a class="trade" href="{html.escape(r["url"])}"{tip} target="_blank" rel="noopener">Trade ↗</a>'
 
 def rankings_html(df: pd.DataFrame) -> str:
     rows = df.reset_index()

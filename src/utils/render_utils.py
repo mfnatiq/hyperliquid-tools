@@ -4,8 +4,10 @@ import streamlit as st
 # db_utils checks trial payments against this address, so change it only on purpose.
 donation_address = "0xB17648Ed98C9766B880b5A24eEcAebA19866d1d7"
 
-# every referral on the site comes from this list, so change a link or code here only.
+# every referral on the site comes from this list, so change a link, code or perk here only.
+# perk is what a new user gets for signing up with the code. leave it out when unknown.
 REFERRALS = [
+    dict(venue="Hyperliquid", url="https://app.hyperliquid.xyz/join/MAMBO", code="MAMBO", perk="4% off fees"),
     dict(venue="Variational", url="https://omni.variational.io/?ref=OMNIMAMBO", code="OMNIMAMBO"),
     dict(venue="TxFlow", url="https://app.txflow.com/r/EJFMW1T960", code="EJFMW1T960"),
     dict(venue="Phoenix", url="https://phoenix.trade/?code=O88RSK0C", code="O88RSK0C"),
@@ -16,10 +18,16 @@ REFERRALS = [
 ]
 
 
-def referral_url(venue):
-    """return the referral link for a venue name, or None. ignore case and a trailing " (RFQ)" tag."""
+def referral(venue):
+    """return the REFERRALS entry for a venue name, or None. ignore case and a trailing " (RFQ)" tag."""
     venue = venue.removesuffix(" (RFQ)").lower()
-    return next((r["url"] for r in REFERRALS if r["venue"].lower() == venue), None)
+    return next((r for r in REFERRALS if r["venue"].lower() == venue), None)
+
+
+def referral_url(venue):
+    """return the referral link for a venue name, or None."""
+    r = referral(venue)
+    return r["url"] if r else None
 
 
 def site_css():
@@ -30,14 +38,17 @@ def site_css():
     /* Streamlit wraps the container in a box of the same height. sticky must go on that wrapper. */
     [data-testid="stLayoutWrapper"]:has(> .st-key-site_header) {{ position: sticky; top: 3.75rem; z-index: 990; background: {bg}; }}
     .st-key-site_footer {{ position: fixed; left: 0; right: 0; bottom: 0; z-index: 990; background: {bg};
-        padding: 0.75rem 1rem; gap: 0.5rem; border-top: 1px solid rgba(128, 128, 128, 0.2); }}
+        padding: 0.75rem 1rem; gap: 0.35rem; border-top: 1px solid rgba(128, 128, 128, 0.2); }}
     .st-key-site_footer p {{ font-size: 0.9rem; margin: 0; }}
     /* Streamlit gives markdown a -1rem bottom margin. reset it so the text centres on the address pill. */
     .st-key-site_footer [data-testid="stMarkdownContainer"] {{ margin-bottom: 0; }}
     .st-key-site_footer .sep {{ margin: 0 15px; }}
     /* a small pill like the old footer. the right padding leaves room for the copy button of st.code. */
-    .st-key-site_footer pre {{ padding: 0.45rem 2.25rem 0.45rem 0.6rem !important; margin: 0; border-radius: 5px; }}
-    .st-key-site_footer pre code {{ font-size: 0.85rem; }}
+    .st-key-site_footer pre {{ padding: 0.45rem 2.25rem 0.45rem 0.6rem !important; margin: 0; border-radius: 5px;
+        overflow: visible; white-space: nowrap; }}
+    .st-key-site_footer pre code {{ font-size: 0.85rem; line-height: 1.4; display: block; }}
+    /* the row must not squeeze the address box, or a wider font on Windows spills out of it */
+    .st-key-site_footer [data-testid="stElementContainer"] {{ flex-shrink: 0; width: auto !important; }}
     .block-container {{ padding-bottom: 5rem !important; }}  /* stop the footer from covering the end of a page */
     [data-testid="stPopoverBody"] p, [data-testid="stPopoverBody"] li {{ font-size: 1.05rem; }}
     /* a green pill makes the referrals button look like an offer */
@@ -52,7 +63,10 @@ def referrals_popover():
     """show one header button that opens the referral links and their codes."""
     with st.popover("🎁 Sign up with our :green[**referral codes**]"):
         st.markdown("Signing up through these links supports the site")
-        st.markdown("\n".join(f"- [{r['venue']}]({r['url']}) &nbsp; `{r['code']}`" for r in REFERRALS))
+        st.markdown("\n".join(
+            f"- [{r['venue']}]({r['url']}) &nbsp; `{r['code']}`" + (f" &nbsp; {r['perk']}" if r.get("perk") else "")
+            for r in REFERRALS
+        ))
 
 
 def site_footer():
@@ -65,6 +79,7 @@ def site_footer():
 
 def venue_referral(venue):
     """show a one-line sign-up link for a venue. show nothing if the venue has no referral."""
-    url = referral_url(venue)
-    if url:
-        st.caption(f"New to {venue}? [Sign up here]({url}) to support the site")
+    r = referral(venue)
+    if r:
+        perk = f" for {r['perk']}" if r.get("perk") else ""
+        st.caption(f"New to {venue}? [Sign up here]({r['url']}){perk} and support the site")

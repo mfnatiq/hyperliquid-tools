@@ -10,7 +10,7 @@ def test_the_donation_address_is_unchanged_because_payments_are_checked_against_
 def test_referral_url_ignores_case_and_the_rfq_tag_and_is_none_for_an_unknown_venue():
     assert referral_url("extended") == "https://app.extended.exchange/join/MAMBO"
     assert referral_url("Variational (RFQ)") == "https://omni.variational.io/?ref=OMNIMAMBO"
-    assert referral_url("Hyperliquid") is None
+    assert referral_url("Lighter") is None
 
 
 def test_the_header_popover_shows_every_link_and_code():
