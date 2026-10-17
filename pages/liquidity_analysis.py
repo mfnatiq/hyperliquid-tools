@@ -6,11 +6,10 @@ from typing import Any
 import aiohttp
 import pandas as pd
 import streamlit as st
-from src.utils.render_utils import referral
+from src.utils.render_utils import page_css, trade_button
 
 # css to tighten vertical space for selectbox labels that are collapsed
-st.markdown(
-    """
+page_css("selectbox", """
     <style>
     div[data-testid="stSelectbox"] > label {
         min-height: 0 !important;
@@ -18,9 +17,7 @@ st.markdown(
         padding-bottom: 0 !important;
     }
     </style>
-    """,
-    unsafe_allow_html=True,
-)
+    """)
 
 st.set_page_config(
     'Liquidity Analysis',
@@ -1057,8 +1054,7 @@ RANKINGS_COLUMNS = [  # (header, numeric)
     ("Fee (bps)", True),
     ("Notes", False),
 ]
-st.markdown(
-    """
+page_css("rankings", """
     <style>
     div.rankings-wrap { overflow-x: auto; }
     table.rankings { width: 100%; border-collapse: collapse; font-size: 1rem; border: 1px solid rgba(128, 128, 128, 0.3); }
@@ -1072,17 +1068,11 @@ st.markdown(
     table.rankings a.trade:hover { border-color: rgb(110, 231, 120); }
     button[data-baseweb="tab"] p { font-size: 1.1rem; }
     </style>
-    """,
-    unsafe_allow_html=True,
-)
+    """)
 
 def _cell(header: str, value: Any) -> str:
     text = html.escape(str(value))
-    r = referral(str(value)) if header == "Exchange" else None    # a venue with a referral gets a Trade button after its name
-    if not r:
-        return text
-    tip = f' title="{html.escape(r["perk"])}"' if r.get("perk") else ""    # the perk shows on hover, so the table stays clean
-    return f'{text} <a class="trade" href="{html.escape(r["url"])}"{tip} target="_blank" rel="noopener">Trade ↗</a>'
+    return text + trade_button(str(value)) if header == "Exchange" else text
 
 def rankings_html(df: pd.DataFrame) -> str:
     rows = df.reset_index()

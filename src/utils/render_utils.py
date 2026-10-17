@@ -1,4 +1,6 @@
-"""the header and footer that every page shows. the header holds the referral links. the footer holds the donation address."""
+"""the header, the footer and the referral helpers that every page uses. the footer holds the donation address."""
+import html
+
 import streamlit as st
 
 # db_utils checks trial payments against this address, so change it only on purpose.
@@ -33,11 +35,26 @@ def referral(venue):
     return next((r for r in REFERRALS if r["venue"].lower() == venue), None)
 
 
+def trade_button(venue):
+    """return a " Trade ↗" link for a venue with a referral, or "" for one without. the perk shows on hover."""
+    r = referral(venue)
+    if not r:
+        return ""
+    tip = f' title="{html.escape(r["perk"])}"' if r.get("perk") else ""
+    return f' <a class="trade" href="{html.escape(r["url"])}"{tip} target="_blank" rel="noopener">Trade ↗</a>'
+
+
+def page_css(name, style):
+    """render a <style> block. site_css() takes its container out of the page flow, so the block adds no gap."""
+    with st.container(key=f"css_{name}"):
+        st.markdown(style, unsafe_allow_html=True)
+
+
 def site_css():
     """keep the header (key="site_header") below Streamlit's toolbar and the footer (key="site_footer") at the bottom.
     both need an opaque background, so the colour follows the viewer's theme."""
     bg = "#ffffff" if st.context.theme.type == "light" else "#0e1117"
-    st.markdown(f"""<style>
+    page_css("site", f"""<style>
     /* Streamlit wraps the container in a box of the same height. sticky must go on that wrapper. */
     [data-testid="stLayoutWrapper"]:has(> .st-key-site_header) {{ position: sticky; top: 3.75rem; z-index: 990; background: {bg}; }}
     .st-key-site_footer {{ position: fixed; left: 0; right: 0; bottom: 0; z-index: 990; background: {bg};
@@ -56,11 +73,10 @@ def site_css():
         width: auto; padding: 0; align-items: center; }}
     /* the row must not squeeze the address box, or a wider font on Windows spills out of it */
     .st-key-site_footer [data-testid="stElementContainer"] {{ flex-shrink: 0; width: auto !important; }}
-    /* a script-only iframe (key="umami") still gets a 25px box and two gaps. take it out of the page flow. */
+    /* page_css() blocks and the script-only umami iframe still take a box and a 1rem gap, so a page with one sat
+    lower. take their containers out of the page flow. */
+    [data-testid="stLayoutWrapper"]:has(> [class*="st-key-css_"]),
     [data-testid="stLayoutWrapper"]:has(> .st-key-umami) {{ position: absolute; height: 0; overflow: hidden; }}
-    /* a markdown block that only holds a <style> still takes a 1rem gap, so a page with one sat lower. take it out
-    of the page flow. */
-    [data-testid="stElementContainer"]:has(> [data-testid="stMarkdown"] style) {{ position: absolute; }}
     /* less space above the title (Streamlit's toolbar is 3.75rem tall) and around the divider */
     /* the bottom padding stops the footer from covering the end of a page */
     .block-container {{ padding-top: 4.5rem !important; padding-bottom: 5rem !important; }}
@@ -72,7 +88,7 @@ def site_css():
         border: 1px solid rgba(110, 231, 120, 0.45); border-radius: 0.75rem; padding: 0.4rem 0.9rem; }}
     .st-key-site_header [data-testid="stPopover"] button:hover {{ border-color: rgb(110, 231, 120); }}
     .st-key-site_header [data-testid="stPopover"] button p {{ font-size: 1rem; }}
-    </style>""", unsafe_allow_html=True)
+    </style>""")
 
 
 def referrals_popover():
