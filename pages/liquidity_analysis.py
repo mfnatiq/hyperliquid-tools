@@ -295,8 +295,7 @@ async def fetch_phoenix_orderbook(session: aiohttp.ClientSession, token: str):
     for sym in dict.fromkeys([token.upper(), market["symbol"]]):
         try:
             b = await _fetch_json(session, "GET", f"{url}/v1/view/orderbook/{sym}?include_splines=true")
-            return {"bids": _levels(b.get("bids")), "asks": _levels(b.get("asks")), "exchange": "Phoenix", "token": token, "venueSymbol": sym,
-                    "venueTakerFeeBps": float(market["takerFee"]) * 100 if market.get("takerFee") is not None else None}  # percent -> bps
+            return {"bids": _levels(b.get("bids")), "asks": _levels(b.get("asks")), "exchange": "Phoenix", "token": token, "venueSymbol": sym}
         except RuntimeError as e:
             last_err = e
     raise last_err or ValueError(f"No orderbook for {token} on Phoenix")
@@ -313,8 +312,7 @@ async def fetch_ondo_orderbook(session: aiohttp.ClientSession, token: str):
 
     b = await _fetch_json(session, "GET", f"{url}/v1/perps/depth?market={market['market']}&depth=100")
     b = b.get("result") or {}
-    return {"bids": _levels(b.get("bids")), "asks": _levels(b.get("asks")), "exchange": "Ondo Perps", "token": token, "venueSymbol": market["market"],
-            "venueTakerFeeBps": float(market["takerFee"]) * 10_000 if market.get("takerFee") is not None else None}  # fraction -> bps
+    return {"bids": _levels(b.get("bids")), "asks": _levels(b.get("asks")), "exchange": "Ondo Perps", "token": token, "venueSymbol": market["market"]}
 
 
 # Arcus lists gold / silver / oil perps on ETFs, so those page tokens map to the ETF tickers (docs.arcus.xyz/concepts/perpetuals/real-world-assets)
@@ -332,16 +330,8 @@ async def fetch_arcus_orderbook(session: aiohttp.ClientSession, token: str):
 
     b = await _fetch_json(session, "GET", f"{url}/v1/l2OrderBook/{market['marketDisplayName']}?nLevels=100")
 
-    # base-tier taker fee from the exchange-wide table (ppm of notional); the page falls back to its default if this call fails
-    fee_bps = None
-    try:
-        tiers = (await _fetch_json(session, "GET", f"{url}/v1/feetiers")).get("tiers") or []
-        base_tier = min(tiers, key=lambda t: t["level"])
-        fee_bps = float(base_tier["taker_fee_ppm"]) / 100  # ppm -> bps
-    except Exception as e:
-        logger.warning("Arcus fee tiers unavailable: %s", e)
     return {"bids": _levels(b.get("bids")), "asks": _levels(b.get("asks")), "exchange": "Arcus", "token": token,
-            "venueSymbol": market["marketDisplayName"], "venueTakerFeeBps": fee_bps}
+            "venueSymbol": market["marketDisplayName"]}
 
 
 async def fetch_qfex_orderbook(session: aiohttp.ClientSession, token: str):
@@ -585,7 +575,6 @@ def analyze_orderbook_pure(orderbook: dict, agg_orderbook: dict | None = None):
         "exchange": exchange,
         "token": orderbook["token"],
         "venueSymbol": orderbook.get("venueSymbol"),
-        "venueTakerFeeBps": orderbook.get("venueTakerFeeBps"),
         "midPrice": round(mid_price, 2),
         "spreadBps": round(spread * 100, 2),
         "slippage": {},
@@ -874,8 +863,8 @@ with st.expander("Assumptions", expanded=False):
 # region custom fees per exchange
 # first entry is the default; every exchange also gets a "Custom" option
 TAKER_FEE_PROFILES: dict[str, list[dict[str, Any]]] = {
-    # Arcus's fee table is read from /v1/feetiers (docs.arcus.xyz/concepts/perpetuals/fees); None = the base tier it reports. Referral discount (5%) not applied
-    "Arcus": [{"bps": None, "assumption": "Base tier"}],
+    # docs.arcus.xyz/concepts/perpetuals/fees: base tier taker 0.0225%. Referral discount (5%) not applied
+    "Arcus": [{"bps": 2.25, "assumption": "Base tier"}],
     "Lighter": [
         # standard accounts pay 0 on every market; premium per apidocs.lighter.xyz/docs/account-types
         {"bps": 0.0, "assumption": "Standard Account"},
@@ -897,12 +886,10 @@ TAKER_FEE_PROFILES: dict[str, list[dict[str, Any]]] = {
         {"bps": 1.8, "assumption": ">1B 30D volume"},
         {"bps": 1.5, "assumption": ">5B 30D volume"},
     ],
-    # Ondo reports each market's taker fee in /v1/markets (docs.ondoperps.xyz/fees): 2.5 bps during the 50%-off promotion, 5 bps base after it
-    "Ondo Perps": [{"bps": None, "assumption": "Current Ondo rate (promo)"}, {"bps": 5.0, "assumption": "Base rate, after the promo"}],
+    # docs.ondoperps.xyz/fees: 2.5 bps during the 50%-off promotion, 5 bps base after it
+    "Ondo Perps": [{"bps": 2.5, "assumption": "Promo"}, {"bps": 5.0, "assumption": "Base, after the promo"}],
     "Pacifica": [{"bps": 4.0, "assumption": ""}],
-    # Phoenix sets the fee per market and its markets endpoint returns it (bps=None means "use the market's fee");
-    # 3.5 bps is the fallback trading-tools uses when a market has none
-    "Phoenix": [{"bps": None, "assumption": "Current Phoenix rate"}, {"bps": 3.5, "assumption": "Fallback"}],
+    "Phoenix": [{"bps": 3.5, "assumption": ""}],
     "RISEx": [{"bps": 3.0, "assumption": ""}],
     "Variational": [{"bps": 0.0, "assumption": "spread built into quotes"}],
 }
@@ -941,12 +928,9 @@ CUSTOM_FEE = "Custom"
 FEE_GRID_COLUMNS = 4
 
 def _fee_label(p: dict) -> str:
-    if p["bps"] is None:
-        return p["assumption"]
     return f"{p['bps']:.2f} bps" + (f" ({p['assumption']})" if p["assumption"] else "")
 
-# None = use the fee the venue reported for the fetched market (Phoenix)
-fee_map: dict[str, float | None] = {}
+fee_map: dict[str, float] = {}
 with st.expander("Taker fees", expanded=False):
     exchanges = list(ORDERBOOK_FETCHERS)
     for row_start in range(0, len(exchanges), FEE_GRID_COLUMNS):
@@ -967,7 +951,7 @@ with st.expander("Taker fees", expanded=False):
                         f"{exch} taker fee (bps)",
                         min_value=0.0,
                         max_value=100.0,
-                        value=float(next(p["bps"] for p in profiles if p["bps"] is not None)),
+                        value=float(profiles[0]["bps"]),
                         step=0.1,
                         format="%.2f",
                         key=f"custom_fee_{exch}",
@@ -990,8 +974,6 @@ for a in raw_analysis_list:
 
     exch = a["exchange"]
     taker_fee_bps = fee_map.get(exch, 0.0)
-    if taker_fee_bps is None:
-        taker_fee_bps = a.get("venueTakerFeeBps") if a.get("venueTakerFeeBps") is not None else 3.5
 
     new_a = {**a}
     new_a["takerFeeBps"] = taker_fee_bps
