@@ -22,6 +22,7 @@ REFERRALS = [
          perk="first week of Premium free"),
     dict(venue="Pacifica", url="https://app.pacifica.fi/?referral=pacifica", code="pacifica"),
     dict(venue="QFEX", url="https://qfex.com/@rcb0b6d9", code="rcb0b6d9", perk="10% of trading fees back"),
+    dict(venue="Ondo Perps", url="https://app.ondoperps.xyz/?ref=BZJXRC", code="BZJXRC", perk="5% trading fee discount"),
 ]
 
 
