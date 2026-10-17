@@ -18,6 +18,7 @@ from hyperliquid.utils.error import ClientError, ServerError
 from src.hl_client import HyperliquidClient
 import streamlit as st
 from src.utils.render_utils import venue_referral
+from src.utils.welcome import FOLLOW_TEXT, REMEMBER_JS, welcome_hidden
 import streamlit.components.v1 as components
 import plotly.express as px
 from src.bridge.unit_bridge_api import UnitBridgeInfo
@@ -152,16 +153,26 @@ WHATS_NEW = """
         - 2026-10-15: Fixed Extended S&P 500 / Nasdaq 100 symbols
         - 2026-10-11: Revamped Liquidity Analysis page, new venues, fees and token groups
 """
+def dont_show_again():
+    """remember in this browser that the banner should stay hidden."""
+    if st.button("Don't show again"):
+        components.html(REMEMBER_JS, height=0)
+        st.caption("Got it. You can close this window.")
+
+
 @st.dialog("Latest Updates", width="large", on_dismiss="ignore")
 def announcement():
     st.write(WHATS_NEW)
     st.write("""
         If you like what you see, please consider subscribing :) Enjoy!
     """)
+    st.write(FOLLOW_TEXT)
+    dont_show_again()
 @st.dialog("Latest Updates", width="large", on_dismiss="ignore")
 def updates_announcement():
     st.write(WHATS_NEW)
-    st.write("Enjoy!")
+    st.write(FOLLOW_TEXT)
+    dont_show_again()
 if 'startup' not in st.session_state:
     is_full_premium = False
     if 'user_email' in st.session_state:
@@ -169,7 +180,9 @@ if 'startup' not in st.session_state:
         if user_premium_type == PremiumType.FULL:
             is_full_premium = True
 
-    if is_full_premium:
+    if welcome_hidden():
+        pass
+    elif is_full_premium:
         updates_announcement()
     else:
         announcement()
