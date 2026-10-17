@@ -22,7 +22,13 @@ def test_track_event_false_on_rejection():
 
 
 def test_track_event_true_on_success():
-    resp = MagicMock(ok=True, status_code=200)
+    resp = MagicMock(ok=True, status_code=200, text='{"ok":true}')
     with patch("src.utils.analytics.requests.post", return_value=resp) as post:
         assert track_event("login") is True
     assert post.call_args.kwargs["json"]["payload"]["website"] == UMAMI_WEBSITE_ID
+
+
+def test_track_event_false_when_umami_drops_bot():
+    resp = MagicMock(ok=True, status_code=200, text='{"beep":"boop"}')
+    with patch("src.utils.analytics.requests.post", return_value=resp):
+        assert track_event("login") is False

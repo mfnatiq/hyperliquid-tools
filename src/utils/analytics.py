@@ -33,8 +33,8 @@ def track_event(event_name: str, additional_data: Optional[dict] = None) -> bool
     """Send one event to Umami. Returns True only when Umami answers 2xx."""
     headers = {
         "Content-Type": "application/json",
-        # Umami drops requests whose user agent looks like a bot or is missing
-        "User-Agent": "Mozilla/5.0 (compatible; Hyperliquid-Tools/1.0)",
+        # Umami answers 200 {"beep": "boop"} and drops the event when the user agent looks like a bot
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
     }
     try:
         resp = requests.post(
@@ -45,6 +45,9 @@ def track_event(event_name: str, additional_data: Optional[dict] = None) -> bool
         return False
     if not resp.ok:
         logger.warning(f"umami rejected event {event_name}: {resp.status_code} {resp.text[:200]}")
+        return False
+    if "beep" in resp.text:
+        logger.warning(f"umami dropped event {event_name} as bot traffic: {resp.text[:200]}")
         return False
     logger.info(f"tracked event {event_name} to umami ({resp.status_code})")
     return True
