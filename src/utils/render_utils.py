@@ -62,6 +62,8 @@ def site_css():
         width: auto; padding: 0; align-items: center; }}
     /* the row must not squeeze the address box, or a wider font on Windows spills out of it */
     .st-key-site_footer [data-testid="stElementContainer"] {{ flex-shrink: 0; width: auto !important; }}
+    /* a script-only iframe (key="umami") still gets a 25px box and two gaps. take it out of the page flow. */
+    [data-testid="stLayoutWrapper"]:has(> .st-key-umami) {{ position: absolute; height: 0; overflow: hidden; }}
     .block-container {{ padding-bottom: 5rem !important; }}  /* stop the footer from covering the end of a page */
     [data-testid="stPopoverBody"] p, [data-testid="stPopoverBody"] li {{ font-size: 1.05rem; }}
     /* a green pill makes the referrals button look like an offer */

@@ -170,13 +170,13 @@ with col2:
         else:
             show_login_info(show_button_only=True)
 
-# umami analytics
-# TODO seems to have non-zero height still?
+# umami analytics. site_css() takes the key="umami" container out of the layout, so it adds no gap.
 umami_website_id = "d055b0ff-48a4-4617-a9fd-4124a5346705"
-components.html(f"""
-<script defer src="https://cloud.umami.is/script.js" data-website-id="{umami_website_id}">
-</script>
-""", height=0)
+with st.container(key="umami"):
+    components.html(f"""
+    <script defer src="https://cloud.umami.is/script.js" data-website-id="{umami_website_id}">
+    </script>
+    """, height=0)
 
 # announcement shows only upon startup
 # main prompt modal only shows for non-premium users
