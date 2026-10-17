@@ -6,6 +6,8 @@ import streamlit as st
 # db_utils checks trial payments against this address, so change it only on purpose.
 donation_address = "0xB17648Ed98C9766B880b5A24eEcAebA19866d1d7"
 
+TWITTER_URL = "https://x.com/fnatiqmambo"
+
 # every referral on the site comes from this list, so change a link, code or perk here only.
 # perk is what a new user gets for signing up with the code. leave it out when unknown.
 REFERRALS = [
@@ -105,7 +107,7 @@ def referrals_popover():
 def site_footer():
     """show the fixed footer with the site author and the donation address."""
     with st.container(key="site_footer", horizontal=True, horizontal_alignment="center", vertical_alignment="center"):
-        st.markdown('made by [@fnatiqmambo](https://x.com/fnatiqmambo)<span class="sep">•</span>donations:',
+        st.markdown(f'made by [@fnatiqmambo]({TWITTER_URL})<span class="sep">•</span>donations:',
                     width="content", unsafe_allow_html=True)
         st.code(donation_address, language=None, width="content")    # st.code has a copy button, so no JavaScript is needed
 
