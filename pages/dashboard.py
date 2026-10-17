@@ -187,11 +187,8 @@ WHATS_NEW = """
         - 2026-10-15: Fixed Extended S&P 500 / Nasdaq 100 symbols
         - 2026-10-11: Revamped Liquidity Analysis page, new venues, fees and token groups
 """
-@st.dialog("Welcome to hyperliquid-tools!", width="large", on_dismiss="ignore")
+@st.dialog("Latest Updates", width="large", on_dismiss="ignore")
 def announcement():
-    st.write("""
-        This site lets you view your HyperUnit trading / bridging volume, along with some other metrics.
-    """)
     st.write(WHATS_NEW)
     st.write("""
         If you like what you see, please consider subscribing :) Enjoy!
