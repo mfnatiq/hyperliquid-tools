@@ -6,6 +6,7 @@ import sys
 import time
 from dotenv import load_dotenv
 import requests
+from src.utils.analytics import track_event
 from src.auth.db_utils import init_db, PremiumType, get_user_premium_type, upgrade_to_premium, start_trial_if_new_user, get_user
 from src.utils.utils import DATE_FORMAT, format_currency, get_current_timestamp_millis, get_kinetiq_token_mappings
 from datetime import datetime, timedelta, timezone
@@ -62,34 +63,6 @@ def is_logged_in():
     return st.user.is_logged_in
 
 load_dotenv()
-
-# track umami analytics
-UMAMI_API = "https://cloud.umami.is/api/send"
-def track_event(event_name, additional_data: dict = {}):
-    headers = {
-        "Content-Type": "application/json",
-        "User-Agent": "Hyperliquid-Tools/1.0",
-    }
-    payload: dict[str, Any] = {
-        "type": "event",
-        "payload": {
-            "name": event_name,
-            "url": "/",
-            "hostname": os.getenv("HOSTNAME"),
-            "language": "",
-            "referrer": "",
-            "screen": "",
-            "title": "Hyperliquid Tools",
-        }
-    }
-    if additional_data and isinstance(additional_data, dict):
-        payload["payload"]["data"] = additional_data
-
-    try:
-        requests.post(UMAMI_API, json=payload, headers=headers, timeout=5)
-        logger.info(f'successfully tracked event {event_name} to umami')
-    except requests.RequestException as e:
-        logger.warning(f"umami analytics tracking failed for {event_name}: {e}")
 
 def handle_login_click():
     track_event('login')
