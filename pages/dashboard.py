@@ -148,7 +148,6 @@ with col2:
 WHATS_NEW = """
         **What's new**
 
-        - 2026-10-17: Added referral codes in the header and Trade buttons on the Liquidity Analysis page
         - 2026-10-15: Added Ondo Perps and Arcus venues
         - 2026-10-15: Fixed Extended S&P 500 / Nasdaq 100 symbols
         - 2026-10-11: Revamped Liquidity Analysis page, new venues, fees and token groups
