@@ -863,19 +863,19 @@ token = st.selectbox(
     label_visibility="collapsed",
 )
 
-st.text("Assumptions")
-st.markdown("""
-- Full clip size can be taken against existing orderbook (this is unlikely in actual execution as market makers can react to taker orders and adjust / cancel as they deem fit)
-- Slippage is calculated based on average of buy side / ask side book
-- Venues marked (RFQ) are priced from quotes, not a live orderbook: Variational slippage comes from its quoted sizes, and Extended RFQ markets only publish an indicative book
-- Taker fees default to each exchange's base tier; change them under **Taker fees** below
+with st.expander("Assumptions", expanded=False):
+    st.markdown("""
+- The full clip size fills against the existing orderbook. Real fills are usually worse, because market makers can adjust or cancel when they see a taker order.
+- Slippage is the average of the buy side and sell side of the book.
+- Venues marked (RFQ) are priced from quotes, not a live orderbook. Variational slippage comes from its quoted sizes. Extended RFQ markets only publish an indicative book.
+- Taker fees default to each exchange's base tier. Change them under **Taker fees** below.
 """)
 
 # region custom fees per exchange
 # first entry is the default; every exchange also gets a "Custom" option
 TAKER_FEE_PROFILES: dict[str, list[dict[str, Any]]] = {
     # Arcus's fee table is read from /v1/feetiers (docs.arcus.xyz/concepts/perpetuals/fees); None = the base tier it reports. Referral discount (5%) not applied
-    "Arcus": [{"bps": None, "assumption": "base tier, from Arcus"}],
+    "Arcus": [{"bps": None, "assumption": "Base tier"}],
     "Lighter": [
         # standard accounts pay 0 on every market; premium per apidocs.lighter.xyz/docs/account-types
         {"bps": 0.0, "assumption": "Standard Account"},
@@ -898,11 +898,11 @@ TAKER_FEE_PROFILES: dict[str, list[dict[str, Any]]] = {
         {"bps": 1.5, "assumption": ">5B 30D volume"},
     ],
     # Ondo reports each market's taker fee in /v1/markets (docs.ondoperps.xyz/fees): 2.5 bps during the 50%-off promotion, 5 bps base after it
-    "Ondo Perps": [{"bps": None, "assumption": "this market's fee, from Ondo"}, {"bps": 5.0, "assumption": "base, after the promotion"}],
+    "Ondo Perps": [{"bps": None, "assumption": "Current Ondo rate (promo)"}, {"bps": 5.0, "assumption": "Base rate, after the promo"}],
     "Pacifica": [{"bps": 4.0, "assumption": ""}],
     # Phoenix sets the fee per market and its markets endpoint returns it (bps=None means "use the market's fee");
     # 3.5 bps is the fallback trading-tools uses when a market has none
-    "Phoenix": [{"bps": None, "assumption": "this market's fee, from Phoenix"}, {"bps": 3.5, "assumption": "base"}],
+    "Phoenix": [{"bps": None, "assumption": "Current Phoenix rate"}, {"bps": 3.5, "assumption": "Fallback"}],
     "RISEx": [{"bps": 3.0, "assumption": ""}],
     "Variational": [{"bps": 0.0, "assumption": "spread built into quotes"}],
 }
