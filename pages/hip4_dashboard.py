@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import pandas as pd
 from dotenv import load_dotenv
 import streamlit as st
+from src.utils.render_utils import venue_referral
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -19,6 +20,7 @@ load_dotenv()
 
 st.set_page_config("HIP-4 Markets", "🎯", layout="wide")
 st.header("HIP-4 Prediction Markets")
+venue_referral("Hyperliquid")
 
 HYDROMANCER_URL = "https://api.hydromancer.xyz/info"
 HYDROMANCER_API_KEY = os.getenv("HYDROMANCER_API_KEY")

@@ -17,6 +17,7 @@ import pandas as pd
 from hyperliquid.utils.error import ClientError, ServerError
 from src.hl_client import HyperliquidClient
 import streamlit as st
+from src.utils.render_utils import venue_referral
 import streamlit.components.v1 as components
 import plotly.express as px
 from src.bridge.unit_bridge_api import UnitBridgeInfo
@@ -108,6 +109,7 @@ col1, col2 = st.columns([1, 1], vertical_alignment='center')
 with col1:
     with st.container(vertical_alignment='center', horizontal=True, horizontal_alignment="left"):
         st.header("Unit Volume Tracker")
+    venue_referral("Hyperliquid")
 with col2:
     with st.container(vertical_alignment='center', horizontal=True, horizontal_alignment="right"):
         if "user_email" in st.session_state:
@@ -146,15 +148,13 @@ with col2:
 WHATS_NEW = """
         **What's new**
 
+        - 2026-10-17: Added referral codes in the header and Trade buttons on the Liquidity Analysis page
         - 2026-10-15: Added Ondo Perps and Arcus venues
         - 2026-10-15: Fixed Extended S&P 500 / Nasdaq 100 symbols
         - 2026-10-11: Revamped Liquidity Analysis page, new venues, fees and token groups
 """
-@st.dialog("Welcome to hyperliquid-tools!", width="large", on_dismiss="ignore")
+@st.dialog("Latest Updates", width="large", on_dismiss="ignore")
 def announcement():
-    st.write("""
-        This site lets you view your HyperUnit trading / bridging volume, along with some other metrics.
-    """)
     st.write(WHATS_NEW)
     st.write("""
         If you like what you see, please consider subscribing :) Enjoy!

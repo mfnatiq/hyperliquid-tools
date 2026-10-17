@@ -14,6 +14,7 @@ import pandas as pd
 from hyperliquid.utils.error import ClientError, ServerError
 from src.hl_client import HyperliquidClient
 import streamlit as st
+from src.utils.render_utils import venue_referral
 import plotly.express as px
 from src.trade.trade_data import get_candlestick_data
 from src.consts import NON_LOGGED_IN_TRADES_TOTAL, kinetiqStartTime, oneDayInS, acceptedPayments, AccountStats
@@ -83,6 +84,7 @@ col1, col2 = st.columns([1, 1], vertical_alignment='center')
 with col1:
     with st.container(vertical_alignment='center', horizontal=True, horizontal_alignment="left"):
         st.header("Kinetiq Volume Tracker")
+    venue_referral("Hyperliquid")
 with col2:
     with st.container(vertical_alignment='center', horizontal=True, horizontal_alignment="right"):
         if "user_email" in st.session_state:
