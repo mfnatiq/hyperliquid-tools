@@ -64,7 +64,13 @@ def site_css():
     .st-key-site_footer [data-testid="stElementContainer"] {{ flex-shrink: 0; width: auto !important; }}
     /* a script-only iframe (key="umami") still gets a 25px box and two gaps. take it out of the page flow. */
     [data-testid="stLayoutWrapper"]:has(> .st-key-umami) {{ position: absolute; height: 0; overflow: hidden; }}
-    .block-container {{ padding-bottom: 5rem !important; }}  /* stop the footer from covering the end of a page */
+    /* a markdown block that only holds a <style> still takes a 1rem gap, so a page with one sat lower. take it out
+    of the page flow. */
+    [data-testid="stElementContainer"]:has(> [data-testid="stMarkdown"] style) {{ position: absolute; }}
+    /* less space above the title (Streamlit's toolbar is 3.75rem tall) and around the divider */
+    .block-container {{ padding-top: 4.5rem !important; padding-bottom: 5rem !important; }}
+    .st-key-site_header h1 {{ padding-top: 0.5rem; padding-bottom: 0.5rem; }}
+    .st-key-site_header hr {{ margin: 0.5rem 0 0.75rem; }}  /* stop the footer from covering the end of a page */
     [data-testid="stPopoverBody"] p, [data-testid="stPopoverBody"] li {{ font-size: 1.05rem; }}
     /* a green pill makes the referrals button look like an offer */
     .st-key-site_header [data-testid="stPopover"] button {{ background: rgba(110, 231, 120, 0.08);
