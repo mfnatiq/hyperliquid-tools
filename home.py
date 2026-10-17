@@ -1,5 +1,6 @@
 import streamlit as st
 from src.utils.render_utils import footer_html, copy_script
+from src.utils.analytics import PAGEVIEW_LOADER
 import streamlit.components.v1 as components
 
 st.markdown(
@@ -36,6 +37,7 @@ with col2:
         # render sticky footer
         st.markdown(footer_html, unsafe_allow_html=True)
         components.html(copy_script, height=0)  # render copy script in a separate component to avoid CSP issues
+        components.html(PAGEVIEW_LOADER, height=0)  # umami page views for every page
 
 st.divider()
 
