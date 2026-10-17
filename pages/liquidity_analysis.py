@@ -6,10 +6,10 @@ from typing import Any
 import aiohttp
 import pandas as pd
 import streamlit as st
+from src.utils.render_utils import page_css, trade_button
 
 # css to tighten vertical space for selectbox labels that are collapsed
-st.markdown(
-    """
+page_css("selectbox", """
     <style>
     div[data-testid="stSelectbox"] > label {
         min-height: 0 !important;
@@ -17,9 +17,7 @@ st.markdown(
         padding-bottom: 0 !important;
     }
     </style>
-    """,
-    unsafe_allow_html=True,
-)
+    """)
 
 st.set_page_config(
     'Liquidity Analysis',
@@ -1056,8 +1054,7 @@ RANKINGS_COLUMNS = [  # (header, numeric)
     ("Fee (bps)", True),
     ("Notes", False),
 ]
-st.markdown(
-    """
+page_css("rankings", """
     <style>
     div.rankings-wrap { overflow-x: auto; }
     table.rankings { width: 100%; border-collapse: collapse; font-size: 1rem; border: 1px solid rgba(128, 128, 128, 0.3); }
@@ -1066,18 +1063,23 @@ st.markdown(
     table.rankings thead th { background: rgba(128, 128, 128, 0.08); }
     table.rankings th { font-weight: 600; opacity: 0.75; }
     table.rankings .num { text-align: right; font-variant-numeric: tabular-nums; }
+    table.rankings a.trade { display: inline-block; vertical-align: middle; position: relative; top: -0.12em; line-height: 1.4; margin-left: 0.5rem; padding: 0.05rem 0.5rem; border-radius: 0.4rem; text-decoration: none;
+        border: 1px solid rgba(110, 231, 120, 0.45); background: rgba(110, 231, 120, 0.08); color: inherit; font-size: 0.8rem; }
+    table.rankings a.trade:hover { border-color: rgb(110, 231, 120); }
     button[data-baseweb="tab"] p { font-size: 1.1rem; }
     </style>
-    """,
-    unsafe_allow_html=True,
-)
+    """)
+
+def _cell(header: str, value: Any) -> str:
+    text = html.escape(str(value))
+    return text + trade_button(str(value)) if header == "Exchange" else text
 
 def rankings_html(df: pd.DataFrame) -> str:
     rows = df.reset_index()
     head = "".join(f'<th class="{"num" if n else ""}">{h}</th>' for h, n in RANKINGS_COLUMNS)
     body = "".join(
         "<tr>" + "".join(
-            f'<td class="{"num" if n else ("notes" if h == "Notes" else "")}">{html.escape(str(r[h]))}</td>'
+            f'<td class="{"num" if n else ("notes" if h == "Notes" else "")}">{_cell(h, r[h])}</td>'
             for h, n in RANKINGS_COLUMNS
         ) + "</tr>"
         for _, r in rows.iterrows()
