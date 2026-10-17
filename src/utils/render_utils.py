@@ -33,12 +33,6 @@ def referral(venue):
     return next((r for r in REFERRALS if r["venue"].lower() == venue), None)
 
 
-def referral_url(venue):
-    """return the referral link for a venue name, or None."""
-    r = referral(venue)
-    return r["url"] if r else None
-
-
 def site_css():
     """keep the header (key="site_header") below Streamlit's toolbar and the footer (key="site_footer") at the bottom.
     both need an opaque background, so the colour follows the viewer's theme."""
@@ -49,7 +43,7 @@ def site_css():
     .st-key-site_footer {{ position: fixed; left: 0; right: 0; bottom: 0; z-index: 990; background: {bg};
         padding: 0.75rem 1rem; gap: 0.35rem; border-top: 1px solid rgba(128, 128, 128, 0.2); }}
     .st-key-site_footer p {{ font-size: 0.9rem; margin: 0; }}
-    /* Streamlit gives markdown a -1rem bottom margin. reset it so the text centres on the address pill. */
+    /* Streamlit gives markdown a -1rem bottom margin. reset it so the text centres on the address box. */
     .st-key-site_footer [data-testid="stMarkdownContainer"] {{ margin-bottom: 0; }}
     .st-key-site_footer .sep {{ margin: 0 15px; }}
     /* a small box with the address in its centre. the top padding is 1px more because capitals and digits sit
@@ -68,9 +62,10 @@ def site_css():
     of the page flow. */
     [data-testid="stElementContainer"]:has(> [data-testid="stMarkdown"] style) {{ position: absolute; }}
     /* less space above the title (Streamlit's toolbar is 3.75rem tall) and around the divider */
+    /* the bottom padding stops the footer from covering the end of a page */
     .block-container {{ padding-top: 4.5rem !important; padding-bottom: 5rem !important; }}
     .st-key-site_header h1 {{ padding-top: 0.5rem; padding-bottom: 0.5rem; }}
-    .st-key-site_header hr {{ margin: 0.5rem 0 0.75rem; }}  /* stop the footer from covering the end of a page */
+    .st-key-site_header hr {{ margin: 0.5rem 0 0.75rem; }}
     [data-testid="stPopoverBody"] p, [data-testid="stPopoverBody"] li {{ font-size: 1.05rem; }}
     /* a green pill makes the referrals button look like an offer */
     .st-key-site_header [data-testid="stPopover"] button {{ background: rgba(110, 231, 120, 0.08);

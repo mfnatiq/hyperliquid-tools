@@ -12,9 +12,9 @@ Every page shows a sticky header and a fixed footer. `home.py` renders both from
 
 - The header button opens the referral links and their codes.
 - The footer shows the site author and the donation address, with a copy button.
-- All links come from `REFERRALS`. Change a link or code there only.
-- `referral_url("Extended")` returns a venue's link. The Liquidity Analysis tables use it for the Trade button.
-- `venue_referral("Hyperliquid")` shows a sign-up line on the Hyperliquid pages. It shows nothing until `REFERRALS` has a Hyperliquid entry.
+- All links, codes and perks come from `REFERRALS`. Change them there only.
+- `referral("Extended")` returns a venue's entry. The Liquidity Analysis tables use it for the Trade button, with the perk on hover.
+- `venue_referral("Hyperliquid")` shows a sign-up line with the perk on the Hyperliquid pages.
 - `src/auth/db_utils.py` checks trial payments against `donation_address`. Change the address only on purpose.
 
 ### Deployment
