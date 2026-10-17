@@ -75,7 +75,6 @@ def site_css():
 def referrals_popover():
     """show one header button that opens the referral links and their codes."""
     with st.popover("🎁 Sign up with my :green[**referral codes**]"):
-        st.markdown("Signing up through these links supports the site")
         st.markdown("\n".join(
             f"- [{r['venue']}]({r['url']}) &nbsp; `{r['code']}`" + (f" &nbsp; {_md(r['perk'])}" if r.get("perk") else "")
             for r in REFERRALS
@@ -95,4 +94,4 @@ def venue_referral(venue):
     r = referral(venue)
     if r:
         perk = f" for {_md(r['perk'])}" if r.get("perk") else ""
-        st.caption(f"New to {venue}? [Sign up here]({r['url']}){perk} and support the site")
+        st.caption(f"New to {venue}? [Sign up here]({r['url']}){perk}")
