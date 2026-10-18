@@ -6,10 +6,10 @@ from typing import Any
 import aiohttp
 import pandas as pd
 import streamlit as st
+from src.utils.render_utils import page_css, trade_button
 
 # css to tighten vertical space for selectbox labels that are collapsed
-st.markdown(
-    """
+page_css("selectbox", """
     <style>
     div[data-testid="stSelectbox"] > label {
         min-height: 0 !important;
@@ -17,9 +17,7 @@ st.markdown(
         padding-bottom: 0 !important;
     }
     </style>
-    """,
-    unsafe_allow_html=True,
-)
+    """)
 
 st.set_page_config(
     'Liquidity Analysis',
@@ -77,13 +75,22 @@ TOKEN_GROUPS = {
 }
 CRYPTO_TOKENS = TOKEN_GROUPS["Crypto"]
 DEFAULT_GROUP, DEFAULT_TOKEN = "Indices", "US500"
-SYMBOL_ALIASES = {
-    "US500": ["US500", "SPX", "SP500", "SPY", "USA500"],
-    "QQQ": ["QQQ", "US100", "NDX", "NAS100", "XYZ100"],
+# a list is tried on every venue; a dict gives a venue its own exact market names instead ("*" = every other venue)
+# some overrides for extended
+SYMBOL_ALIASES: dict[str, list[str] | dict[str, list[str]]] = {
+    "US500": {"*": ["US500", "SPX", "SP500", "SPY", "USA500"], "Extended": ["SPX500m-USD"]},
+    "QQQ": {"*": ["QQQ", "US100", "NDX", "NAS100", "XYZ100"], "Extended": ["TECH100m-USD"]},
     "GOLD": ["GOLD", "XAU"],
     "SILVER": ["SILVER", "XAG"],
     "OIL": ["OIL", "CL", "WTI", "USOIL"],
 }
+
+
+def aliases_for(token: str, venue: str) -> list[str]:
+    aliases = SYMBOL_ALIASES.get(token.upper(), [token])
+    return aliases if isinstance(aliases, list) else aliases.get(venue, aliases["*"])
+
+
 # Hyperliquid lists tradfi perps on the trade.xyz HIP-3 dex, as "xyz:<SYMBOL>"
 HYPERLIQUID_HIP3_DEX = "xyz"
 
@@ -125,7 +132,10 @@ async def fetch_hyperliquid_orderbook_default(session, token):
 
 async def fetch_extended_orderbook(session: aiohttp.ClientSession, token: str):
     # stock markets are named e.g. NVDA_24_5-USD (24/5 trading); other tradfi markets may not carry the suffix
-    markets = [f"{token.upper()}-USD"] if token.upper() in CRYPTO_TOKENS else [f"{token.upper()}_24_5-USD", f"{token.upper()}-USD"]
+    if token.upper().endswith("-USD"):  # exact market name from SYMBOL_ALIASES; case-sensitive (e.g. TECH100m-USD)
+        markets = [token]
+    else:
+        markets = [f"{token.upper()}-USD"] if token.upper() in CRYPTO_TOKENS else [f"{token.upper()}_24_5-USD", f"{token.upper()}-USD"]
     data: dict[str, Any] = {}
     for market in markets:
         try:
@@ -285,11 +295,43 @@ async def fetch_phoenix_orderbook(session: aiohttp.ClientSession, token: str):
     for sym in dict.fromkeys([token.upper(), market["symbol"]]):
         try:
             b = await _fetch_json(session, "GET", f"{url}/v1/view/orderbook/{sym}?include_splines=true")
-            return {"bids": _levels(b.get("bids")), "asks": _levels(b.get("asks")), "exchange": "Phoenix", "token": token, "venueSymbol": sym,
-                    "venueTakerFeeBps": float(market["takerFee"]) * 100 if market.get("takerFee") is not None else None}  # percent -> bps
+            return {"bids": _levels(b.get("bids")), "asks": _levels(b.get("asks")), "exchange": "Phoenix", "token": token, "venueSymbol": sym}
         except RuntimeError as e:
             last_err = e
     raise last_err or ValueError(f"No orderbook for {token} on Phoenix")
+
+
+async def fetch_ondo_orderbook(session: aiohttp.ClientSession, token: str):
+    # Ondo Perps public REST (docs.ondoperps.xyz/api-reference/market-data/get-order-book-depth); markets look like QQQ-USD.P
+    url = "https://api.ondoperps.xyz"
+    d = await _fetch_json(session, "GET", f"{url}/v1/markets")
+    pairs = ((d.get("result") or {}).get("perps") or {}).get("tradingPairs") or []
+    market = next((m for m in pairs if (m.get("pair") or {}).get("base", "").upper() == token.upper() and not m.get("disabled")), None)
+    if not market:
+        raise NotListed(f"Token {token} not available on Ondo Perps")
+
+    b = await _fetch_json(session, "GET", f"{url}/v1/perps/depth?market={market['market']}&depth=100")
+    b = b.get("result") or {}
+    return {"bids": _levels(b.get("bids")), "asks": _levels(b.get("asks")), "exchange": "Ondo Perps", "token": token, "venueSymbol": market["market"]}
+
+
+# Arcus lists gold / silver / oil perps on ETFs, so those page tokens map to the ETF tickers (docs.arcus.xyz/concepts/perpetuals/real-world-assets)
+ARCUS_TOKEN_MAP = {"GOLD": "GLD", "SILVER": "SLV", "OIL": "USO"}
+
+
+async def fetch_arcus_orderbook(session: aiohttp.ClientSession, token: str):
+    # Arcus public REST (docs.arcus.xyz/api-reference/public/get-l2-orderbook-snapshot); no key needed
+    url = "https://api.arcus.xyz"
+    base = ARCUS_TOKEN_MAP.get(token.upper(), token.upper())
+    d = await _fetch_json(session, "GET", f"{url}/v1/markets")
+    market = next((m for m in d.get("markets", []) if m.get("baseAsset", "").upper() == base and m.get("status") == "ONLINE"), None)
+    if not market:
+        raise NotListed(f"Token {token} not available on Arcus")
+
+    b = await _fetch_json(session, "GET", f"{url}/v1/l2OrderBook/{market['marketDisplayName']}?nLevels=100")
+
+    return {"bids": _levels(b.get("bids")), "asks": _levels(b.get("asks")), "exchange": "Arcus", "token": token,
+            "venueSymbol": market["marketDisplayName"]}
 
 
 async def fetch_qfex_orderbook(session: aiohttp.ClientSession, token: str):
@@ -413,6 +455,7 @@ async def fetch_variational_orderbook(session: aiohttp.ClientSession, token: str
 
 
 ORDERBOOK_FETCHERS = {
+    "Arcus": fetch_arcus_orderbook,
     "Hyperliquid": fetch_hyperliquid_orderbook_default,
     "Extended": fetch_extended_orderbook,
     "Lighter": fetch_lighter_orderbook,
@@ -422,6 +465,7 @@ ORDERBOOK_FETCHERS = {
     "QFEX": fetch_qfex_orderbook,
     "Pacifica": fetch_pacifica_orderbook,
     "Nado": fetch_nado_orderbook,
+    "Ondo Perps": fetch_ondo_orderbook,
     "Variational": fetch_variational_orderbook,
 }
 ORDERBOOK_FETCHERS = dict(sorted(ORDERBOOK_FETCHERS.items()))
@@ -531,7 +575,6 @@ def analyze_orderbook_pure(orderbook: dict, agg_orderbook: dict | None = None):
         "exchange": exchange,
         "token": orderbook["token"],
         "venueSymbol": orderbook.get("venueSymbol"),
-        "venueTakerFeeBps": orderbook.get("venueTakerFeeBps"),
         "midPrice": round(mid_price, 2),
         "spreadBps": round(spread * 100, 2),
         "slippage": {},
@@ -658,7 +701,7 @@ async def _run_single_analysis(
     try:
         ob_or_stats = None
         errors: dict[str, Exception] = {}
-        for symbol in SYMBOL_ALIASES.get(token.upper(), [token]):
+        for symbol in aliases_for(token, name):
             try:
                 ob = await fetcher(session, symbol)
             except Exception as e:
@@ -809,17 +852,19 @@ token = st.selectbox(
     label_visibility="collapsed",
 )
 
-st.text("Assumptions")
-st.markdown("""
-- Full clip size can be taken against existing orderbook (this is unlikely in actual execution as market makers can react to taker orders and adjust / cancel as they deem fit)
-- Slippage is calculated based on average of buy side / ask side book
-- Venues marked (RFQ) are priced from quotes, not a live orderbook: Variational slippage comes from its quoted sizes, and Extended RFQ markets only publish an indicative book
-- Taker fees default to each exchange's base tier; change them under **Taker fees** below
+with st.expander("Assumptions", expanded=False):
+    st.markdown("""
+- The full clip size fills against the existing orderbook. Real fills are usually worse, because market makers can adjust or cancel when they see a taker order.
+- Slippage is the average of the buy side and sell side of the book.
+- Venues marked (RFQ) are priced from quotes, not a live orderbook. Variational slippage comes from its quoted sizes. Extended RFQ markets only publish an indicative book.
+- Taker fees default to each exchange's base tier. Change them under **Taker fees** below.
 """)
 
 # region custom fees per exchange
 # first entry is the default; every exchange also gets a "Custom" option
 TAKER_FEE_PROFILES: dict[str, list[dict[str, Any]]] = {
+    # docs.arcus.xyz/concepts/perpetuals/fees: base tier taker 0.0225%. Referral discount (5%) not applied
+    "Arcus": [{"bps": 2.25, "assumption": "Base tier"}],
     "Lighter": [
         # standard accounts pay 0 on every market; premium per apidocs.lighter.xyz/docs/account-types
         {"bps": 0.0, "assumption": "Standard Account"},
@@ -841,10 +886,10 @@ TAKER_FEE_PROFILES: dict[str, list[dict[str, Any]]] = {
         {"bps": 1.8, "assumption": ">1B 30D volume"},
         {"bps": 1.5, "assumption": ">5B 30D volume"},
     ],
+    # docs.ondoperps.xyz/fees: 2.5 bps during the 50%-off promotion, 5 bps base after it
+    "Ondo Perps": [{"bps": 2.5, "assumption": "Promo"}, {"bps": 5.0, "assumption": "Base, after the promo"}],
     "Pacifica": [{"bps": 4.0, "assumption": ""}],
-    # Phoenix sets the fee per market and its markets endpoint returns it (bps=None means "use the market's fee");
-    # 3.5 bps is the fallback trading-tools uses when a market has none
-    "Phoenix": [{"bps": None, "assumption": "this market's fee, from Phoenix"}, {"bps": 3.5, "assumption": "base"}],
+    "Phoenix": [{"bps": 3.5, "assumption": ""}],
     "RISEx": [{"bps": 3.0, "assumption": ""}],
     "Variational": [{"bps": 0.0, "assumption": "spread built into quotes"}],
 }
@@ -874,7 +919,8 @@ else:
 TAKER_FEE_PROFILES["Hyperliquid"] = [
     {"bps": round(bps * _hl_mult, 2), "assumption": f"{vol} 14D volume, 0 HYPE staked{_hl_note}"} for bps, vol in _HL_BASE
 ]
-# Extended's own fee panel: taker 0.025% on crypto, 0.01% on RWA (tradfi) markets; maker 0
+# Extended fees (confirmed by the Extended team, 2026-10-15; they may change): taker 0.025% on crypto perp / spot, 0.010% on RWA markets, maker 0.
+# Indices, stocks and commodities are all RWA, i.e. every group except Crypto
 TAKER_FEE_PROFILES["Extended"] = (
     [{"bps": 2.5, "assumption": ""}] if group == "Crypto" else [{"bps": 1.0, "assumption": "RWA markets"}]
 )
@@ -882,12 +928,9 @@ CUSTOM_FEE = "Custom"
 FEE_GRID_COLUMNS = 4
 
 def _fee_label(p: dict) -> str:
-    if p["bps"] is None:
-        return p["assumption"]
     return f"{p['bps']:.2f} bps" + (f" ({p['assumption']})" if p["assumption"] else "")
 
-# None = use the fee the venue reported for the fetched market (Phoenix)
-fee_map: dict[str, float | None] = {}
+fee_map: dict[str, float] = {}
 with st.expander("Taker fees", expanded=False):
     exchanges = list(ORDERBOOK_FETCHERS)
     for row_start in range(0, len(exchanges), FEE_GRID_COLUMNS):
@@ -908,7 +951,7 @@ with st.expander("Taker fees", expanded=False):
                         f"{exch} taker fee (bps)",
                         min_value=0.0,
                         max_value=100.0,
-                        value=float(next(p["bps"] for p in profiles if p["bps"] is not None)),
+                        value=float(profiles[0]["bps"]),
                         step=0.1,
                         format="%.2f",
                         key=f"custom_fee_{exch}",
@@ -931,8 +974,6 @@ for a in raw_analysis_list:
 
     exch = a["exchange"]
     taker_fee_bps = fee_map.get(exch, 0.0)
-    if taker_fee_bps is None:
-        taker_fee_bps = a.get("venueTakerFeeBps") if a.get("venueTakerFeeBps") is not None else 3.5
 
     new_a = {**a}
     new_a["takerFeeBps"] = taker_fee_bps
@@ -985,43 +1026,47 @@ def build_rankings_table(df: pd.DataFrame, sort_col: str) -> pd.DataFrame:
     }).set_index("Rank")
 
 # hand-built HTML table: st.dataframe can't be restyled and st.table greys out the rank and spaces columns unevenly.
-# fixed widths keep exchange / symbol / numbers compact so notes get the remaining space
-RANKINGS_COLUMNS = [  # (header, width, numeric)
-    ("Rank", "6%", False),
-    ("Exchange", "14%", False),
-    ("Symbol", "11%", False),
-    ("Total (bps)", "10%", True),
-    ("Slippage (bps)", "10%", True),
-    ("Fee (bps)", "10%", True),
-    ("Notes", "39%", False),
+# every column sizes to its content on one line; only Notes wraps and takes the leftover width
+RANKINGS_COLUMNS = [  # (header, numeric)
+    ("Rank", False),
+    ("Exchange", False),
+    ("Symbol", False),
+    ("Total (bps)", True),
+    ("Slippage (bps)", True),
+    ("Fee (bps)", True),
+    ("Notes", False),
 ]
-st.markdown(
-    """
+page_css("rankings", """
     <style>
-    table.rankings { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 1rem; border: 1px solid rgba(128, 128, 128, 0.3); }
-    table.rankings th, table.rankings td { padding: 0.45rem 0.75rem; border: 1px solid rgba(128, 128, 128, 0.2); text-align: left; overflow-wrap: anywhere; }
+    div.rankings-wrap { overflow-x: auto; }
+    table.rankings { width: 100%; border-collapse: collapse; font-size: 1rem; border: 1px solid rgba(128, 128, 128, 0.3); }
+    table.rankings th, table.rankings td { padding: 0.45rem 0.75rem; border: 1px solid rgba(128, 128, 128, 0.2); text-align: left; white-space: nowrap; }
+    table.rankings td.notes { white-space: normal; min-width: 16rem; }
     table.rankings thead th { background: rgba(128, 128, 128, 0.08); }
-    table.rankings th { font-weight: 600; opacity: 0.75; white-space: nowrap; }
+    table.rankings th { font-weight: 600; opacity: 0.75; }
     table.rankings .num { text-align: right; font-variant-numeric: tabular-nums; }
-    table.rankings td.rank { white-space: nowrap; }
+    table.rankings a.trade { display: inline-block; vertical-align: middle; position: relative; top: -0.12em; line-height: 1.4; margin-left: 0.5rem; padding: 0.05rem 0.5rem; border-radius: 0.4rem; text-decoration: none;
+        border: 1px solid rgba(110, 231, 120, 0.45); background: rgba(110, 231, 120, 0.08); color: inherit; font-size: 0.8rem; }
+    table.rankings a.trade:hover { border-color: rgb(110, 231, 120); }
     button[data-baseweb="tab"] p { font-size: 1.1rem; }
     </style>
-    """,
-    unsafe_allow_html=True,
-)
+    """)
+
+def _cell(header: str, value: Any) -> str:
+    text = html.escape(str(value))
+    return text + trade_button(str(value)) if header == "Exchange" else text
 
 def rankings_html(df: pd.DataFrame) -> str:
     rows = df.reset_index()
-    cols = "".join(f'<col style="width:{w}">' for _, w, _ in RANKINGS_COLUMNS)
-    head = "".join(f'<th class="{"num" if n else ""}">{h}</th>' for h, _, n in RANKINGS_COLUMNS)
+    head = "".join(f'<th class="{"num" if n else ""}">{h}</th>' for h, n in RANKINGS_COLUMNS)
     body = "".join(
         "<tr>" + "".join(
-            f'<td class="{"num" if n else ("rank" if h == "Rank" else "")}">{html.escape(str(r[h]))}</td>'
-            for h, _, n in RANKINGS_COLUMNS
+            f'<td class="{"num" if n else ("notes" if h == "Notes" else "")}">{_cell(h, r[h])}</td>'
+            for h, n in RANKINGS_COLUMNS
         ) + "</tr>"
         for _, r in rows.iterrows()
     )
-    return f'<table class="rankings"><colgroup>{cols}</colgroup><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>'
+    return f'<div class="rankings-wrap"><table class="rankings"><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
 
 rank_by = st.radio("Rank by", list(RANK_BY), horizontal=True)
 

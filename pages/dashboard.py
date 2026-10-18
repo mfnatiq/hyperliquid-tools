@@ -6,6 +6,7 @@ import sys
 import time
 from dotenv import load_dotenv
 import requests
+from src.utils.analytics import track_event
 from src.bridge.bridge_leaderboard import get_bridge_leaderboard_with_datetime_last_updated, update_bridge_leaderboard
 from src.auth.db_utils import init_db, PremiumType, get_user_premium_type, upgrade_to_premium, start_trial_if_new_user, get_user
 from src.trade.trade_leaderboard import get_leaderboard_last_updated, get_leaderboard, get_xyz_leaderboard_last_updated, get_xyz_leaderboard
@@ -16,6 +17,8 @@ import pandas as pd
 from hyperliquid.utils.error import ClientError, ServerError
 from src.hl_client import HyperliquidClient
 import streamlit as st
+from src.utils.render_utils import venue_referral
+from src.utils.welcome import FOLLOW_TEXT, REMEMBER_JS, welcome_hidden
 import streamlit.components.v1 as components
 import plotly.express as px
 from src.bridge.unit_bridge_api import UnitBridgeInfo
@@ -87,34 +90,6 @@ def is_logged_in():
 
 load_dotenv()
 
-# track umami analytics
-UMAMI_API = "https://cloud.umami.is/api/send"
-def track_event(event_name, additional_data: dict = {}):
-    headers = {
-        "Content-Type": "application/json",
-        "User-Agent": "Hyperliquid-Tools/1.0",
-    }
-    payload: dict[str, Any] = {
-        "type": "event",
-        "payload": {
-            "name": event_name,
-            "url": "/",
-            "hostname": os.getenv("HOSTNAME"),
-            "language": "",
-            "referrer": "",
-            "screen": "",
-            "title": "Hyperliquid Tools",
-        }
-    }
-    if additional_data and isinstance(additional_data, dict):
-        payload["payload"]["data"] = additional_data
-
-    try:
-        requests.post(UMAMI_API, json=payload, headers=headers, timeout=5)
-        logger.info(f'successfully tracked event {event_name} to umami')
-    except requests.RequestException as e:
-        logger.warning(f"umami analytics tracking failed for {event_name}: {e}")
-
 def handle_login_click():
     track_event('login')
     st.login()
@@ -135,6 +110,7 @@ col1, col2 = st.columns([1, 1], vertical_alignment='center')
 with col1:
     with st.container(vertical_alignment='center', horizontal=True, horizontal_alignment="left"):
         st.header("Unit Volume Tracker")
+    venue_referral("Hyperliquid")
 with col2:
     with st.container(vertical_alignment='center', horizontal=True, horizontal_alignment="right"):
         if "user_email" in st.session_state:
@@ -168,30 +144,35 @@ with col2:
         else:
             show_login_info(show_button_only=True)
 
-# umami analytics
-# TODO seems to have non-zero height still?
-umami_website_id = "d055b0ff-48a4-4617-a9fd-4124a5346705"
-components.html(f"""
-<script defer src="https://cloud.umami.is/script.js" data-website-id="{umami_website_id}">
-</script>
-""", height=0)
-
 # announcement shows only upon startup
 # main prompt modal only shows for non-premium users
-@st.dialog("Welcome to hyperliquid-tools!", width="large", on_dismiss="ignore")
-def announcement():
-    st.write("""
-        This site lets you view your HyperUnit trading / bridging volume, along with some other metrics.
+WHATS_NEW = """
+        **What's new**
 
+        - 2026-10-15: Added Ondo Perps and Arcus venues
+        - 2026-10-15: Fixed Extended S&P 500 / Nasdaq 100 symbols
+        - 2026-10-11: Revamped Liquidity Analysis page, new venues, fees and token groups
+"""
+def dont_show_again():
+    """remember in this browser that the banner should stay hidden."""
+    if st.button("Don't show again"):
+        components.html(REMEMBER_JS, height=0)
+        st.caption("Got it. You can close this window.")
+
+
+@st.dialog("Latest Updates", width="large", on_dismiss="ignore")
+def announcement():
+    st.write(WHATS_NEW)
+    st.write("""
         If you like what you see, please consider subscribing :) Enjoy!
     """)
+    st.write(FOLLOW_TEXT)
+    dont_show_again()
 @st.dialog("Latest Updates", width="large", on_dismiss="ignore")
 def updates_announcement():
-    st.write("""
-        🚨 2026-09-27: Fixed Kinetiq Markets data fetching
-
-        Enjoy!
-    """)
+    st.write(WHATS_NEW)
+    st.write(FOLLOW_TEXT)
+    dont_show_again()
 if 'startup' not in st.session_state:
     is_full_premium = False
     if 'user_email' in st.session_state:
@@ -199,7 +180,9 @@ if 'startup' not in st.session_state:
         if user_premium_type == PremiumType.FULL:
             is_full_premium = True
 
-    if is_full_premium:
+    if welcome_hidden():
+        pass
+    elif is_full_premium:
         updates_announcement()
     else:
         announcement()
