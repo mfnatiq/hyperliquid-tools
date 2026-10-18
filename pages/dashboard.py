@@ -149,7 +149,7 @@ with col2:
 WHATS_NEW = """
         **What's new**
 
-        - 2026-10-18: Arb Opportunities is now a screener. Tick a row to open a side panel with volume, open interest, 24h / 7d / 30d carry averages and the fee breakdown. History builds up while the site runs, so the averages fill in over the first days
+        - 2026-10-18: Arb Opportunities is now a screener. Pick a pair in the details dropdown to open a side panel with volume, open interest, 24h / 7d / 30d carry averages and the fee breakdown. History builds up while the site runs, so the averages fill in over the first days
         - 2026-10-18: Arb Opportunities scans Ondo Perps and Arcus
         - 2026-10-15: Added Ondo Perps and Arcus venues
         - 2026-10-15: Fixed Extended S&P 500 / Nasdaq 100 symbols

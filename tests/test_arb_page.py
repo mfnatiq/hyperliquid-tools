@@ -24,7 +24,7 @@ class FakeSnapshot:
         return False
 
     def rows(self, notional, hold_days=3.0):
-        return [dict(ROW)]
+        return [dict(ROW), dict(ROW, ticker="BLUR", net_apr=-0.539, be_all_d=5.1)]
 
 
 @pytest.fixture(autouse=True)
@@ -61,6 +61,7 @@ def test_the_table_appears_once_the_background_build_finishes(monkeypatch):
         at = run_page()  # a new session each time: AppTest cannot rerun a page with a segmented control
     assert not at.exception
     df = at.dataframe[0].value
+    assert list(df["Pair"]) == ["ZRO"]  # BLUR has a negative net APR over the 3 day hold, hidden by default
     assert df.loc[0, "Pair"] == "ZRO"
     assert df.loc[0, "Route"] == "Phoenix → Variational"
     assert df.loc[0, "Break-even"] == "1d 8h"
@@ -128,3 +129,17 @@ def test_the_detail_panel_says_so_when_no_history_exists_yet():
     at = AppTest.from_function(app).run()
     assert not at.exception
     assert any("has not been recorded yet" in c.value for c in at.caption)
+
+
+def test_the_losing_pair_shows_when_the_toggle_is_off(monkeypatch):
+    monkeypatch.setattr(arb_runtime, "build_snapshot", lambda m, c: FakeSnapshot())
+    run_page()  # starts the background build
+    for _ in range(50):
+        at = AppTest.from_file("pages/arb_opportunities.py", default_timeout=30)
+        at.session_state["f_neg"] = False  # set before the run: AppTest cannot rerun a page with a segmented control
+        at.run()
+        if len(at.dataframe):
+            break
+        time.sleep(0.1)
+    assert list(at.dataframe[0].value["Pair"]) == ["ZRO", "BLUR"]
+    assert any("Losing pairs shown" in m.value for m in at.markdown)

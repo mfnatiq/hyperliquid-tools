@@ -48,7 +48,8 @@ st.markdown(
 )
 
 
-HOLD_DAYS = 3.0  # hold used for Net APR and the Edge column
+HOLD_CHOICES = [1, 3, 7, 14, 30]  # days a position is held, for Net APR and the Edge column
+DEFAULT_HOLD = 3
 BOOKS_EVERY_S = 120
 LOADING_EVERY_S = 3  # while the first load runs in the background, the page checks this often
 
@@ -103,6 +104,15 @@ def controls():
             help="Pairs below this are never fetched, so a higher value means fewer API calls",
         )
         risk_max = st.select_slider("Spread risk, max", ["Low", "Med", "High"], value="High", key="f_risk")
+        hold = st.select_slider(
+            "Hold (days)", HOLD_CHOICES, value=DEFAULT_HOLD, key="f_hold",
+            help="How long you plan to hold the pair. Entry and exit costs are paid once, so a longer hold spreads them "
+                 "over more days and raises Net APR",
+        )
+        hide_neg = st.toggle(
+            "Hide pairs that lose money over the hold", value=True, key="f_neg",
+            help="Net APR is negative when the entry and exit cost is more than the carry earned over the hold",
+        )
         counts_slot = st.empty()
     search = bar[2].text_input(
         "Search", placeholder="Filter by token, e.g. BTC", label_visibility="collapsed", key="f_search",
@@ -110,10 +120,10 @@ def controls():
              "it does not look up other markets",
     )
     return sort_by, [k for k, name in VENUE_NAMES.items() if name in names_sel], float(notional), metric, \
-        sustain_min, be_max, min_carry, risk_max, search.strip(), counts_slot
+        sustain_min, be_max, min_carry, risk_max, float(hold), hide_neg, search.strip(), counts_slot
 
 
-sort_by, venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max, search, counts_slot = controls()
+sort_by, venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max, hold, hide_neg, search, counts_slot = controls()
 
 chips = []
 if len(venues_sel) != len(VENUE_NAMES):
@@ -126,6 +136,10 @@ if min_carry > 10:
     chips.append(f"Carry ≥ {min_carry}%")
 if risk_max != "High":
     chips.append(f"Risk ≤ {risk_max}")
+if hold != DEFAULT_HOLD:
+    chips.append(f"Hold {hold:g}d")
+if not hide_neg:
+    chips.append("Losing pairs shown")
 if search:
     chips.append(f"Search “{search}”")
 if chips:
@@ -143,24 +157,22 @@ def pair_key(r):
     return f"{r['ticker']}|{r['short']}|{r['long']}"
 
 
-def remember_dismissed():
-    """the dialog's close button was used: do not open it again for this row until the row is unticked and ticked"""
-    st.session_state["arb_dismissed"] = st.session_state.get("arb_open")
+def clear_pick():
+    """the dialog's close button was used: reset the picker, so picking the same pair again reopens it"""
+    st.session_state["arb_pick"] = None
 
 
-def open_detail(r, hist):
+def open_detail(r, hist, hold):
     """show the details in a dialog styled as a right hand drawer (see the css above). it has its own close button"""
-    st.session_state["arb_open"] = pair_key(r)
-
-    @st.dialog(arb_view.detail_title(r, VENUE_NAMES), width="large", on_dismiss=remember_dismissed)
+    @st.dialog(arb_view.detail_title(r, VENUE_NAMES), width="large", on_dismiss=clear_pick)
     def drawer():
-        arb_view.detail(r, hist, VENUE_NAMES, HOLD_DAYS)
+        arb_view.detail(r, hist, VENUE_NAMES, hold)
 
     drawer()
 
 
-def screener_table(rows):
-    """compact table, one line per pair. returns the selected row or None"""
+def screener_table(rows, hold):
+    """compact read-only table, one line per pair"""
     df = pd.DataFrame(
         [
             {
@@ -183,12 +195,11 @@ def screener_table(rows):
         .map(colour_map({"Low": GREEN, "Med": AMBER, "High": RED}), subset=["Risk"])
         .format("{:.1f}", subset=["Net APR (%)"], na_rep="-")
     )
-    event = st.dataframe(
+    st.dataframe(
         styled, hide_index=True, use_container_width=True, height=min(38 + 35 * len(df), 700),
-        on_select="rerun", selection_mode="single-row", key="arb_table",
         column_config={
             "Net APR (%)": st.column_config.NumberColumn(
-                "Net APR (%)", help=f"Carry after the round trip cost and adverse basis, for a {HOLD_DAYS:g} day hold. Holding longer raises it"),
+                "Net APR (%)", help=f"Carry after the round trip cost and adverse basis, for a {hold:g} day hold. Holding longer raises it"),
             "Sustain (%)": st.column_config.ProgressColumn(
                 "Sustain (%)", min_value=0, max_value=100, format="%.0f%%",
                 help="Share of the last 7 days' shared hours with the carry in our favour, from the venues' funding history"),
@@ -201,8 +212,6 @@ def screener_table(rows):
             ),
         },
     )
-    picked = event.selection.rows
-    return rows[picked[0]] if picked and picked[0] < len(rows) else None
 
 
 def table_run_every():
@@ -211,7 +220,7 @@ def table_run_every():
 
 
 @st.fragment(run_every=table_run_every())
-def table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max, search, sort_by):
+def table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max, hold, hide_neg, search, sort_by):
     """re-runs on its own and refreshes the order books and this table only, not the controls above it"""
     snapshot, _ = snapshot_for(metric, min_carry)
     if snapshot is None:
@@ -234,7 +243,7 @@ def table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max
     )
 
     # priced from cached data, so changing the position makes no API calls
-    all_rows = snapshot.rows(notional, HOLD_DAYS)
+    all_rows = snapshot.rows(notional, hold)
 
     def keep(r):
         return (
@@ -243,6 +252,7 @@ def table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max
             and r["be_all_d"] is not None and r["be_all_d"] <= be_max
             and RISK_RANK.get(r["risk"], 0) <= RISK_RANK[risk_max]
             and search.upper() in r["ticker"].upper()
+            and not (hide_neg and r["net_apr"] is not None and r["net_apr"] < 0)
         )
 
     rows = [r for r in all_rows if keep(r)]
@@ -257,17 +267,22 @@ def table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max
         st.write("No pairs match, loosen a filter")
         return
 
-    st.caption("Tick the box at the left of a row to open its details. Close them with the X, then untick the box to reopen. A dash means the venue does not report it")
-    picked = screener_table(rows)
-    if picked is None:
-        st.session_state.pop("arb_dismissed", None)  # an unticked row can open again
-        st.session_state.pop("arb_open", None)
-    elif st.session_state.get("arb_dismissed") != pair_key(picked):
+    by_key = {pair_key(r): r for r in rows}
+    labels = {k: f"{r['ticker']}  {VENUE_NAMES.get(r['short'], r['short'])} → {VENUE_NAMES.get(r['long'], r['long'])}  {r['verdict']}"
+              for k, r in by_key.items()}
+    pick = st.selectbox(
+        "Details", list(by_key), index=None, format_func=labels.get, key="arb_pick", label_visibility="collapsed",
+        placeholder="Pick a pair for details: averages, volume, open interest, fees and Trade buttons",
+    )
+    screener_table(rows, hold)
+    st.caption("A dash means the venue does not report it")
+    if pick in by_key:
+        picked = by_key[pick]
         try:
             hist = funding_history.pair_history(picked["short"], picked["long"], picked["ticker"]) if runtime.recording else None
         except Exception:
             hist = None
-        open_detail(picked, hist)
+        open_detail(picked, hist, hold)
 
     fees = ", ".join(f"{VENUE_NAMES.get(k, k)} {v:g}" for k, v in funding_arbs.taker_bps().items() if k in VENUE_NAMES)
     with st.expander("Info and assumptions"):
@@ -275,10 +290,10 @@ def table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max
             "\n".join(f"- {line}" for line in [
                 "Short the venue with the higher funding rate, long the other, same USD size on each leg",
                 "Round-trip cost = 2 x (slippage + taker fees on both legs), i.e. entry plus exit",
-                f"Net APR = carry after the round trip cost and adverse basis, for a {HOLD_DAYS:g} day hold, as a yearly rate",
+                f"Net APR = carry after the round trip cost and adverse basis, for a {hold:g} day hold, as a yearly rate",
                 f"Taker fees in bps, from trading-tools' venues.toml: {fees}. Phoenix uses the fee set on each market. QFEX shows its single-stock rate, indices and commodities pay less",
                 "Break-even = round-trip cost / daily carry, including adverse basis",
-                f"Edge = expected carry over a {HOLD_DAYS:g} day hold, less round-trip cost and adverse basis",
+                f"Edge = expected carry over a {hold:g} day hold, less round-trip cost and adverse basis",
                 "Spread risk is Med above 5 bps and High above 12 bps of slippage plus adverse basis, or when a leg is thinner than the position",
                 "24h, 7d and 30d carry averages come from hourly samples this app records itself, so they fill in over time. Volume and open interest are shown only where a venue reports them",
                 f"Funding fetched {snapshot.fetched_at:%H:%M:%S} UTC (every {arb_runtime.FUNDING_TTL_S // 60} minutes), order books {snapshot.books_at:%H:%M:%S} UTC (every {BOOKS_EVERY_S // 60} minutes)",
@@ -287,4 +302,4 @@ def table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max
 
 
 with table_slot:
-    table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max, search, sort_by)
+    table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max, hold, hide_neg, search, sort_by)
