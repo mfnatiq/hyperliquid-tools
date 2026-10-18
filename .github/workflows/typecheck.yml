@@ -20,7 +20,9 @@ jobs:
       - name: install dependencies
         run: |
           pip install mypy
-          pip install -r requirements.txt
+          # trading-tools is a private repo and mypy ignores missing imports, so CI skips it and needs no token
+          grep -v '^trading-tools' requirements.txt > ci-requirements.txt
+          pip install -r ci-requirements.txt
 
       - name: run mypy
         run: mypy . --ignore-missing-imports --exclude venv
