@@ -1,7 +1,6 @@
 import html
 from datetime import datetime, timezone
 
-import pandas as pd
 import streamlit as st
 
 from src import arb_runtime, arb_view, funding_arbs, funding_history
@@ -24,8 +23,6 @@ SORTS = {
     "Break-even": lambda r: r["be_all_d"] if r["be_all_d"] is not None else 1e9,
 }
 
-GREEN, AMBER, RED = "rgba(46,160,67,0.35)", "rgba(210,153,34,0.35)", "rgba(248,81,73,0.35)"
-
 st.markdown(
     """
     <style>
@@ -41,6 +38,17 @@ st.markdown(
     }
     @media (max-width: 640px) {
         div[data-testid="stDialog"] div[role="dialog"] {width: 100vw;}
+    }
+    /* the screener grid: one line per pair that never stacks. on phones only pair, verdict, Details, net APR and
+       break-even stay, the rest is in the drawer */
+    .st-key-arb_rows [data-testid="stHorizontalBlock"] {flex-wrap: nowrap !important; gap: 0.5rem; padding: 0.3rem 0 0.9rem;
+        border-bottom: 1px solid rgba(128,128,128,0.2);}
+    .st-key-arb_rows [data-testid="stColumn"] {min-width: 0 !important; width: auto !important;}
+    .st-key-arb_rows p {margin: 0; font-size: 0.9rem; line-height: 1.3;}
+    .st-key-arb_rows .stCaption p, .st-key-arb_rows [data-testid="stCaptionContainer"] p {font-size: 0.75rem;}
+    .st-key-arb_rows button {padding: 0.15rem 0.5rem; min-height: 0; white-space: nowrap;}
+    @media (max-width: 640px) {
+        .st-key-arb_rows [data-testid="stColumn"]:nth-child(n+6) {display: none;}
     }
     </style>
     """,
@@ -59,18 +67,6 @@ runtime = arb_runtime.start()
 def snapshot_for(metric: str, min_carry: float):
     """(snapshot, built_at), or (None, None) while the first build runs in the background. never waits on venue APIs"""
     return runtime.cache.get((metric, float(min_carry)), lambda: arb_runtime.build_snapshot(metric, float(min_carry)))
-
-
-def banded(good: float, ok: float):
-    """lower is better: green up to `good`, amber up to `ok`, red above"""
-    def style(v):
-        if v is None or pd.isna(v):
-            return ""
-        return f"background-color: {GREEN if v <= good else AMBER if v <= ok else RED}"
-    return style
-
-
-colour_map = lambda m: (lambda v: f"background-color: {m[v]}" if v in m else "")
 
 
 def controls():
@@ -171,47 +167,57 @@ def open_detail(r, hist, hold):
     drawer()
 
 
-def screener_table(rows, hold):
-    """compact read-only table, one line per pair"""
-    df = pd.DataFrame(
-        [
-            {
-                "Pair": r["ticker"],
-                "Route": f"{VENUE_NAMES.get(r['short'], r['short'])} → {VENUE_NAMES.get(r['long'], r['long'])}",
-                "Verdict": r["verdict"],
-                "Net APR (%)": pct(r.get("net_apr")),
-                "Sustain (%)": pct(r["sustain"]),
-                "Risk": r["risk"],
-                "Break-even": days_short(r["be_all_d"]),
-                "OI (short / long)": f"{usd_short(r['oi_short'])} / {usd_short(r['oi_long'])}",
-                "Volume 24h (short / long)": f"{usd_short(r['vol_short'])} / {usd_short(r['vol_long'])}",
-            }
-            for r in rows
-        ]
-    )
-    styled = (
-        df.style
-        .map(colour_map({"GOOD": GREEN, "OK": AMBER, "MARGINAL": RED}), subset=["Verdict"])
-        .map(colour_map({"Low": GREEN, "Med": AMBER, "High": RED}), subset=["Risk"])
-        .format("{:.1f}", subset=["Net APR (%)"], na_rep="-")
-    )
-    st.dataframe(
-        styled, hide_index=True, use_container_width=True, height=min(38 + 35 * len(df), 700),
-        column_config={
-            "Net APR (%)": st.column_config.NumberColumn(
-                "Net APR (%)", help=f"Carry after the round trip cost and adverse basis, for a {hold:g} day hold. Holding longer raises it"),
-            "Sustain (%)": st.column_config.ProgressColumn(
-                "Sustain (%)", min_value=0, max_value=100, format="%.0f%%",
-                help="Share of the last 7 days' shared hours with the carry in our favour, from the venues' funding history"),
-            "Risk": st.column_config.TextColumn("Risk", help="Spread risk: slippage plus adverse basis, or a leg thinner than the position"),
-            "Verdict": st.column_config.TextColumn(
-                "Verdict",
-                help="GOOD: break-even incl. basis within 3 days and no warning. OK: within 7 days and at most one warning. "
-                     "Otherwise MARGINAL. Warnings: basis against us, unstable carry, a leg thinner than the position "
-                     "within 10 bps, a stale Variational quote",
-            ),
-        },
-    )
+def open_pick(key):
+    st.session_state["arb_pick"] = key
+
+
+BADGE = {"GOOD": "green", "OK": "orange", "MARGINAL": "red", "Low": "green", "Med": "orange", "High": "red"}
+# pair and route, verdict, Details, net APR, break-even, sustain, risk, open interest, volume
+GRID = [2.4, 1.3, 1.1, 1.1, 1.1, 0.9, 0.9, 1.6, 1.6]
+
+
+def badge(text):
+    return f":{BADGE[text]}-background[{text}]" if text in BADGE else "-"
+
+
+def md_usd(x):
+    """usd_short for a markdown cell: the dollar sign is escaped, or '$139k / $2.0M' renders as a formula"""
+    return "n/a" if x is None else usd_short(x).replace("$", "\\$")
+
+
+def net_apr_text(x):
+    return "-" if x is None else (f":green[+{x * 100:.1f}%]" if x >= 0 else f":red[{x * 100:.1f}%]")
+
+
+def screener_rows(rows, hold):
+    """compact grid, one line per pair, each with a Details button. no horizontal scroll on a phone: see the css"""
+    with st.container(key="arb_rows"):
+        head = st.columns(GRID, vertical_alignment="center")
+        for col, label, tip in zip(head, ["Pair", "Verdict", "", "Net APR", "Break-even", "Sustain", "Risk", "OI short / long", "Volume 24h"], [
+            None,
+            "GOOD: break-even incl. basis within 3 days and no warning. OK: within 7 days and at most one warning. Otherwise "
+            "MARGINAL. Warnings: basis against us, unstable carry, a leg thinner than the position within 10 bps, a stale "
+            "Variational quote",
+            None,
+            f"Carry after the round trip cost and adverse basis, as a yearly rate, for a {hold:g} day hold. Holding longer raises it",
+            "Days of funding needed to repay the round trip, including adverse basis",
+            "Share of the last 7 days' shared hours with the carry in our favour, from the venues' funding history",
+            "Spread risk: slippage plus adverse basis, or a leg thinner than the position",
+            "Open interest in USD of the short and long leg. n/a means the venue does not report it",
+            "24h volume in USD of the short and long leg. n/a means the venue does not report it",
+        ]):
+            col.caption(label, help=tip)
+        for r in rows:
+            c = st.columns(GRID, vertical_alignment="center")
+            c[0].markdown(f"**{r['ticker']}**  \n{VENUE_NAMES.get(r['short'], r['short'])} → {VENUE_NAMES.get(r['long'], r['long'])}")
+            c[1].markdown(badge(r["verdict"]))
+            c[2].button("Details ›", key=f"d|{pair_key(r)}", on_click=open_pick, args=(pair_key(r),))
+            c[3].markdown(net_apr_text(r.get("net_apr")))
+            c[4].markdown(days_short(r["be_all_d"]))
+            c[5].markdown("-" if r["sustain"] is None else f"{r['sustain'] * 100:.0f}%")
+            c[6].markdown(badge(r["risk"]))
+            c[7].markdown(f"{md_usd(r['oi_short'])} / {md_usd(r['oi_long'])}")
+            c[8].markdown(f"{md_usd(r['vol_short'])} / {md_usd(r['vol_long'])}")
 
 
 def table_run_every():
@@ -267,15 +273,10 @@ def table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max
         st.write("No pairs match, loosen a filter")
         return
 
+    screener_rows(rows, hold)
+    st.caption("n/a means the venue does not report it")
     by_key = {pair_key(r): r for r in rows}
-    labels = {k: f"{r['ticker']}  {VENUE_NAMES.get(r['short'], r['short'])} → {VENUE_NAMES.get(r['long'], r['long'])}  {r['verdict']}"
-              for k, r in by_key.items()}
-    pick = st.selectbox(
-        "Details", list(by_key), index=None, format_func=labels.get, key="arb_pick", label_visibility="collapsed",
-        placeholder="Pick a pair for details: averages, volume, open interest, fees and Trade buttons",
-    )
-    screener_table(rows, hold)
-    st.caption("A dash means the venue does not report it")
+    pick = st.session_state.get("arb_pick")
     if pick in by_key:
         picked = by_key[pick]
         try:

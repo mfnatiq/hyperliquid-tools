@@ -32,7 +32,7 @@ Venues: Phoenix, Variational, RISEx, Hyperliquid, Extended, Pacifica, Nado, QFEX
 - **Table.** One compact line per pair: net APR, sustainability, spread risk, break-even, open interest and 24h volume.
   Net APR is the carry after the round trip cost and adverse basis for the chosen hold (3 days by default), as a yearly rate. Pairs that lose money over the hold are hidden unless you switch that off in Filters. Volume and open
   interest show only where a venue reports them.
-- **Detail.** Pick a pair in the dropdown above the table to open a side panel with the 24h, 7d and 30d carry averages, the fee and slippage of each leg, the mid basis and
+- **Detail.** Press Details on a row to open a side panel with the 24h, 7d and 30d carry averages, the fee and slippage of each leg, the mid basis and
   the volume and open interest of both legs. `src/arb_view.py` draws it.
 - **No loading screen.** `src/snapshot_cache.py` builds the venue snapshot in a background thread. The page shows a note
   and polls every 3 seconds until the first build is ready, then refreshes the order books every 2 minutes. An old

@@ -51,23 +51,32 @@ def test_the_page_shows_a_loading_note_at_once_while_the_first_build_runs(monkey
     gate.set()
 
 
-def test_the_table_appears_once_the_background_build_finishes(monkeypatch):
-    monkeypatch.setattr(arb_runtime, "build_snapshot", lambda m, c: FakeSnapshot())
-    at = run_page()
+def wait_for_rows(**state):
+    """a new AppTest session until the background build is done: AppTest cannot rerun a page with a segmented control"""
     for _ in range(50):
-        if len(at.dataframe):
-            break
+        at = AppTest.from_file("pages/arb_opportunities.py", default_timeout=30)
+        for k, v in state.items():
+            at.session_state[k] = v
+        at.run()
+        if any(b.label == "Details ›" for b in at.button):
+            return at
         time.sleep(0.1)
-        at = run_page()  # a new session each time: AppTest cannot rerun a page with a segmented control
+    return at
+
+
+def test_each_pair_is_one_line_with_a_details_button_after_the_verdict(monkeypatch):
+    monkeypatch.setattr(arb_runtime, "build_snapshot", lambda m, c: FakeSnapshot())
+    run_page()  # starts the background build
+    at = wait_for_rows()
     assert not at.exception
-    df = at.dataframe[0].value
-    assert list(df["Pair"]) == ["ZRO"]  # BLUR has a negative net APR over the 3 day hold, hidden by default
-    assert df.loc[0, "Pair"] == "ZRO"
-    assert df.loc[0, "Route"] == "Phoenix → Variational"
-    assert df.loc[0, "Break-even"] == "1d 8h"
-    assert list(df.columns)[:3] == ["Pair", "Route", "Verdict"]
-    assert df.loc[0, "OI (short / long)"] == "$139k / $2.0M"
-    assert df.loc[0, "Volume 24h (short / long)"] == "$56k / $1.6M"
+    assert [b.key for b in at.button if b.label == "Details ›"] == ["d|ZRO|PHX|VAR"]  # BLUR is hidden: negative net APR over 3 days
+    text = [m.value for m in at.markdown]
+    assert "**ZRO**  \nPhoenix → Variational" in text
+    assert ":green-background[GOOD]" in text
+    assert ":green[+50.0%]" in text
+    assert "1d 8h" in text
+    assert "\\$139k / \\$2.0M" in text  # dollar signs are escaped so markdown does not read them as a formula
+    assert "\\$56k / \\$1.6M" in text
 
 
 def test_a_failed_first_build_shows_the_error(monkeypatch):
@@ -96,8 +105,10 @@ def test_the_detail_panel_shows_averages_and_the_fee_breakdown():
     assert not at.exception
     assert [m.value for m in at.metric] == ["50.0%", "63.1%", "1d 8h", "9.0 bps"]
     avg = at.dataframe[0].value
-    assert list(avg["Window"]) == ["Now", "24 hours", "7 days", "30 days"]
-    assert list(avg["Carry (APR %)"]) == pytest.approx([63.1, 49.2, 54.0, 53.4])
+    # 48 hours recorded: the 24 hour window is more than half covered, the 7 and 30 day windows are not
+    assert list(avg["Window"]) == ["Now", "24 hours", "7 days (building)", "30 days (building)"]
+    assert list(avg["Carry (APR %)"][:2]) == pytest.approx([63.1, 49.2])
+    assert avg["Carry (APR %)"][2:].isna().all()
     buttons = {b.proto.label: b.proto.url for b in at.get("link_button")}
     assert buttons == {"Short on Phoenix ↗": "https://phoenix.trade/?code=O88RSK0C",
                        "Long on Variational ↗": "https://omni.variational.io/?ref=OMNIMAMBO"}
@@ -105,7 +116,7 @@ def test_the_detail_panel_shows_averages_and_the_fee_breakdown():
     assert list(legs["Leg"]) == ["Short Phoenix", "Long Variational"]
     assert list(legs["Volume 24h"]) == ["$56k", "-"]
     assert list(legs["Open interest"]) == ["$139k", "$2.0M"]
-    assert any("48 hours recorded (2.0 days)" in c.value and "partial" in c.value for c in at.caption)
+    assert any("48 hours of history recorded." in c.value and "Longer averages appear" in c.value for c in at.caption)
 
 
 def test_a_venue_without_a_referral_link_gets_a_note_not_a_button():
@@ -133,13 +144,17 @@ def test_the_detail_panel_says_so_when_no_history_exists_yet():
 
 def test_the_losing_pair_shows_when_the_toggle_is_off(monkeypatch):
     monkeypatch.setattr(arb_runtime, "build_snapshot", lambda m, c: FakeSnapshot())
-    run_page()  # starts the background build
-    for _ in range(50):
-        at = AppTest.from_file("pages/arb_opportunities.py", default_timeout=30)
-        at.session_state["f_neg"] = False  # set before the run: AppTest cannot rerun a page with a segmented control
-        at.run()
-        if len(at.dataframe):
-            break
-        time.sleep(0.1)
-    assert list(at.dataframe[0].value["Pair"]) == ["ZRO", "BLUR"]
+    run_page()
+    at = wait_for_rows(f_neg=False)
+    assert [b.key for b in at.button if b.label == "Details ›"] == ["d|ZRO|PHX|VAR", "d|BLUR|PHX|VAR"]
+    assert ":red[-53.9%]" in [m.value for m in at.markdown]
     assert any("Losing pairs shown" in m.value for m in at.markdown)
+
+
+def test_a_picked_pair_opens_its_details(monkeypatch):
+    monkeypatch.setattr(arb_runtime, "build_snapshot", lambda m, c: FakeSnapshot())
+    run_page()
+    at = wait_for_rows(arb_pick="ZRO|PHX|VAR")
+    assert not at.exception
+    labels = [b.proto.label for b in at.get("link_button")]  # the drawer's Trade buttons
+    assert labels == ["Short on Phoenix ↗", "Long on Variational ↗"]
