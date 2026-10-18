@@ -97,11 +97,24 @@ def test_the_detail_panel_shows_averages_and_the_fee_breakdown():
     avg = at.dataframe[0].value
     assert list(avg["Window"]) == ["Now", "24 hours", "7 days", "30 days"]
     assert list(avg["Carry (APR %)"]) == pytest.approx([63.1, 49.2, 54.0, 53.4])
+    buttons = {b.proto.label: b.proto.url for b in at.get("link_button")}
+    assert buttons == {"Short on Phoenix ↗": "https://phoenix.trade/?code=O88RSK0C",
+                       "Long on Variational ↗": "https://omni.variational.io/?ref=OMNIMAMBO"}
     legs = at.dataframe[1].value
     assert list(legs["Leg"]) == ["Short Phoenix", "Long Variational"]
     assert list(legs["Volume 24h"]) == ["$56k", "-"]
     assert list(legs["Open interest"]) == ["$139k", "$2.0M"]
     assert any("48 hours recorded (2.0 days)" in c.value and "partial" in c.value for c in at.caption)
+
+
+def test_a_venue_without_a_referral_link_gets_a_note_not_a_button():
+    def app():
+        from src import arb_view
+        arb_view.trade_links("Phoenix", "Arcus")
+    at = AppTest.from_function(app).run()
+    assert not at.exception
+    assert [b.proto.label for b in at.get("link_button")] == ["Short on Phoenix ↗"]
+    assert [c.value for c in at.caption] == ["Long on Arcus: no referral link yet"]
 
 
 def test_the_detail_panel_says_so_when_no_history_exists_yet():

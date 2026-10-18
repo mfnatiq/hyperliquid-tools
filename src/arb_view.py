@@ -3,6 +3,7 @@ import pandas as pd
 import streamlit as st
 
 from src.funding_arbs import days_short, usd_short
+from src.utils.render_utils import referral
 
 
 def pct(x):
@@ -13,16 +14,34 @@ def fmt_pct(x):
     return "-" if x is None else f"{x * 100:.1f}%"
 
 
+def detail_title(r, venue_names):
+    return f"{r['ticker']}: short {venue_names.get(r['short'], r['short'])}, long {venue_names.get(r['long'], r['long'])}"
+
+
+def trade_links(short, long_):
+    """one button per leg, each opening that venue's sign-up link in a new tab. two buttons, never one click for both.
+    a venue without a referral entry gets a note instead of a button."""
+    st.markdown("**Trade**")
+    cols = st.columns(2)
+    for col, side, venue in zip(cols, ("Short", "Long"), (short, long_)):
+        ref = referral(venue)
+        if ref:
+            col.link_button(f"{side} on {venue} ↗", ref["url"], help=ref.get("perk"), use_container_width=True)
+        else:
+            col.caption(f"{side} on {venue}: no referral link yet")
+
+
 def detail(r, hist, venue_names, hold_days):
-    """everything about one pair, shown under the table when its row is tapped. hist is funding_history.pair_history() or None"""
+    """everything about one pair, drawn inside the page's drawer. hist is funding_history.pair_history() or None"""
     short, long_ = venue_names.get(r["short"], r["short"]), venue_names.get(r["long"], r["long"])
-    with st.container(border=True):
-        st.markdown(f"#### {r['ticker']}: short {short}, long {long_}")
+    with st.container():
         cols = st.columns(4)
         cols[0].metric("Net APR", fmt_pct(r.get("net_apr")), help=f"Carry after the round trip cost and adverse basis, for a {hold_days:g} day hold")
         cols[1].metric("Carry now", fmt_pct(r["carry_apr"]))
         cols[2].metric("Break-even", days_short(r["be_all_d"]), help="Days of funding needed to repay the round trip, including adverse basis")
         cols[3].metric("Round trip", "-" if r["rt_cost_bps"] is None else f"{r['rt_cost_bps']:.1f} bps")
+
+        trade_links(short, long_)
 
         st.markdown("**Carry against its averages** (annual)")
         if hist and hist["hours"]:

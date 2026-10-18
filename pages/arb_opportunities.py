@@ -34,6 +34,14 @@ st.markdown(
     .live-dot {display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px; background: #2ea043;}
     .live-dot.stale {background: #d29922;}
     .live-text {font-family: monospace; font-size: 0.85rem; letter-spacing: 0.04em;}
+    /* the detail dialog is a drawer pinned to the right on wide screens and covers the screen on phones */
+    div[data-testid="stDialog"] div[role="dialog"] {
+        position: fixed; top: 0; right: 0; bottom: 0; margin: 0; width: min(560px, 100vw);
+        max-width: 100vw; height: 100vh; max-height: 100vh; border-radius: 0; overflow-y: auto;
+    }
+    @media (max-width: 640px) {
+        div[data-testid="stDialog"] div[role="dialog"] {width: 100vw;}
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -131,8 +139,24 @@ def pct(x):
     return None if x is None else x * 100
 
 
-def detail(r, hist):
-    arb_view.detail(r, hist, VENUE_NAMES, HOLD_DAYS)
+def pair_key(r):
+    return f"{r['ticker']}|{r['short']}|{r['long']}"
+
+
+def remember_dismissed():
+    """the dialog's close button was used: do not open it again for this row until the row is unticked and ticked"""
+    st.session_state["arb_dismissed"] = st.session_state.get("arb_open")
+
+
+def open_detail(r, hist):
+    """show the details in a dialog styled as a right hand drawer (see the css above). it has its own close button"""
+    st.session_state["arb_open"] = pair_key(r)
+
+    @st.dialog(arb_view.detail_title(r, VENUE_NAMES), width="large", on_dismiss=remember_dismissed)
+    def drawer():
+        arb_view.detail(r, hist, VENUE_NAMES, HOLD_DAYS)
+
+    drawer()
 
 
 def screener_table(rows):
@@ -233,16 +257,17 @@ def table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max
         st.write("No pairs match, loosen a filter")
         return
 
-    st.caption("Tick the box at the left of a row to open its details above the table. A dash means the venue does not report it")
-    detail_slot = st.container()  # filled after the table, but drawn above it so the details are in view
+    st.caption("Tick the box at the left of a row to open its details. Close them with the X, then untick the box to reopen. A dash means the venue does not report it")
     picked = screener_table(rows)
-    if picked is not None:
+    if picked is None:
+        st.session_state.pop("arb_dismissed", None)  # an unticked row can open again
+        st.session_state.pop("arb_open", None)
+    elif st.session_state.get("arb_dismissed") != pair_key(picked):
         try:
             hist = funding_history.pair_history(picked["short"], picked["long"], picked["ticker"]) if runtime.recording else None
         except Exception:
             hist = None
-        with detail_slot:
-            detail(picked, hist)
+        open_detail(picked, hist)
 
     fees = ", ".join(f"{VENUE_NAMES.get(k, k)} {v:g}" for k, v in funding_arbs.taker_bps().items() if k in VENUE_NAMES)
     with st.expander("Info and assumptions"):
