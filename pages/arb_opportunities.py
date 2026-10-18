@@ -142,13 +142,13 @@ def screener_table(rows):
             {
                 "Pair": r["ticker"],
                 "Route": f"{VENUE_NAMES.get(r['short'], r['short'])} → {VENUE_NAMES.get(r['long'], r['long'])}",
+                "Verdict": r["verdict"],
                 "Net APR (%)": pct(r.get("net_apr")),
                 "Sustain (%)": pct(r["sustain"]),
                 "Risk": r["risk"],
                 "Break-even": days_short(r["be_all_d"]),
-                "OI (smaller leg)": usd_short(min((x for x in (r["oi_short"], r["oi_long"]) if x is not None), default=None)),
+                "OI (short / long)": f"{usd_short(r['oi_short'])} / {usd_short(r['oi_long'])}",
                 "Volume 24h (short / long)": f"{usd_short(r['vol_short'])} / {usd_short(r['vol_long'])}",
-                "Verdict": r["verdict"],
             }
             for r in rows
         ]
@@ -233,15 +233,16 @@ def table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max
         st.write("No pairs match, loosen a filter")
         return
 
+    st.caption("Tick the box at the left of a row to open its details above the table. A dash means the venue does not report it")
+    detail_slot = st.container()  # filled after the table, but drawn above it so the details are in view
     picked = screener_table(rows)
-    if picked is None:
-        st.caption("Tap a row for volume, open interest, averages and the fee breakdown")
-    else:
+    if picked is not None:
         try:
             hist = funding_history.pair_history(picked["short"], picked["long"], picked["ticker"]) if runtime.recording else None
         except Exception:
             hist = None
-        detail(picked, hist)
+        with detail_slot:
+            detail(picked, hist)
 
     fees = ", ".join(f"{VENUE_NAMES.get(k, k)} {v:g}" for k, v in funding_arbs.taker_bps().items() if k in VENUE_NAMES)
     with st.expander("Info and assumptions"):

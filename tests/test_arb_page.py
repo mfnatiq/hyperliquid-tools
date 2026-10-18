@@ -64,7 +64,8 @@ def test_the_table_appears_once_the_background_build_finishes(monkeypatch):
     assert df.loc[0, "Pair"] == "ZRO"
     assert df.loc[0, "Route"] == "Phoenix → Variational"
     assert df.loc[0, "Break-even"] == "1d 8h"
-    assert df.loc[0, "OI (smaller leg)"] == "$139k"
+    assert list(df.columns)[:3] == ["Pair", "Route", "Verdict"]
+    assert df.loc[0, "OI (short / long)"] == "$139k / $2.0M"
     assert df.loc[0, "Volume 24h (short / long)"] == "$56k / $1.6M"
 
 
