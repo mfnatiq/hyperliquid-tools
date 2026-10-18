@@ -4,7 +4,8 @@ from datetime import datetime, timezone
 import pandas as pd
 import streamlit as st
 
-from src import funding_arbs
+from src import arb_runtime, arb_view, funding_arbs, funding_history
+from src.funding_arbs import days_short, usd_short
 
 st.set_page_config("Arb Opportunities", "💱", layout="wide")
 
@@ -14,7 +15,7 @@ if not funding_arbs.AVAILABLE:
     st.info("Info on cross-venue funding carry is unavailable")
     st.stop()
 
-VENUE_NAMES = {"PHX": "Phoenix", "VAR": "Variational", "RISE": "RISEx", "HL": "Hyperliquid", "EXT": "Extended", "PAC": "Pacifica", "NADO": "Nado", "QFEX": "QFEX"}
+VENUE_NAMES = {"PHX": "Phoenix", "VAR": "Variational", "RISE": "RISEx", "HL": "Hyperliquid", "EXT": "Extended", "PAC": "Pacifica", "NADO": "Nado", "QFEX": "QFEX", "ONDO": "Ondo Perps", "ARCUS": "Arcus"}
 RISK_RANK = {"Low": 0, "Med": 1, "High": 2}
 SORTS = {
     "Verdict": None,  # the snapshot's own order: GOOD, OK, MARGINAL, then break-even
@@ -39,15 +40,16 @@ st.markdown(
 )
 
 
-HOLD_DAYS = 3.0  # hold used for the Edge column
-FUNDING_TTL_S = 300
+HOLD_DAYS = 3.0  # hold used for Net APR and the Edge column
 BOOKS_EVERY_S = 120
+LOADING_EVERY_S = 3  # while the first load runs in the background, the page checks this often
+
+runtime = arb_runtime.start()
 
 
-@st.cache_resource(ttl=FUNDING_TTL_S, show_spinner=False)
-def get_snapshot(metric: str, min_carry: float):
-    """funding history and order books, fetched once per 30 minutes for everyone, a failure is not cached"""
-    return funding_arbs.Snapshot(metric=metric, min_carry_pct=min_carry)
+def snapshot_for(metric: str, min_carry: float):
+    """(snapshot, built_at), or (None, None) while the first build runs in the background. never waits on venue APIs"""
+    return runtime.cache.get((metric, float(min_carry)), lambda: arb_runtime.build_snapshot(metric, float(min_carry)))
 
 
 def banded(good: float, ok: float):
@@ -125,15 +127,79 @@ status_slot = st.empty()
 table_slot = st.container()
 
 
-@st.fragment(run_every=BOOKS_EVERY_S)
+def pct(x):
+    return None if x is None else x * 100
+
+
+def detail(r, hist):
+    arb_view.detail(r, hist, VENUE_NAMES, HOLD_DAYS)
+
+
+def screener_table(rows):
+    """compact table, one line per pair. returns the selected row or None"""
+    df = pd.DataFrame(
+        [
+            {
+                "Pair": r["ticker"],
+                "Route": f"{VENUE_NAMES.get(r['short'], r['short'])} → {VENUE_NAMES.get(r['long'], r['long'])}",
+                "Net APR (%)": pct(r.get("net_apr")),
+                "Sustain (%)": pct(r["sustain"]),
+                "Risk": r["risk"],
+                "Break-even": days_short(r["be_all_d"]),
+                "OI (smaller leg)": usd_short(min((x for x in (r["oi_short"], r["oi_long"]) if x is not None), default=None)),
+                "Volume 24h (short / long)": f"{usd_short(r['vol_short'])} / {usd_short(r['vol_long'])}",
+                "Verdict": r["verdict"],
+            }
+            for r in rows
+        ]
+    )
+    styled = (
+        df.style
+        .map(colour_map({"GOOD": GREEN, "OK": AMBER, "MARGINAL": RED}), subset=["Verdict"])
+        .map(colour_map({"Low": GREEN, "Med": AMBER, "High": RED}), subset=["Risk"])
+        .format("{:.1f}", subset=["Net APR (%)"], na_rep="-")
+    )
+    event = st.dataframe(
+        styled, hide_index=True, use_container_width=True, height=min(38 + 35 * len(df), 700),
+        on_select="rerun", selection_mode="single-row", key="arb_table",
+        column_config={
+            "Net APR (%)": st.column_config.NumberColumn(
+                "Net APR (%)", help=f"Carry after the round trip cost and adverse basis, for a {HOLD_DAYS:g} day hold. Holding longer raises it"),
+            "Sustain (%)": st.column_config.ProgressColumn(
+                "Sustain (%)", min_value=0, max_value=100, format="%.0f%%",
+                help="Share of the last 7 days' shared hours with the carry in our favour, from the venues' funding history"),
+            "Risk": st.column_config.TextColumn("Risk", help="Spread risk: slippage plus adverse basis, or a leg thinner than the position"),
+            "Verdict": st.column_config.TextColumn(
+                "Verdict",
+                help="GOOD: break-even incl. basis within 3 days and no warning. OK: within 7 days and at most one warning. "
+                     "Otherwise MARGINAL. Warnings: basis against us, unstable carry, a leg thinner than the position "
+                     "within 10 bps, a stale Variational quote",
+            ),
+        },
+    )
+    picked = event.selection.rows
+    return rows[picked[0]] if picked and picked[0] < len(rows) else None
+
+
+def table_run_every():
+    """short polling while the first load runs in the background, then the normal refresh. a full rerun switches between them"""
+    return LOADING_EVERY_S if snapshot_for(metric, min_carry)[0] is None else BOOKS_EVERY_S
+
+
+@st.fragment(run_every=table_run_every())
 def table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max, search, sort_by):
     """re-runs on its own and refreshes the order books and this table only, not the controls above it"""
-    try:
-        with st.spinner("Fetching funding and order books from each venue"):
-            snapshot = get_snapshot(metric, float(min_carry))  # asked for on every run, so it rebuilds when its cache expires
-    except Exception as e:
-        st.error(f"Could not fetch venue data: {e}. Wait a minute and reload, venue APIs rate limit repeated calls")
+    snapshot, _ = snapshot_for(metric, min_carry)
+    if snapshot is None:
+        err = runtime.cache.error.get((metric, float(min_carry)))
+        if err:
+            st.error(f"Could not fetch venue data: {err}. It retries every minute, venue APIs rate limit repeated calls")
+        else:
+            st.info("Loading funding rates and order books from each venue in the background. This page fills in by itself")
         return
+    if "arb_ready" not in st.session_state or st.session_state["arb_ready"] != (metric, min_carry):
+        st.session_state["arb_ready"] = (metric, min_carry)
+        st.rerun()  # full rerun once, so the fragment switches from loading polls to the normal refresh
     snapshot.refresh_books(min_age_s=BOOKS_EVERY_S - 20)
 
     age = (datetime.now(timezone.utc) - snapshot.books_at).total_seconds()
@@ -167,75 +233,29 @@ def table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max
         st.write("No pairs match, loosen a filter")
         return
 
-    pct = lambda x: None if x is None else x * 100
-    df = pd.DataFrame(
-        [
-            {
-                "Pair": r["ticker"],
-                "Route (short → long)": f"{VENUE_NAMES.get(r['short'], r['short'])} → {VENUE_NAMES.get(r['long'], r['long'])}",
-                "Verdict": r["verdict"],
-                "Carry (APR %)": pct(r["carry_apr"]),
-                "Sustain (%)": pct(r["sustain"]),
-                "Spread Risk": r["risk"],
-                "Carry Percentile": r["carry_pct"],
-                "Break-even (days)": r["breakeven_d"],
-                "Break-even incl. basis (days)": r["be_all_d"],
-                "Round-trip Cost (bps)": r["rt_cost_bps"],
-                "Slip Short (bps)": r["slip_short_bps"],
-                "Slip Long (bps)": r["slip_long_bps"],
-                "Mid Basis (bps)": r["mid_basis_bps"],
-                "Edge (bps)": r["edge_bps"],
-                "Note": r["note"],
-            }
-            for r in rows
-        ]
-    )
-    numeric = [c for c in df.select_dtypes("number").columns if c != "Sustain (%)"]
-    styled = (
-        df.style
-        .map(colour_map({"GOOD": GREEN, "OK": AMBER, "MARGINAL": RED}), subset=["Verdict"])
-        .map(colour_map({"Low": GREEN, "Med": AMBER, "High": RED}), subset=["Spread Risk"])
-        .map(banded(20, 40), subset=["Round-trip Cost (bps)"])
-        .map(banded(3, 7), subset=["Break-even (days)", "Break-even incl. basis (days)"])
-        .format("{:.1f}", subset=numeric, na_rep="-")
-    )
-    st.dataframe(
-        styled,
-        hide_index=True,
-        use_container_width=True,
-        height=min(38 + 35 * len(df), 900),
-        column_config={
-            "Verdict": st.column_config.TextColumn(
-                "Verdict",
-                help="GOOD: break-even incl. basis within 3 days and no warning. OK: within 7 days and at most one warning. "
-                     "Otherwise MARGINAL. Warnings: basis against us, unstable carry, a leg thinner than the position "
-                     "within 10 bps, a stale Variational quote. A short break-even with a warning grades lower, so the "
-                     "shortest break-even is not always the best verdict",
-            ),
-            "Round-trip Cost (bps)": st.column_config.NumberColumn(
-                "Round-trip Cost (bps)",
-                help="2 x (slippage on both legs + taker fees on both legs). Slippage is the VWAP of walking the book "
-                     "for the full position (bids on the sell leg, asks on the buy leg) against that venue's own mid. "
-                     "Exit is assumed to cost the same as entry",
-            ),
-            "Sustain (%)": st.column_config.ProgressColumn("Sustain (%)", min_value=0, max_value=100, format="%.0f%%"),
-        },
-    )
+    picked = screener_table(rows)
+    if picked is None:
+        st.caption("Tap a row for volume, open interest, averages and the fee breakdown")
+    else:
+        try:
+            hist = funding_history.pair_history(picked["short"], picked["long"], picked["ticker"]) if runtime.recording else None
+        except Exception:
+            hist = None
+        detail(picked, hist)
+
     fees = ", ".join(f"{VENUE_NAMES.get(k, k)} {v:g}" for k, v in funding_arbs.taker_bps().items() if k in VENUE_NAMES)
     with st.expander("Info and assumptions"):
         st.markdown(
             "\n".join(f"- {line}" for line in [
                 "Short the venue with the higher funding rate, long the other, same USD size on each leg",
                 "Round-trip cost = 2 x (slippage + taker fees on both legs), i.e. entry plus exit",
+                f"Net APR = carry after the round trip cost and adverse basis, for a {HOLD_DAYS:g} day hold, as a yearly rate",
                 f"Taker fees in bps, from trading-tools' venues.toml: {fees}. Phoenix uses the fee set on each market. QFEX shows its single-stock rate, indices and commodities pay less",
-                "Break-even = round-trip cost / daily carry",
+                "Break-even = round-trip cost / daily carry, including adverse basis",
                 f"Edge = expected carry over a {HOLD_DAYS:g} day hold, less round-trip cost and adverse basis",
-                "Green is cheap or quick to repay: round-trip cost up to 20 bps, break-even up to 3 days",
-                "Amber is up to 40 bps and 7 days, red is above",
-                "Mid basis above 0 is favourable",
                 "Spread risk is Med above 5 bps and High above 12 bps of slippage plus adverse basis, or when a leg is thinner than the position",
-                f"Funding history fetched {snapshot.fetched_at:%H:%M:%S} UTC (every {FUNDING_TTL_S // 60} minutes)",
-                f"Order books {snapshot.books_at:%H:%M:%S} UTC (every {BOOKS_EVERY_S // 60} minutes)",
+                "24h, 7d and 30d carry averages come from hourly samples this app records itself, so they fill in over time. Volume and open interest are shown only where a venue reports them",
+                f"Funding fetched {snapshot.fetched_at:%H:%M:%S} UTC (every {arb_runtime.FUNDING_TTL_S // 60} minutes), order books {snapshot.books_at:%H:%M:%S} UTC (every {BOOKS_EVERY_S // 60} minutes)",
             ])
         )
 

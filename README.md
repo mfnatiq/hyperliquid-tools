@@ -24,6 +24,28 @@ Tested with python 3.13
 
 Tests run with `pytest tests` and need `numpy` and `pytest`. They do not touch the network.
 
+### Arb Opportunities (funding screener)
+
+`pages/arb_opportunities.py` ranks cross-venue funding carry, using the `trading-tools` scanner (`src/funding_arbs.py`).
+Venues: Phoenix, Variational, RISEx, Hyperliquid, Extended, Pacifica, Nado, QFEX, Ondo Perps and Arcus.
+
+- **Table.** One compact line per pair: net APR, sustainability, spread risk, break-even, open interest and 24h volume.
+  Net APR is the carry after the round trip cost and adverse basis for a 3 day hold, as a yearly rate. Volume and open
+  interest show only where a venue reports them.
+- **Detail.** Tap a row to see the 24h, 7d and 30d carry averages, the fee and slippage of each leg, the mid basis and
+  the volume and open interest of both legs. `src/arb_view.py` draws it.
+- **No loading screen.** `src/snapshot_cache.py` builds the venue snapshot in a background thread. The page shows a note
+  and polls every 3 seconds until the first build is ready, then refreshes the order books every 2 minutes. An old
+  snapshot is served while a new one builds.
+- **History.** `src/funding_history.py` stores one funding sample per venue, ticker and hour in the table
+  `funding_samples` (Postgres through `DATABASE_URL` on Railway, a local sqlite file otherwise) and keeps 35 days.
+  `src/arb_runtime.py` starts a recorder thread from `home.py` when the server boots. It samples once an hour and reuses
+  the page's snapshot when it is warm. The 24h, 7d and 30d averages and the 30 day sustain figure come from these
+  samples, so they fill in over the first month. The 7 day sustain column comes from the venues' own history. A
+  database error turns recording off and the page still works.
+- **Fees.** Taker fees come from trading-tools' `bot/venues.toml`. Change the pinned trading-tools commit in
+  `requirements.txt` to pick up new venues or fees.
+
 ### Referrals and donations
 
 Every page shows a sticky header and a fixed footer. `home.py` renders both from `src/utils/render_utils.py`.
