@@ -177,7 +177,7 @@ GRID = [2.4, 1.3, 1.1, 1.1, 1.1, 0.9, 0.9, 1.6, 1.6]
 
 
 def badge(text):
-    return f":{BADGE[text]}-background[{text}]" if text in BADGE else "-"
+    return f":{BADGE[text]}-background[{text}]" if text in BADGE else "n/a"  # a lone dash would render as a bullet
 
 
 def md_usd(x):
@@ -214,7 +214,7 @@ def screener_rows(rows, hold):
             c[2].button("Details ›", key=f"d|{pair_key(r)}", on_click=open_pick, args=(pair_key(r),))
             c[3].markdown(net_apr_text(r.get("net_apr")))
             c[4].markdown(days_short(r["be_all_d"]))
-            c[5].markdown("-" if r["sustain"] is None else f"{r['sustain'] * 100:.0f}%")
+            c[5].markdown("n/a" if r["sustain"] is None else f"{r['sustain'] * 100:.0f}%")
             c[6].markdown(badge(r["risk"]))
             c[7].markdown(f"{md_usd(r['oi_short'])} / {md_usd(r['oi_long'])}")
             c[8].markdown(f"{md_usd(r['vol_short'])} / {md_usd(r['vol_long'])}")

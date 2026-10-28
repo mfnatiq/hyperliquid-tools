@@ -24,7 +24,8 @@ class FakeSnapshot:
         return False
 
     def rows(self, notional, hold_days=3.0):
-        return [dict(ROW), dict(ROW, ticker="BLUR", net_apr=-0.539, be_all_d=5.1)]
+        return [dict(ROW), dict(ROW, ticker="BLUR", net_apr=-0.539, be_all_d=5.1),
+                dict(ROW, ticker="ETH", sustain=None, risk=None)]
 
 
 @pytest.fixture(autouse=True)
@@ -69,11 +70,12 @@ def test_each_pair_is_one_line_with_a_details_button_after_the_verdict(monkeypat
     run_page()  # starts the background build
     at = wait_for_rows()
     assert not at.exception
-    assert [b.key for b in at.button if b.label == "Details ›"] == ["d|ZRO|PHX|VAR"]  # BLUR is hidden: negative net APR over 3 days
+    assert [b.key for b in at.button if b.label == "Details ›"] == ["d|ZRO|PHX|VAR", "d|ETH|PHX|VAR"]  # BLUR is hidden: negative net APR over 3 days
     text = [m.value for m in at.markdown]
     assert "**ZRO**  \nPhoenix → Variational" in text
     assert ":green-background[GOOD]" in text
     assert ":green[+50.0%]" in text
+    assert text.count("n/a") == 2  # ETH has no sustain and no risk: shown as text, since a lone dash would render as a bullet
     assert "1d 8h" in text
     assert "\\$139k / \\$2.0M" in text  # dollar signs are escaped so markdown does not read them as a formula
     assert "\\$56k / \\$1.6M" in text
@@ -146,7 +148,7 @@ def test_the_losing_pair_shows_when_the_toggle_is_off(monkeypatch):
     monkeypatch.setattr(arb_runtime, "build_snapshot", lambda m, c: FakeSnapshot())
     run_page()
     at = wait_for_rows(f_neg=False)
-    assert [b.key for b in at.button if b.label == "Details ›"] == ["d|ZRO|PHX|VAR", "d|BLUR|PHX|VAR"]
+    assert [b.key for b in at.button if b.label == "Details ›"] == ["d|ZRO|PHX|VAR", "d|BLUR|PHX|VAR", "d|ETH|PHX|VAR"]
     assert ":red[-53.9%]" in [m.value for m in at.markdown]
     assert any("Losing pairs shown" in m.value for m in at.markdown)
 
