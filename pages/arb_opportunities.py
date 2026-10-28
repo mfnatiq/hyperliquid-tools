@@ -39,16 +39,22 @@ st.markdown(
     @media (max-width: 640px) {
         div[data-testid="stDialog"] div[role="dialog"] {width: 100vw;}
     }
-    /* the screener grid: one line per pair that never stacks. on phones only pair, verdict, Details, net APR and
-       break-even stay, the rest is in the drawer */
-    .st-key-arb_rows [data-testid="stHorizontalBlock"] {flex-wrap: nowrap !important; gap: 0.5rem; padding: 0.3rem 0 0.9rem;
-        border-bottom: 1px solid rgba(128,128,128,0.2);}
+    /* the screener grid: one line per pair that never stacks, everything centred vertically. on phones only pair,
+       verdict, Details, net APR and break-even stay, the rest is in the drawer */
+    .st-key-arb_rows {gap: 0 !important;}
+    .st-key-arb_rows [data-testid="stHorizontalBlock"] {flex-wrap: nowrap !important; gap: 0.5rem; align-items: center;
+        padding: 0.6rem 0; border-bottom: 1px solid rgba(128,128,128,0.2);}
+    .st-key-arb_rows [data-testid="stElementContainer"] {margin: 0 !important; width: auto;}
     .st-key-arb_rows [data-testid="stColumn"] {min-width: 0 !important; width: auto !important;}
-    .st-key-arb_rows p {margin: 0; font-size: 0.9rem; line-height: 1.3;}
-    .st-key-arb_rows .stCaption p, .st-key-arb_rows [data-testid="stCaptionContainer"] p {font-size: 0.75rem;}
-    .st-key-arb_rows button {padding: 0.15rem 0.5rem; min-height: 0; white-space: nowrap;}
+    .st-key-arb_rows [data-testid="stColumn"] > [data-testid="stVerticalBlock"] {justify-content: center; gap: 0;}
+    .st-key-arb_rows [data-testid="stMarkdownContainer"], .st-key-arb_rows [data-testid="stCaptionContainer"] {margin-bottom: 0 !important;}
+    .st-key-arb_rows [data-testid="stMarkdownContainer"] p {margin: 0; font-size: 1.05rem; line-height: 1.35;}
+    .st-key-arb_rows [data-testid="stCaptionContainer"] p {font-size: 0.85rem;}
+    .st-key-arb_rows button {padding: 0.25rem 0.75rem; min-height: 0; white-space: nowrap;}
+    .st-key-arb_rows button p {font-size: 1rem;}
     @media (max-width: 640px) {
         .st-key-arb_rows [data-testid="stColumn"]:nth-child(n+6) {display: none;}
+        .st-key-arb_rows [data-testid="stMarkdownContainer"] p {font-size: 1rem;}
     }
     </style>
     """,

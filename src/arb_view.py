@@ -1,4 +1,6 @@
 """the detail panel of the Arb Opportunities screener"""
+import re
+
 import pandas as pd
 import streamlit as st
 
@@ -20,15 +22,50 @@ def detail_title(r, venue_names):
 
 def trade_links(short, long_):
     """one button per leg, each opening that venue's sign-up link in a new tab. two buttons, never one click for both.
-    a venue without a referral entry gets a note instead of a button."""
+    a venue without a referral entry gets no button and no note."""
+    links = [(side, venue, referral(venue)) for side, venue in (("Short", short), ("Long", long_))]
+    links = [(side, venue, ref) for side, venue, ref in links if ref]
+    if not links:
+        return
     st.markdown("**Trade**")
-    cols = st.columns(2)
-    for col, side, venue in zip(cols, ("Short", "Long"), (short, long_)):
-        ref = referral(venue)
-        if ref:
-            col.link_button(f"{side} on {venue} ↗", ref["url"], help=ref.get("perk"), use_container_width=True)
-        else:
-            col.caption(f"{side} on {venue}: no referral link yet")
+    for col, (side, venue, ref) in zip(st.columns(len(links)), links):
+        col.link_button(f"{side} on {venue} ↗", ref["url"], help=ref.get("perk"), use_container_width=True)
+
+
+def plain_note(note, venue_names):
+    """one scanner note in plain words. the scanner writes short tags such as 'ARCUS funding = current rate only'.
+    an unknown tag is shown as it is."""
+    def v(key):
+        return venue_names.get(key, key)
+
+    rules = [
+        (r"basis against (\d+)bp", lambda m: f"The basis is against us by {m[1]} bps."),
+        (r"carry unstable \(min (-?[\d.]+)%\)", lambda m: f"The carry is unstable. Its lowest recent reading was {m[1]}%."),
+        (r"(\w+) <\$([\d,]+) within 10bp", lambda m: f"{v(m[1])} has less than ${m[2]} of depth within 10 bps, so a position this size moves the price."),
+        (r"stale VAR quote", lambda m: "The Variational quote is more than a minute old."),
+        (r"(\w+) funding = current rate only", lambda m: f"{v(m[1])} reports only its current funding rate, so the carry cannot be checked for stability."),
+        (r"(\w+) (?:market closed|underlying closed)(?: \(off-hours\))?", lambda m: f"The {v(m[1])} market is closed, so its book is indicative."),
+        (r"EXT RFQ: indicative book", lambda m: "Extended prices on request, so its book is indicative."),
+        (r"(\w+) book too thin", lambda m: f"The {v(m[1])} book is too thin for this position size."),
+        (r"(\w+) no data", lambda m: f"No data from {v(m[1])}."),
+    ]
+    for pattern, text in rules:
+        m = re.fullmatch(pattern, note.strip())
+        if m:
+            return text(m)
+    return note.strip()
+
+
+def notes_markdown(r, hold_days, venue_names):
+    """the lines under the cost table, one per fact, as a markdown list. the dollar sign is escaped for markdown"""
+    basis, edge = r["mid_basis_bps"], r["edge_bps"]
+    lines = [
+        "Mid basis: " + ("n/a" if basis is None else f"{basis:+.1f} bps (above 0 is in our favour)"),
+        f"Spread risk: {r['risk'] or 'n/a'}",
+        f"Edge over {hold_days:g} days: " + ("n/a" if edge is None else f"{edge:.1f} bps"),
+    ]
+    lines += [plain_note(n, venue_names) for n in (r["note"] or "").split("; ") if n.strip()]
+    return "\n".join(f"- {line}" for line in lines).replace("$", "\\$")
 
 
 def detail(r, hist, venue_names, hold_days):
@@ -55,16 +92,16 @@ def detail(r, hist, venue_names, hold_days):
                 column_config={"Carry (APR %)": st.column_config.ProgressColumn(
                     "Carry (APR %)", format="%.1f%%", min_value=0, max_value=max(1.0, max((pct(v) or 0) for _, v in avgs)))},
             )
-            note = f"{hours} hour{'s' if hours != 1 else ''} of history recorded."
+            note = f"{hours} hour{'s' if hours != 1 else ''} recorded."
             if hours < 30 * 24:
-                note += " Longer averages appear as the recorder keeps running."
+                note += " Longer averages appear as more hours are recorded."
             if hist["sustain_30d"] is not None and hours >= 24:
-                note += f" Carry was positive in {hist['sustain_30d'] * 100:.0f}% of the recorded hours."
+                note += f" The carry was positive in {hist['sustain_30d'] * 100:.0f}% of them."
             st.caption(note)
         else:
-            st.caption("Carry history for this pair has not been recorded yet. It builds up one sample per hour while the app runs.")
+            st.caption("No history is recorded for this pair yet. The app adds one sample an hour.")
         if r["sustain"] is not None:
-            st.caption(f"Sustainability from the venues' own funding history, last 7 days: {r['sustain'] * 100:.0f}% of hours positive.")
+            st.caption(f"In the last 7 days the carry was positive in {r['sustain'] * 100:.0f}% of hours, from the venues' own funding history.")
 
         st.markdown("**Cost, by leg**")
         leg = lambda side, name: {
@@ -73,9 +110,4 @@ def detail(r, hist, venue_names, hold_days):
         }
         legs = pd.DataFrame([leg("Short", short), leg("Long", long_)])
         st.dataframe(legs.style.format({"Taker fee (bps)": "{:.2f}", "Slippage (bps)": "{:.2f}"}, na_rep="-"), hide_index=True, use_container_width=True)
-        basis, edge = r["mid_basis_bps"], r["edge_bps"]
-        st.caption(
-            f"Mid basis {'-' if basis is None else f'{basis:+.1f} bps'} (above 0 is in our favour). "
-            f"Spread risk {r['risk']}. Edge over {hold_days:g} days {'-' if edge is None else f'{edge:.1f} bps'}."
-            + (f" {r['note']}" if r["note"] else "")
-        )
+        st.markdown(notes_markdown(r, hold_days, venue_names))
