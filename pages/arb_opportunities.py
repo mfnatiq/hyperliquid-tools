@@ -85,41 +85,40 @@ def controls():
             "Venues", list(VENUE_NAMES.values()), default=list(VENUE_NAMES.values()), selection_mode="multi",
             label_visibility="collapsed", key="f_venues",
         ) or []
-        st.caption("A pair needs both of its venues selected")
+        st.caption("A pair shows only when both of its venues are selected.")
         notional = st.selectbox("Position per leg (USD)", [1_000, 10_000, 50_000, 100_000, 500_000], index=1, key="s_notional")
         metric = st.selectbox(
             "Funding metric", ["24h", "7d", "last"], index=0, key="s_metric",
-            help="Which funding rate the carry uses: the average of the last 24 hours, of the last 7 days, or the latest "
-                 "reading. Every rate is converted to an annual percentage first, so venues that pay hourly or every "
-                 "8 hours compare directly",
+            help="The funding rate the carry uses. It is the 24 hour average, the 7 day average or the latest reading. "
+                 "Every rate is first converted to a yearly percentage, so venues that pay hourly and venues that pay "
+                 "every 8 hours compare directly.",
         )
         sustain_min = st.slider(
             "Sustainability, min (%)", 0, 100, 0, step=5, key="f_sustain",
-            help="Share of the last 7 days' shared hours with the carry in our favour",
+            help="The share of the last 7 days when the carry was positive. Only hours both venues reported count.",
         )
         be_max = st.slider(
             "Break-even, max (days)", 1.0, 14.0, 14.0, step=0.5, key="f_be",
-            help="How long funding needs to run to repay the round trip, including adverse basis",
+            help="Days of funding needed to repay the round trip cost, including adverse basis.",
         )
         min_carry = st.slider(
             "Carry, min (APR %)", 10, 200, 10, step=5, key="f_carry",
-            help="Pairs below this are never fetched, so a higher value means fewer API calls",
+            help="Pairs below this carry are not fetched. A higher value means fewer API calls.",
         )
         risk_max = st.select_slider("Spread risk, max", ["Low", "Med", "High"], value="High", key="f_risk")
         hold = st.select_slider(
             "Hold (days)", HOLD_CHOICES, value=DEFAULT_HOLD, key="f_hold",
-            help="How long you plan to hold the pair. Entry and exit costs are paid once, so a longer hold spreads them "
-                 "over more days and raises Net APR",
+            help="How long you plan to hold the pair. You pay the entry and exit cost once, so a longer hold spreads it "
+                 "over more days and raises Net APR.",
         )
         hide_neg = st.toggle(
             "Hide pairs that lose money over the hold", value=True, key="f_neg",
-            help="Net APR is negative when the entry and exit cost is more than the carry earned over the hold",
+            help="Net APR is negative when the entry and exit cost is more than the carry you earn during the hold.",
         )
         counts_slot = st.empty()
     search = bar[2].text_input(
         "Search", placeholder="Filter by token, e.g. BTC", label_visibility="collapsed", key="f_search",
-        help="Narrows the table below to tickers containing this text. It only sees the pairs already listed, "
-             "it does not look up other markets",
+        help="Shows only tickers that contain this text. It searches the pairs already listed and does not look up other markets.",
     )
     return sort_by, [k for k, name in VENUE_NAMES.items() if name in names_sel], float(notional), metric, \
         sustain_min, be_max, min_carry, risk_max, float(hold), hide_neg, search.strip(), counts_slot
@@ -201,16 +200,16 @@ def screener_rows(rows, hold):
         head = st.columns(GRID, vertical_alignment="center")
         for col, label, tip in zip(head, ["Pair", "Verdict", "", "Net APR", "Break-even", "Sustain", "Risk", "OI short / long", "Volume 24h"], [
             None,
-            "GOOD: break-even incl. basis within 3 days and no warning. OK: within 7 days and at most one warning. Otherwise "
-            "MARGINAL. Warnings: basis against us, unstable carry, a leg thinner than the position within 10 bps, a stale "
-            "Variational quote",
+            "GOOD means break-even within 3 days, adverse basis included, and no warning. OK means break-even within 7 days and "
+            "at most one warning. Everything else is MARGINAL. Warnings are an adverse basis, an unstable carry, a leg "
+            "thinner than the position within 10 bps, and a stale Variational quote.",
             None,
-            f"Carry after the round trip cost and adverse basis, as a yearly rate, for a {hold:g} day hold. Holding longer raises it",
-            "Days of funding needed to repay the round trip, including adverse basis",
-            "Share of the last 7 days' shared hours with the carry in our favour, from the venues' funding history",
-            "Spread risk: slippage plus adverse basis, or a leg thinner than the position",
-            "Open interest in USD of the short and long leg. n/a means the venue does not report it",
-            "24h volume in USD of the short and long leg. n/a means the venue does not report it",
+            f"The carry after the round trip cost and adverse basis, as a yearly rate, for a {hold:g} day hold. A longer hold raises it.",
+            "Days of funding needed to repay the round trip cost, including adverse basis.",
+            "The share of the last 7 days when the carry was positive, from the venues' own funding history.",
+            "Slippage plus adverse basis, or a leg thinner than the position.",
+            "Open interest in USD of the short and long leg. n/a means the venue does not report it.",
+            "24 hour volume in USD of the short and long leg. n/a means the venue does not report it.",
         ]):
             col.caption(label, help=tip)
         for r in rows:
@@ -238,9 +237,9 @@ def table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max
     if snapshot is None:
         err = runtime.cache.error.get((metric, float(min_carry)))
         if err:
-            st.error(f"Could not fetch venue data: {err}. It retries every minute, venue APIs rate limit repeated calls")
+            st.error(f"Could not fetch venue data: {err}. The page retries every minute.")
         else:
-            st.info("Loading funding rates and order books from each venue in the background. This page fills in by itself")
+            st.info("Loading funding rates and order books from each venue. The table appears here when they are ready.")
         return
     if "arb_ready" not in st.session_state or st.session_state["arb_ready"] != (metric, min_carry):
         st.session_state["arb_ready"] = (metric, min_carry)
@@ -273,10 +272,10 @@ def table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max
     counts_slot.caption(f"{len(rows)} of {len(all_rows)} pairs")
 
     if snapshot.missing:
-        st.warning("No data from " + ", ".join(VENUE_NAMES.get(k, k) for k in snapshot.missing) + ", so pairs with them are missing")
+        st.warning("No data from " + ", ".join(VENUE_NAMES.get(k, k) for k in snapshot.missing) + ". Pairs with those venues are missing.")
 
     if not rows:
-        st.write("No pairs match, loosen a filter")
+        st.write("No pairs match. Loosen a filter.")
         return
 
     screener_rows(rows, hold)
