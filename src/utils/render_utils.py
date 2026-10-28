@@ -14,7 +14,7 @@ REFERRALS = [
     dict(venue="Hyperliquid", url="https://app.hyperliquid.xyz/join/MAMBO", code="MAMBO", perk="4% off fees"),
     dict(venue="Variational", url="https://omni.variational.io/?ref=OMNIMAMBO", code="OMNIMAMBO",
          perk="12% points boost and Silver tier for 90 days"),
-    dict(venue="TxFlow", url="https://app.txflow.com/r/EJFMW1T960", code="EJFMW1T960",
+    dict(venue="TxFlow", url="https://app.txflow.com/r/TXMAMBO", code="TXMAMBO",
          perk="5% off spot and perp fees on the first $25M volume"),
     dict(venue="Phoenix", url="https://phoenix.trade/?code=O88RSK0C", code="O88RSK0C", perk="10% off fees on the first $100M volume"),
     dict(venue="RISEx", url="https://www.rise.trade/invite/mambo", code="mambo"),
