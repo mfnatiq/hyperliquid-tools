@@ -2,6 +2,7 @@ import streamlit as st
 from src.utils.render_utils import referrals_popover, site_css, site_footer
 from src.utils.analytics import PAGEVIEW_LOADER
 import streamlit.components.v1 as components
+from src import arb_runtime
 
 pg = st.navigation(
     pages={
@@ -11,10 +12,12 @@ pg = st.navigation(
             st.Page('pages/hip4_dashboard.py', title="🎯 HIP-4 Markets"),
             st.Page('pages/trial.py', title='⏳ Trial Details'),
             st.Page('pages/liquidity_analysis.py', title='📐 Liquidity Analysis'),
+            st.Page('pages/arb_opportunities.py', title='💱 Arb Opportunities'),
         ]
     }
 )
 
+arb_runtime.start()  # background funding recorder for the Arb Opportunities page, once per server process
 site_css()
 # umami page views for every page; site_css() takes the key="umami" container out of the layout
 with st.container(key="umami"):
