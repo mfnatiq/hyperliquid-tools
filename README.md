@@ -34,7 +34,7 @@ Venues: Phoenix, Variational, RISEx, Hyperliquid, Extended, Pacifica, Nado, QFEX
   interest show only where a venue reports them.
 - **Detail.** Press Details on a row to open a side panel with the 24h, 7d and 30d carry averages, the fee and slippage of each leg, the mid basis and
   the volume and open interest of both legs. `src/arb_view.py` draws it.
-- **No loading screen.** `src/snapshot_cache.py` builds the venue snapshot in a background thread. The page shows a note
+- **No loading screen.** `src/snapshot_cache.py` builds the venue snapshot in a background thread. The page shows a small "loading venues" status
   and polls every 3 seconds until the first build is ready, then refreshes the order books every 2 minutes. An old
   snapshot is served while a new one builds.
 - **History.** `src/funding_history.py` stores one funding sample per venue, ticker and hour in the table
