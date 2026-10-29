@@ -47,7 +47,7 @@ def test_the_page_shows_a_quiet_loading_status_at_once_while_the_first_build_run
     monkeypatch.setattr(arb_runtime, "build_snapshot", lambda m, c: (gate.wait(5), FakeSnapshot())[1])
     at = run_page()
     assert not at.exception
-    assert any("loading venues" in m.value for m in at.markdown)
+    assert any("Loading venues" in m.value for m in at.markdown)
     assert len(at.info) == 0
     assert len(at.dataframe) == 0
     gate.set()
@@ -88,11 +88,11 @@ def test_a_failed_first_build_shows_the_error(monkeypatch):
     monkeypatch.setattr(arb_runtime, "build_snapshot", boom)
     at = run_page()
     for _ in range(30):
-        if any("venue data failed" in m.value for m in at.markdown):
+        if any("Venue data failed" in m.value for m in at.markdown):
             break
         time.sleep(0.1)
         at = run_page()
-    assert any("venue data failed, retrying" in m.value for m in at.markdown)
+    assert any("Venue data failed, retrying" in m.value for m in at.markdown)
     assert any(c.value == "only 1 venue(s) responded" for c in at.caption)
 
 
@@ -120,7 +120,7 @@ def test_the_detail_panel_shows_averages_and_the_fee_breakdown():
     assert list(legs["Leg"]) == ["Short Phoenix", "Long Variational"]
     assert list(legs["Volume 24h"]) == ["$56k", "-"]
     assert list(legs["Open interest"]) == ["$139k", "$2.0M"]
-    assert any("48 hours recorded" in c.value and "longer averages fill in over time" in c.value for c in at.caption)
+    assert any("48 hours recorded" in c.value and "Longer averages fill in over time" in c.value for c in at.caption)
 
 
 def test_a_venue_without_a_referral_link_gets_no_button_and_no_note():
@@ -150,8 +150,8 @@ def test_scanner_notes_are_written_in_plain_words():
         "Arcus gives only its current funding rate, so stability is unchecked"
     assert plain_note("ONDO <$10,000 within 10bp", names) == \
         "Ondo Perps has under $10,000 of depth within 10 bps, so this size moves the price"
-    assert plain_note("basis against 12bp", names) == "basis is against us by 12 bps"
-    assert plain_note("carry unstable (min 3.5%)", names) == "carry is unstable, lowest recent reading 3.5%"
+    assert plain_note("basis against 12bp", names) == "Basis is against us by 12 bps"
+    assert plain_note("carry unstable (min 3.5%)", names) == "Carry is unstable, lowest recent reading 3.5%"
     assert plain_note("ARCUS underlying closed (off-hours)", names) == "Arcus market is closed, book is indicative"
     assert plain_note("something new", names) == "something new"
 
@@ -160,9 +160,9 @@ def test_the_notes_under_the_cost_table_are_one_line_each():
     from src.arb_view import notes_markdown
     r = dict(mid_basis_bps=4.6, risk="Med", edge_bps=8.0, note="ONDO <$10,000 within 10bp; ARCUS funding = current rate only")
     assert notes_markdown(r, 3.0, {"ARCUS": "Arcus", "ONDO": "Ondo Perps"}) == "\n".join([
-        "- mid basis +4.6 bps, above 0 favours us",
-        "- spread risk Med",
-        "- edge over 3 days 8.0 bps",
+        "- Mid basis +4.6 bps, above 0 favours us",
+        "- Spread risk Med",
+        "- Edge over 3 days 8.0 bps",
         "- Ondo Perps has under \\$10,000 of depth within 10 bps, so this size moves the price",
         "- Arcus gives only its current funding rate, so stability is unchecked",
     ])
@@ -178,7 +178,7 @@ def test_the_detail_panel_says_so_when_no_history_exists_yet():
         arb_view.detail(row, None, {}, 3.0)
     at = AppTest.from_function(app).run()
     assert not at.exception
-    assert any("no history yet" in c.value for c in at.caption)
+    assert any("No history yet" in c.value for c in at.caption)
 
 
 def test_the_losing_pair_shows_when_the_toggle_is_off(monkeypatch):

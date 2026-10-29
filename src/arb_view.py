@@ -39,15 +39,15 @@ def plain_note(note, venue_names):
         return venue_names.get(key, key)
 
     rules = [
-        (r"basis against (\d+)bp", lambda m: f"basis is against us by {m[1]} bps"),
-        (r"carry unstable \(min (-?[\d.]+)%\)", lambda m: f"carry is unstable, lowest recent reading {m[1]}%"),
+        (r"basis against (\d+)bp", lambda m: f"Basis is against us by {m[1]} bps"),
+        (r"carry unstable \(min (-?[\d.]+)%\)", lambda m: f"Carry is unstable, lowest recent reading {m[1]}%"),
         (r"(\w+) <\$([\d,]+) within 10bp", lambda m: f"{v(m[1])} has under ${m[2]} of depth within 10 bps, so this size moves the price"),
         (r"stale VAR quote", lambda m: "Variational quote is over a minute old"),
         (r"(\w+) funding = current rate only", lambda m: f"{v(m[1])} gives only its current funding rate, so stability is unchecked"),
         (r"(\w+) (?:market closed|underlying closed)(?: \(off-hours\))?", lambda m: f"{v(m[1])} market is closed, book is indicative"),
         (r"EXT RFQ: indicative book", lambda m: "Extended prices on request, book is indicative"),
         (r"(\w+) book too thin", lambda m: f"{v(m[1])} book is too thin for this size"),
-        (r"(\w+) no data", lambda m: f"no data from {v(m[1])}"),
+        (r"(\w+) no data", lambda m: f"No data from {v(m[1])}"),
     ]
     for pattern, text in rules:
         m = re.fullmatch(pattern, note.strip())
@@ -60,9 +60,9 @@ def notes_markdown(r, hold_days, venue_names):
     """the lines under the cost table, one per fact, as a markdown list. the dollar sign is escaped for markdown"""
     basis, edge = r["mid_basis_bps"], r["edge_bps"]
     lines = [
-        "mid basis " + ("n/a" if basis is None else f"{basis:+.1f} bps, above 0 favours us"),
-        f"spread risk {r['risk'] or 'n/a'}",
-        f"edge over {hold_days:g} days " + ("n/a" if edge is None else f"{edge:.1f} bps"),
+        "Mid basis " + ("n/a" if basis is None else f"{basis:+.1f} bps, above 0 favours us"),
+        f"Spread risk {r['risk'] or 'n/a'}",
+        f"Edge over {hold_days:g} days " + ("n/a" if edge is None else f"{edge:.1f} bps"),
     ]
     lines += [plain_note(n, venue_names) for n in (r["note"] or "").split("; ") if n.strip()]
     return "\n".join(f"- {line}" for line in lines).replace("$", "\\$")
@@ -73,9 +73,9 @@ def detail(r, hist, venue_names, hold_days):
     short, long_ = venue_names.get(r["short"], r["short"]), venue_names.get(r["long"], r["long"])
     with st.container():
         top, bottom = st.columns(2), st.columns(2)  # two by two, so a value never truncates in the narrow drawer
-        top[0].metric("Net APR", fmt_pct(r.get("net_apr")), help=f"carry after round trip cost and adverse basis, for a {hold_days:g} day hold")
+        top[0].metric("Net APR", fmt_pct(r.get("net_apr")), help=f"Carry after round trip cost and adverse basis, for a {hold_days:g} day hold")
         top[1].metric("Carry now", fmt_pct(r["carry_apr"]))
-        bottom[0].metric("Break-even", days_short(r["be_all_d"]), help="days of funding to repay the round trip, adverse basis included")
+        bottom[0].metric("Break-even", days_short(r["be_all_d"]), help="Days of funding to repay the round trip, adverse basis included")
         bottom[1].metric("Round trip", "-" if r["rt_cost_bps"] is None else f"{r['rt_cost_bps']:.1f} bps")
 
         trade_links(short, long_)
@@ -94,14 +94,14 @@ def detail(r, hist, venue_names, hold_days):
             )
             notes = [f"{hours} hour{'s' if hours != 1 else ''} recorded"]
             if hours < 30 * 24:
-                notes.append("longer averages fill in over time")
+                notes.append("Longer averages fill in over time")
             if hist["sustain_30d"] is not None and hours >= 24:
-                notes.append(f"carry positive in {hist['sustain_30d'] * 100:.0f}% of them")
+                notes.append(f"Carry positive in {hist['sustain_30d'] * 100:.0f}% of them")
             st.caption(" · ".join(notes))
         else:
-            st.caption("no history yet, one sample is added an hour")
+            st.caption("No history yet, one sample is added an hour")
         if r["sustain"] is not None:
-            st.caption(f"carry positive in {r['sustain'] * 100:.0f}% of the last 7 days' hours, from venue funding history")
+            st.caption(f"Carry positive in {r['sustain'] * 100:.0f}% of the last 7 days' hours, from venue funding history")
 
         st.markdown("**Cost per leg**")
         leg = lambda side, name: {

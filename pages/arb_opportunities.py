@@ -11,7 +11,7 @@ st.set_page_config("Arb Opportunities", "💱", layout="wide")
 st.header("Funding Arb Opportunities")
 
 if not funding_arbs.AVAILABLE:
-    st.caption("funding carry data is unavailable, trading-tools is not installed")
+    st.caption("Funding carry data is unavailable, trading-tools is not installed")
     st.stop()
 
 VENUE_NAMES = {"PHX": "Phoenix", "VAR": "Variational", "RISE": "RISEx", "HL": "Hyperliquid", "EXT": "Extended", "PAC": "Pacifica", "NADO": "Nado", "QFEX": "QFEX", "ONDO": "Ondo Perps", "ARCUS": "Arcus"}
@@ -85,38 +85,38 @@ def controls():
             "Venues", list(VENUE_NAMES.values()), default=list(VENUE_NAMES.values()), selection_mode="multi",
             label_visibility="collapsed", key="f_venues",
         ) or []
-        st.caption("a pair needs both its venues selected")
+        st.caption("A pair needs both its venues selected")
         notional = st.selectbox("Position per leg (USD)", [1_000, 10_000, 50_000, 100_000, 500_000], index=1, key="s_notional")
         metric = st.selectbox(
             "Funding metric", ["24h", "7d", "last"], index=0, key="s_metric",
-            help="rate the carry uses, the 24h average, the 7d average or the latest reading. every rate is converted "
+            help="Rate the carry uses, the 24h average, the 7d average or the latest reading. Every rate is converted "
                  "to yearly first, so hourly and 8-hourly venues compare directly",
         )
         sustain_min = st.slider(
             "Sustainability, min (%)", 0, 100, 0, step=5, key="f_sustain",
-            help="share of the last 7 days the carry was positive, counting hours both venues reported",
+            help="Share of the last 7 days the carry was positive, counting hours both venues reported",
         )
         be_max = st.slider(
             "Break-even, max (days)", 1.0, 14.0, 14.0, step=0.5, key="f_be",
-            help="days of funding to repay the round trip, adverse basis included",
+            help="Days of funding to repay the round trip, adverse basis included",
         )
         min_carry = st.slider(
             "Carry, min (APR %)", 10, 200, 10, step=5, key="f_carry",
-            help="pairs below this carry are not fetched, so higher means fewer api calls",
+            help="Pairs below this carry are not fetched, so higher means fewer API calls",
         )
         risk_max = st.select_slider("Spread risk, max", ["Low", "Med", "High"], value="High", key="f_risk")
         hold = st.select_slider(
             "Hold (days)", HOLD_CHOICES, value=DEFAULT_HOLD, key="f_hold",
-            help="how long you plan to hold, entry and exit cost is paid once so a longer hold raises net APR",
+            help="How long you plan to hold, entry and exit cost is paid once so a longer hold raises net APR",
         )
         hide_neg = st.toggle(
             "Hide pairs that lose money over the hold", value=True, key="f_neg",
-            help="net APR is negative when entry and exit cost is more than the carry earned over the hold",
+            help="Net APR is negative when entry and exit cost is more than the carry earned over the hold",
         )
         counts_slot = st.empty()
     search = bar[2].text_input(
         "Search", placeholder="Filter by token, e.g. BTC", label_visibility="collapsed", key="f_search",
-        help="shows only tickers containing this text, from the pairs already listed",
+        help="Shows only tickers containing this text, from the pairs already listed",
     )
     return sort_by, [k for k, name in VENUE_NAMES.items() if name in names_sel], float(notional), metric, \
         sustain_min, be_max, min_carry, risk_max, float(hold), hide_neg, search.strip(), counts_slot
@@ -202,11 +202,11 @@ def screener_rows(rows, hold):
             "warning. otherwise MARGINAL. warnings are adverse basis, unstable carry, a leg thinner than the position "
             "within 10 bps, a stale Variational quote",
             None,
-            f"carry after round trip cost and adverse basis, yearly, for a {hold:g} day hold, longer holds raise it",
-            "days of funding to repay the round trip, adverse basis included",
-            "share of the last 7 days the carry was positive, from venue funding history",
-            "slippage plus adverse basis, or a leg thinner than the position",
-            "open interest in USD, short / long leg, n/a if the venue does not report it",
+            f"Carry after round trip cost and adverse basis, yearly, for a {hold:g} day hold, longer holds raise it",
+            "Days of funding to repay the round trip, adverse basis included",
+            "Share of the last 7 days the carry was positive, from venue funding history",
+            "Slippage plus adverse basis, or a leg thinner than the position",
+            "Open interest in USD, short / long leg, n/a if the venue does not report it",
             "24h volume in USD, short / long leg, n/a if the venue does not report it",
         ]):
             col.caption(label, help=tip)
@@ -241,7 +241,7 @@ def table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max
     snapshot, _ = snapshot_for(metric, min_carry)
     if snapshot is None:
         err = runtime.cache.error.get((metric, float(min_carry)))
-        status("venue data failed, retrying" if err else "loading venues", stale=True)
+        status("Venue data failed, retrying" if err else "Loading venues", stale=True)
         if err:
             st.caption(str(err).lower())
         return
@@ -272,10 +272,10 @@ def table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max
     counts_slot.caption(f"{len(rows)} of {len(all_rows)} pairs")
 
     if snapshot.missing:
-        st.caption("no data from " + ", ".join(VENUE_NAMES.get(k, k) for k in snapshot.missing).lower() + ", their pairs are missing")
+        st.caption("No data from " + ", ".join(VENUE_NAMES.get(k, k) for k in snapshot.missing) + ", their pairs are missing")
 
     if not rows:
-        st.caption("no pairs match, loosen a filter")
+        st.caption("No pairs match, loosen a filter")
         return
 
     screener_rows(rows, hold)
@@ -290,18 +290,18 @@ def table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max
         open_detail(picked, hist, hold)
 
     fees = ", ".join(f"{VENUE_NAMES.get(k, k)} {v:g}" for k, v in funding_arbs.taker_bps().items() if k in VENUE_NAMES)
-    with st.expander("assumptions"):
+    with st.expander("Assumptions"):
         st.markdown(
             "\n".join(f"- {line}" for line in [
-                "short the venue with the higher funding rate, long the other, same USD size on each leg",
-                "round trip cost = 2 x (slippage + taker fees on both legs), entry plus exit",
-                f"net APR = carry after round trip cost and adverse basis, yearly, for a {hold:g} day hold",
-                f"taker fees in bps, from trading-tools' venues.toml: {fees}. Phoenix uses each market's own fee, QFEX shows its single-stock rate and indices and commodities pay less",
-                "break-even = round trip cost / daily carry, adverse basis included",
-                f"edge = expected carry over a {hold:g} day hold, less round trip cost and adverse basis",
-                "spread risk is Med above 5 bps and High above 12 bps of slippage plus adverse basis, or when a leg is thinner than the position",
-                "24h, 7d and 30d carry averages come from hourly samples this app records, so they fill in over time. volume and open interest show only where a venue reports them",
-                f"funding fetched {snapshot.fetched_at:%H:%M:%S} UTC (every {arb_runtime.FUNDING_TTL_S // 60} minutes), order books {snapshot.books_at:%H:%M:%S} UTC (every {BOOKS_EVERY_S // 60} minutes)",
+                "Short the venue with the higher funding rate, long the other, same USD size on each leg",
+                "Round trip cost = 2 x (slippage + taker fees on both legs), entry plus exit",
+                f"Net APR = carry after round trip cost and adverse basis, yearly, for a {hold:g} day hold",
+                f"Taker fees in bps, from trading-tools' venues.toml: {fees}; Phoenix uses each market's own fee, QFEX shows its single-stock rate and indices and commodities pay less",
+                "Break-even = round trip cost / daily carry, adverse basis included",
+                f"Edge = expected carry over a {hold:g} day hold, less round trip cost and adverse basis",
+                "Spread risk is Med above 5 bps and High above 12 bps of slippage plus adverse basis, or when a leg is thinner than the position",
+                "24h, 7d and 30d carry averages come from hourly samples this app records, so they fill in over time; volume and open interest show only where a venue reports them",
+                f"Funding fetched {snapshot.fetched_at:%H:%M:%S} UTC (every {arb_runtime.FUNDING_TTL_S // 60} minutes), order books {snapshot.books_at:%H:%M:%S} UTC (every {BOOKS_EVERY_S // 60} minutes)",
             ])
         )
 
