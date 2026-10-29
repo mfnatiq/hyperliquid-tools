@@ -120,7 +120,7 @@ def test_the_detail_panel_shows_averages_and_the_fee_breakdown():
     assert list(legs["Leg"]) == ["Short Phoenix", "Long Variational"]
     assert list(legs["Volume 24h"]) == ["$56k", "-"]
     assert list(legs["Open interest"]) == ["$139k", "$2.0M"]
-    assert any("48 hours recorded." in c.value and "Longer averages appear" in c.value for c in at.caption)
+    assert any("48 hours recorded" in c.value and "longer averages fill in over time" in c.value for c in at.caption)
 
 
 def test_a_venue_without_a_referral_link_gets_no_button_and_no_note():
@@ -147,12 +147,12 @@ def test_scanner_notes_are_written_in_plain_words():
     from src.arb_view import plain_note
     names = {"ARCUS": "Arcus", "ONDO": "Ondo Perps", "VAR": "Variational"}
     assert plain_note("ARCUS funding = current rate only", names) == \
-        "Arcus reports only its current funding rate, so the carry cannot be checked for stability."
+        "Arcus gives only its current funding rate, so stability is unchecked"
     assert plain_note("ONDO <$10,000 within 10bp", names) == \
-        "Ondo Perps has less than $10,000 of depth within 10 bps, so a position this size moves the price."
-    assert plain_note("basis against 12bp", names) == "The basis is against us by 12 bps."
-    assert plain_note("carry unstable (min 3.5%)", names) == "The carry is unstable. Its lowest recent reading was 3.5%."
-    assert plain_note("ARCUS underlying closed (off-hours)", names) == "The Arcus market is closed, so its book is indicative."
+        "Ondo Perps has under $10,000 of depth within 10 bps, so this size moves the price"
+    assert plain_note("basis against 12bp", names) == "basis is against us by 12 bps"
+    assert plain_note("carry unstable (min 3.5%)", names) == "carry is unstable, lowest recent reading 3.5%"
+    assert plain_note("ARCUS underlying closed (off-hours)", names) == "Arcus market is closed, book is indicative"
     assert plain_note("something new", names) == "something new"
 
 
@@ -160,11 +160,11 @@ def test_the_notes_under_the_cost_table_are_one_line_each():
     from src.arb_view import notes_markdown
     r = dict(mid_basis_bps=4.6, risk="Med", edge_bps=8.0, note="ONDO <$10,000 within 10bp; ARCUS funding = current rate only")
     assert notes_markdown(r, 3.0, {"ARCUS": "Arcus", "ONDO": "Ondo Perps"}) == "\n".join([
-        "- Mid basis: +4.6 bps (above 0 is in our favour)",
-        "- Spread risk: Med",
-        "- Edge over 3 days: 8.0 bps",
-        "- Ondo Perps has less than \\$10,000 of depth within 10 bps, so a position this size moves the price.",
-        "- Arcus reports only its current funding rate, so the carry cannot be checked for stability.",
+        "- mid basis +4.6 bps, above 0 favours us",
+        "- spread risk Med",
+        "- edge over 3 days 8.0 bps",
+        "- Ondo Perps has under \\$10,000 of depth within 10 bps, so this size moves the price",
+        "- Arcus gives only its current funding rate, so stability is unchecked",
     ])
 
 
@@ -178,7 +178,7 @@ def test_the_detail_panel_says_so_when_no_history_exists_yet():
         arb_view.detail(row, None, {}, 3.0)
     at = AppTest.from_function(app).run()
     assert not at.exception
-    assert any("No history is recorded for this pair yet" in c.value for c in at.caption)
+    assert any("no history yet" in c.value for c in at.caption)
 
 
 def test_the_losing_pair_shows_when_the_toggle_is_off(monkeypatch):
