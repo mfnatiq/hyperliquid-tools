@@ -29,7 +29,8 @@ Tests run with `pytest tests` and need `numpy` and `pytest`. They do not touch t
 `pages/arb_opportunities.py` ranks cross-venue funding carry, using the `trading-tools` scanner (`src/funding_arbs.py`).
 Venues: Phoenix, Variational, RISEx, Hyperliquid, Extended, Pacifica, Nado, QFEX, Ondo Perps and Arcus.
 
-- **Table.** One compact line per pair: net APR, sustainability, spread risk, break-even, open interest and 24h volume.
+- **Table.** One compact line per pair: the pair and its short and long venues, verdict, net APR, break-even, sustainability, spread risk,
+  open interest and 24h volume. Verdict, risk and sustain are colour coded, and sustain is green from 80% and amber from 50%. On a phone the table shows pair, verdict, Details and net APR.
   Net APR is the carry after the round trip cost and adverse basis for the chosen hold (3 days by default), as a yearly rate. Pairs that lose money over the hold are hidden unless you switch that off in Filters. Volume and open
   interest show only where a venue reports them.
 - **Detail.** Press Details on a row to open a side panel with the 24h, 7d and 30d carry averages, the fee and slippage of each leg, the mid basis and
