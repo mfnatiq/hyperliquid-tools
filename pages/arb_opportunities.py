@@ -85,7 +85,7 @@ def controls():
             "Venues", list(VENUE_NAMES.values()), default=list(VENUE_NAMES.values()), selection_mode="multi",
             label_visibility="collapsed", key="f_venues",
         ) or []
-        st.caption("A pair shows only when both of its venues are selected.")
+        st.caption("a pair needs both its venues selected")
         notional = st.selectbox("Position per leg (USD)", [1_000, 10_000, 50_000, 100_000, 500_000], index=1, key="s_notional")
         metric = st.selectbox(
             "Funding metric", ["24h", "7d", "last"], index=0, key="s_metric",
@@ -225,6 +225,13 @@ def screener_rows(rows, hold):
             c[8].markdown(f"{md_usd(r['vol_short'])} / {md_usd(r['vol_long'])}")
 
 
+def status(text, stale=False):
+    status_slot.markdown(
+        f'<span class="live-dot{" stale" if stale else ""}"></span><span class="live-text">{html.escape(text)}</span>',
+        unsafe_allow_html=True,
+    )
+
+
 def table_run_every():
     """short polling while the first load runs in the background, then the normal refresh. a full rerun switches between them"""
     return LOADING_EVERY_S if snapshot_for(metric, min_carry)[0] is None else BOOKS_EVERY_S
@@ -236,10 +243,9 @@ def table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max
     snapshot, _ = snapshot_for(metric, min_carry)
     if snapshot is None:
         err = runtime.cache.error.get((metric, float(min_carry)))
+        status("venue data failed, retrying" if err else "loading venues", stale=True)
         if err:
-            st.error(f"Could not fetch venue data: {err}. The page retries every minute.")
-        else:
-            st.info("Loading funding rates and order books from each venue. The table appears here when they are ready.")
+            st.caption(str(err).lower())
         return
     if "arb_ready" not in st.session_state or st.session_state["arb_ready"] != (metric, min_carry):
         st.session_state["arb_ready"] = (metric, min_carry)
@@ -247,11 +253,7 @@ def table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max
     snapshot.refresh_books(min_age_s=BOOKS_EVERY_S - 20)
 
     age = (datetime.now(timezone.utc) - snapshot.books_at).total_seconds()
-    status_slot.markdown(
-        f'<span class="live-dot{" stale" if age > 2 * BOOKS_EVERY_S + 30 else ""}"></span>'
-        f'<span class="live-text">LIVE {age:.0f}s ago</span>',
-        unsafe_allow_html=True,
-    )
+    status(f"LIVE {age:.0f}s ago", stale=age > 2 * BOOKS_EVERY_S + 30)
 
     # priced from cached data, so changing the position makes no API calls
     all_rows = snapshot.rows(notional, hold)
@@ -272,14 +274,13 @@ def table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max
     counts_slot.caption(f"{len(rows)} of {len(all_rows)} pairs")
 
     if snapshot.missing:
-        st.warning("No data from " + ", ".join(VENUE_NAMES.get(k, k) for k in snapshot.missing) + ". Pairs with those venues are missing.")
+        st.caption("no data from " + ", ".join(VENUE_NAMES.get(k, k) for k in snapshot.missing).lower() + ", their pairs are missing")
 
     if not rows:
-        st.write("No pairs match. Loosen a filter.")
+        st.caption("no pairs match, loosen a filter")
         return
 
     screener_rows(rows, hold)
-    st.caption("n/a means the venue does not report it")
     by_key = {pair_key(r): r for r in rows}
     pick = st.session_state.get("arb_pick")
     if pick in by_key:

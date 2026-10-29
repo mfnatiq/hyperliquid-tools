@@ -42,12 +42,13 @@ def run_page():
     return AppTest.from_file("pages/arb_opportunities.py", default_timeout=30).run()
 
 
-def test_the_page_shows_a_loading_note_at_once_while_the_first_build_runs(monkeypatch):
+def test_the_page_shows_a_quiet_loading_status_at_once_while_the_first_build_runs(monkeypatch):
     gate = threading.Event()
     monkeypatch.setattr(arb_runtime, "build_snapshot", lambda m, c: (gate.wait(5), FakeSnapshot())[1])
     at = run_page()
     assert not at.exception
-    assert any("Loading funding rates" in i.value for i in at.info)
+    assert any("loading venues" in m.value for m in at.markdown)
+    assert len(at.info) == 0
     assert len(at.dataframe) == 0
     gate.set()
 
@@ -87,11 +88,12 @@ def test_a_failed_first_build_shows_the_error(monkeypatch):
     monkeypatch.setattr(arb_runtime, "build_snapshot", boom)
     at = run_page()
     for _ in range(30):
-        if at.error:
+        if any("venue data failed" in m.value for m in at.markdown):
             break
         time.sleep(0.1)
         at = run_page()
-    assert any("only 1 venue(s) responded" in e.value for e in at.error)
+    assert any("venue data failed, retrying" in m.value for m in at.markdown)
+    assert any(c.value == "only 1 venue(s) responded" for c in at.caption)
 
 
 def test_the_detail_panel_shows_averages_and_the_fee_breakdown():
