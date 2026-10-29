@@ -16,6 +16,27 @@ def fmt_pct(x):
     return "-" if x is None else f"{x * 100:.1f}%"
 
 
+PILL = {"GOOD": "good", "OK": "mid", "MARGINAL": "bad", "Low": "good", "Med": "mid", "High": "bad"}
+
+
+def badge(text):
+    return f'<span class="pill {PILL[text]}">{text}</span>' if text in PILL else "n/a"  # a lone dash would render as a bullet
+
+
+def net_apr_text(x):
+    if x is None:
+        return "n/a"
+    return f'<span class="tone {"good" if x >= 0 else "bad"}">{x * 100:+.1f}%</span>'
+
+
+def sustain_text(x):
+    """share of recent hours with positive carry, green from 80%, amber from 50%, red below"""
+    if x is None:
+        return "n/a"
+    tone = "good" if x >= 0.8 else "mid" if x >= 0.5 else "bad"
+    return f'<span class="tone {tone}">{x * 100:.0f}%</span>'
+
+
 def detail_title(r, venue_names):
     return f"{r['ticker']}: short {venue_names.get(r['short'], r['short'])}, long {venue_names.get(r['long'], r['long'])}"
 

@@ -73,9 +73,11 @@ def test_each_pair_is_one_line_with_a_details_button_after_the_verdict(monkeypat
     assert not at.exception
     assert [b.key for b in at.button if b.label == "Details ›"] == ["d|ZRO|PHX|VAR", "d|ETH|PHX|VAR"]  # BLUR is hidden: negative net APR over 3 days
     text = [m.value for m in at.markdown]
-    assert "**ZRO**  \nPhoenix → Variational" in text
-    assert ":green-background[GOOD]" in text
-    assert ":green[+50.0%]" in text
+    assert '**ZRO**<div class="route-m">Phoenix → Variational</div>' in text
+    assert "Phoenix → Variational" in text  # the route is also its own column
+    assert '<span class="pill good">GOOD</span>' in text
+    assert '<span class="tone good">+50.0%</span>' in text
+    assert '<span class="tone good">100%</span>' in text  # sustain at 80% or more is green
     assert text.count("n/a") == 2  # ETH has no sustain and no risk: shown as text, since a lone dash would render as a bullet
     assert "1d 8h" in text
     assert "\\$139k / \\$2.0M" in text  # dollar signs are escaped so markdown does not read them as a formula
@@ -186,7 +188,7 @@ def test_the_losing_pair_shows_when_the_toggle_is_off(monkeypatch):
     run_page()
     at = wait_for_rows(f_neg=False)
     assert [b.key for b in at.button if b.label == "Details ›"] == ["d|ZRO|PHX|VAR", "d|BLUR|PHX|VAR", "d|ETH|PHX|VAR"]
-    assert ":red[-53.9%]" in [m.value for m in at.markdown]
+    assert '<span class="tone bad">-53.9%</span>' in [m.value for m in at.markdown]
     assert any("Losing pairs shown" in m.value for m in at.markdown)
 
 
@@ -197,3 +199,12 @@ def test_a_picked_pair_opens_its_details(monkeypatch):
     assert not at.exception
     labels = [b.proto.label for b in at.get("link_button")]  # the drawer's Trade buttons
     assert labels == ["Short on Phoenix ↗", "Long on Variational ↗"]
+
+
+def test_sustain_is_green_from_80_percent_amber_from_50_and_red_below():
+    from src.arb_view import sustain_text
+    assert sustain_text(0.8) == '<span class="tone good">80%</span>'
+    assert sustain_text(0.79) == '<span class="tone mid">79%</span>'
+    assert sustain_text(0.5) == '<span class="tone mid">50%</span>'
+    assert sustain_text(0.49) == '<span class="tone bad">49%</span>'
+    assert sustain_text(None) == "n/a"
