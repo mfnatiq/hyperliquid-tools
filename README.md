@@ -18,7 +18,7 @@ Tested with python 3.13
 - `history.py` keeps price history in fixed-size ring buffers, so the oldest value is overwritten and memory never grows.
   The fine ring is 1s steps for 1h and the coarse ring is 10s steps for 3d, stored as float32. For 36 series (6 venues times
   6 tokens) with mid plus buy and sell VWAP at one clip, that is about 11 MB for the 3-day ring.
-- `trading-tools` is installed from `requirements.txt` at a pinned commit and supplies the venue adapters and websocket
+- `trading-tools` is installed from `requirements-trading-tools.txt` at a pinned commit and supplies the venue adapters and websocket
   feeds (Hyperliquid, Extended, RISEx, Phoenix). The Arb Opportunities page uses it today. Planned next: a background store
   with REST fallback per market, and the live liquidity page. Variational and TxFlow would be REST only.
 
@@ -44,7 +44,7 @@ Venues: Phoenix, Variational, RISEx, Hyperliquid, Extended, Pacifica, Nado, QFEX
   samples, so they fill in over the first month. The 7 day sustain column comes from the venues' own history. A
   database error turns recording off and the page still works.
 - **Fees.** Taker fees come from trading-tools' `bot/venues.toml`. Change the pinned trading-tools commit in
-  `requirements.txt` to pick up new venues or fees.
+  `requirements-trading-tools.txt` to pick up new venues or fees.
 
 ### Referrals and donations
 
@@ -61,10 +61,16 @@ Every page shows a sticky header and a fixed footer. `home.py` renders both from
 
 Currently deployed with Railway (referral code: https://railway.com?referralCode=_uracj)
 
-`trading-tools` is a private repo, so the build needs a token. Create a fine-grained GitHub token with read-only
-"Contents" access to `mfnatiq/trading-tools` only, and add it as a Railway service variable named `GH_TOKEN`. Railway makes
-service variables available during the build, and pip fills in `${GH_TOKEN}` in `requirements.txt`. No other repo link
-is needed. To pick up a new trading-tools version, change the commit sha at the end of that line.
-Locally, export `GH_TOKEN` before `pip install -r requirements.txt`.
+`trading-tools` is a private repo, so installing it needs a token, and only the web service installs it. It lives in
+`requirements-trading-tools.txt`, apart from `requirements.txt`, so cron services and other jobs build without a token.
+
+1. Create a fine-grained GitHub token with read-only "Contents" access to `mfnatiq/trading-tools` only.
+2. On the web service, add it as a service variable named `GH_TOKEN`.
+3. On the web service, set the custom build command to `pip install -r requirements-trading-tools.txt`. Railway runs it
+   after the normal install of `requirements.txt`, and pip fills in `${GH_TOKEN}` from the variable.
+
+To pick up a new trading-tools version, change the commit sha in `requirements-trading-tools.txt`. Locally, export
+`GH_TOKEN`, then run `pip install -r requirements.txt -r requirements-trading-tools.txt`. Without trading-tools the
+Arb Opportunities page shows a short unavailable note and the other pages work.
 
 Last Updated: 2026-04-19
