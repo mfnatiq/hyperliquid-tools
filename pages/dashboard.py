@@ -165,9 +165,6 @@ def dont_show_again():
 @st.dialog("Latest Updates", width="large", on_dismiss="ignore")
 def announcement():
     st.write(WHATS_NEW)
-    st.write("""
-        If you like what you see, please consider subscribing :) Enjoy!
-    """)
     st.write(FOLLOW_TEXT)
     dont_show_again()
 @st.dialog("Latest Updates", width="large", on_dismiss="ignore")
