@@ -4,7 +4,7 @@ import os
 import sys
 from dotenv import load_dotenv
 import pandas as pd
-from sqlalchemy import TIMESTAMP, Column, DateTime, Float, Integer, MetaData, String, Table, create_engine, inspect
+from sqlalchemy import TIMESTAMP, Column, DateTime, Float, Integer, MetaData, String, Table, create_engine, inspect, select
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -82,9 +82,8 @@ def get_leaderboard() -> pd.DataFrame:
 def get_leaderboard_last_updated():
     try:
         with engine.connect() as conn:
-            results = conn.execute(metadata_table.select())
-            latest_date = results.all()[0][1]
-            return latest_date
+            # only the date column, one row (this table holds a single row)
+            return conn.execute(select(metadata_table.c.last_updated_at).limit(1)).scalar()
     except Exception as e:
         logger.error(f'unable to fetch last updated date of leaderboard: {e}')
     return None
@@ -110,9 +109,8 @@ def get_xyz_leaderboard() -> pd.DataFrame:
 def get_xyz_leaderboard_last_updated():
     try:
         with engine.connect() as conn:
-            results = conn.execute(xyz_leaderboard_metadata_table.select())
-            latest_date = results.all()[0][1]
-            return latest_date
+            # only the date column, one row (this table holds a single row)
+            return conn.execute(select(xyz_leaderboard_metadata_table.c.last_updated_at).limit(1)).scalar()
     except Exception as e:
         logger.error(f'unable to fetch last updated date of xyz leaderboard: {e}')
     return None

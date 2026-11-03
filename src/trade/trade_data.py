@@ -1,19 +1,25 @@
+from concurrent.futures import ThreadPoolExecutor
+
 import pandas as pd
 from src.consts import unitStartTime
 from src.hl_client import HyperliquidClient
 from src.utils.utils import get_today_timestamp_millis
 
 def get_candlestick_data(info: HyperliquidClient, token_ids: list[str], token_names: list[str]) -> pd.DataFrame:
-    rows = []
-
-    for k, v in zip(token_ids, token_names):
-        data = info.candles_snapshot(
+    def fetch(k: str) -> list:
+        return info.candles_snapshot(
             name=k,
             startTime=unitStartTime,    # use proper start time at midnight
             interval='1d',
             endTime=get_today_timestamp_millis(),
         )
 
+    # one call per token, independent of each other: run them together (map keeps token order)
+    with ThreadPoolExecutor(max_workers=min(8, max(1, len(token_ids)))) as pool:
+        fetched = list(pool.map(fetch, token_ids))
+
+    rows = []
+    for v, data in zip(token_names, fetched):
         for d in data:
             rows.append({
                 'start_date': pd.Timestamp(d['t'], unit="ms"),

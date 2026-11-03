@@ -19,6 +19,17 @@ except ImportError:  # trading-tools is a private repo and an optional install
 AVAILABLE = fs is not None
 
 
+def fan_out(calls):
+    """run independent zero-argument calls at the same time, return the results in call order, raise the first error
+    once all have finished. for fan-out across venues, never from inside a worker of the pool those calls feed."""
+    calls = list(calls)
+    if len(calls) < 2:
+        return [c() for c in calls]
+    with ThreadPoolExecutor(len(calls)) as ex:
+        futs = [ex.submit(c) for c in calls]
+    return [f.result() for f in futs]
+
+
 def net_apr(carry: float, rt_cost_bps: float, mid_basis_bps: float, hold_days: float) -> float:
     """annual return as a fraction after the round trip cost and adverse basis, if the pair is held `hold_days` and the
     entry and exit cost is paid once. a longer hold spreads the same cost over more days, so net APR rises with the hold.
@@ -84,19 +95,18 @@ class Snapshot:
                 raise RuntimeError(f"only {len(vs)} venue(s) responded; the venue APIs may be unreachable or rate limited")
             cnt = Counter(t for k in vs for t in listed[k])
             overlap = sorted(t for t, c in cnt.items() if c >= 2)
-            for k, v in vs.items():
-                v.enrich([t for t in overlap if t in listed[k]], pool)
+            fan_out([lambda k=k, v=v: v.enrich([t for t in overlap if t in listed[k]], pool) for k, v in vs.items()])
             self.listed, self.overlap = listed, overlap
             cands, _ = fs.build_candidates(a, vs, listed, overlap)
             self.cands = sorted(cands, key=lambda c: -c["carry"])[: a.top]
             need = {k: sorted({c["ticker"] for c in self.cands if k in (c["short"], c["long"])}) for k in vs}
-            for v in vs.values():
-                fs.safe(v.refresh, tag=f"{v.key} refresh")
+            fan_out([lambda v=v: fs.safe(v.refresh, tag=f"{v.key} refresh") for v in vs.values()])
             jobs = [(v, t) for k, v in vs.items() if v.has_books for t in need[k]]
             books = pool.map(lambda j: fs.safe(j[0].fetch_book, j[1], tag=f"{j[0].key} book {j[1]}"), jobs)
             for (v, t), b in zip(jobs, books):
                 v.books[t] = b
-            self.meta = {(k, t): self._leg_meta(v, t) for k, v in vs.items() for t in need[k]}
+            legs = [(k, t) for k, v in vs.items() for t in need[k]]       # volume and open interest are one or two calls per leg
+            self.meta = dict(zip(legs, pool.map(lambda kt: self._leg_meta(vs[kt[0]], kt[1]), legs)))
         finally:
             pool.shutdown(wait=False)
         self.vs = vs
@@ -135,8 +145,7 @@ class Snapshot:
                 return False
             jobs = [(v, t) for k, v in self.vs.items() if v.has_books for t in self._need[k]]
             with ThreadPoolExecutor(self._pool_size) as pool:
-                for v in self.vs.values():
-                    fs.safe(v.refresh, tag=f"{v.key} refresh")
+                fan_out([lambda v=v: fs.safe(v.refresh, tag=f"{v.key} refresh") for v in self.vs.values()])
                 books = pool.map(lambda j: fs.safe(j[0].fetch_book, j[1], tag=f"{j[0].key} book {j[1]}"), jobs)
                 for (v, t), b in zip(jobs, books):
                     if b is not None:
