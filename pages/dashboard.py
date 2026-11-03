@@ -24,6 +24,7 @@ import plotly.express as px
 from src.bridge.unit_bridge_api import UnitBridgeInfo
 from src.trade.trade_data import get_candlestick_data
 from src.bridge.unit_bridge_utils import create_bridge_summary, process_ledger_bridge_operations
+from src.fills_fetch import bind_script_ctx, expand_subaccounts, fetch_all_accounts
 from src.consts import NON_LOGGED_IN_TRADES_TOTAL, unitStartTime, oneDayInS, acceptedPayments, AccountStats
 import uuid
 
@@ -319,44 +320,19 @@ def get_cached_trade_volumes(
 
     non_logged_in_limit_trade_count = TRADE_COUNT_FETCH_LIMIT
 
-    for account in accounts_to_query:
-        num_fills_total = 0
+    # fetch every account's fills at once (a visitor who is not logged in is read here, on this thread, because the worker
+    # threads cannot see the session), then process them below in account order
+    fetched = fetch_all_accounts(
+        accounts_to_query, bind_script_ctx(_get_cached_fills), unitStartTime, curr_timestamp_millis,
+        int(timedelta(days=numDaysQuerySpan).total_seconds()) * 1000,
+        "user_email" in st.session_state, NON_LOGGED_IN_TRADES_TOTAL)
 
+    for account, (pages, limit_hit) in zip(accounts_to_query, fetched):
         total_trade_volume_account = 0.0
 
-        # initialisation
-        startTime = unitStartTime
-
-        # seems like 2k limit for endpoint counts from the start
-        # so start from overall start time then move up til currtime
-        while startTime < curr_timestamp_millis:  # check back until this date
-            endTime = min(curr_timestamp_millis, startTime + \
-                int(timedelta(days=numDaysQuerySpan).total_seconds()) * 1000)
-
-            fills_result = _get_cached_fills(account, startTime, endTime)
-
-            # query again til no more
+        for startTime, endTime, fills_result in pages:
             num_fills = len(fills_result)
-            num_fills_total += num_fills
-
-            # limit num fills shown if not logged in
-            if "user_email" not in st.session_state and num_fills_total > NON_LOGGED_IN_TRADES_TOTAL:
-                non_logged_in_limit_trade_count = num_fills_total
-                break
-
             logger.info(f'{num_fills} trades for {account} made from {startTime} to {endTime}')
-
-            # logic:
-            # 1) if hit limit (2k fills per api call), set start = latest fill timestamp + 1
-            # 2) else, slide window fully i.e. start = end + 1
-            # always set endTime as startTime + interval
-            if num_fills == 2000:
-                latest_fill_timestamp = max(
-                    f['time'] for f in fills_result)
-                startTime = latest_fill_timestamp + 1
-                logger.info(f'hit max fills within range, setting next starttime to {startTime}')
-            else:
-                startTime = endTime + 1
 
             # process fills immediately to bin by start date
             # so as to not store too many individual fills in memory to prevent OOM
@@ -420,6 +396,9 @@ def get_cached_trade_volumes(
                         'volume_usd': trade_volume,
                         'fees_usd': fee_amt,
                     })
+
+        if limit_hit is not None:
+            non_logged_in_limit_trade_count = limit_hit
 
         total_trade_volume[account] = total_trade_volume_account
 
@@ -919,11 +898,7 @@ def main():
 
         accounts = [a.strip() for a in addresses_input.split(",") if a]
         if not exclude_subaccounts:
-            for account in accounts:
-                subaccounts = get_subaccounts_cached(account)
-                for sub in subaccounts:
-                    subaccount = sub['subAccountUser']
-                    accounts.append(subaccount)
+            accounts = expand_subaccounts(accounts, bind_script_ctx(get_subaccounts_cached))
 
         with st.spinner('Loading data...', show_time=True):
             curr_timestamp_millis = get_current_timestamp_millis()
