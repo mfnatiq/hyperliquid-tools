@@ -57,3 +57,32 @@ def test_rows_older_than_35_days_are_dropped_and_missing_rates_are_skipped(engin
 def test_samples_older_than_30_days_are_not_in_the_window(engine):
     fh.record([("HL", "ZRO", 0.5), ("PHX", "ZRO", 0.1)], now=at(H - 31 * 24), engine=engine)
     assert fh.pair_history("HL", "PHX", "ZRO", now=at(H), engine=engine)["hours"] == 0
+
+
+def test_fill_sustain_uses_recorded_hours_only_for_rows_without_a_figure(engine):
+    for k in range(30):  # 30 hours: carry is +0.2 in 24 of them and -0.1 in 6
+        short, long_ = (0.5, 0.3) if k >= 6 else (0.1, 0.2)
+        fh.record([("VAR", "ZRO", short), ("PHX", "ZRO", long_), ("VAR", "ETH", 0.5), ("PHX", "ETH", 0.1)], now=at(H - k), engine=engine)
+    rows = [dict(ticker="ZRO", short="VAR", long="PHX", sustain=None),
+            dict(ticker="ETH", short="VAR", long="PHX", sustain=0.25),
+            dict(ticker="SOL", short="VAR", long="PHX", sustain=None)]
+    fh.fill_sustain(rows, now=at(H), engine=engine)
+    assert rows[0]["sustain"] == pytest.approx(0.8) and rows[0]["sustain_src"] == "recorded"
+    assert rows[1]["sustain"] == 0.25 and "sustain_src" not in rows[1]
+    assert rows[2]["sustain"] is None
+
+
+def test_fill_sustain_needs_24_shared_hours(engine):
+    for k in range(23):
+        fh.record([("VAR", "ZRO", 0.5), ("PHX", "ZRO", 0.1)], now=at(H - k), engine=engine)
+    rows = [dict(ticker="ZRO", short="VAR", long="PHX", sustain=None)]
+    fh.fill_sustain(rows, now=at(H), engine=engine)
+    assert rows[0]["sustain"] is None
+
+
+def test_fill_sustain_counts_sign_flips_for_every_row(engine):
+    for k in range(24):  # carry alternates +0.4, -0.1, +0.4 ... over 24 hours: 23 flips
+        fh.record([("VAR", "ZRO", 0.5 if k % 2 else 0.1), ("PHX", "ZRO", 0.1 if k % 2 else 0.2)], now=at(H - k), engine=engine)
+    rows = [dict(ticker="ZRO", short="VAR", long="PHX", sustain=0.9)]
+    fh.fill_sustain(rows, now=at(H), engine=engine)
+    assert rows[0]["flips"] == 23 and rows[0]["sustain"] == 0.9

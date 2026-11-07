@@ -11,7 +11,7 @@ import time
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import bindparam, create_engine, text
 from sqlalchemy.engine import Engine
 
 TABLE = "funding_samples"
@@ -85,6 +85,41 @@ def pair_history(short: str, long: str, ticker: str, now: Optional[float] = None
         "sustain_30d": sum(1 for _, v in carry if v > 0) / len(carry) if carry else None,
         "hours": len(carry),
     }
+
+
+MIN_SUSTAIN_HOURS = 24
+SUSTAIN_DAYS = 7
+
+
+def fill_sustain(rows: list[dict], now: Optional[float] = None, engine: Optional[Engine] = None) -> None:
+    """add recorded-sample figures to every row, from the last 7 days and only with at least 24 shared hours stored:
+    row["flips"] = how many times the carry changed sign, and, for rows whose venues have no funding history
+    (sustain is None), row["sustain"] = the share of hours with positive carry and row["sustain_src"] = "recorded".
+    a row that already has a sustain figure keeps it. one query for all rows."""
+    if not rows:
+        return
+    engine = engine or get_engine()
+    h = hour_of(time.time() if now is None else now)
+    stmt = text(
+        f"SELECT venue, ticker, ts_hour, apr FROM {TABLE} WHERE ts_hour > :cut AND ticker IN :tickers AND venue IN :venues"
+    ).bindparams(bindparam("tickers", expanding=True), bindparam("venues", expanding=True))
+    with engine.connect() as c:
+        got = c.execute(stmt, {
+            "cut": h - SUSTAIN_DAYS * 24,
+            "tickers": sorted({r["ticker"] for r in rows}),
+            "venues": sorted({r[k] for r in rows for k in ("short", "long")}),
+        }).all()
+    apr = {(v, t, int(ts)): float(a) for v, t, ts, a in got}
+    for r in rows:
+        carry = [apr[(r["short"], r["ticker"], ts)] - apr[(r["long"], r["ticker"], ts)]
+                 for ts in range(h - SUSTAIN_DAYS * 24 + 1, h + 1)
+                 if (r["short"], r["ticker"], ts) in apr and (r["long"], r["ticker"], ts) in apr]
+        if len(carry) < MIN_SUSTAIN_HOURS:
+            continue
+        r["flips"] = sum(1 for x, y in zip(carry, carry[1:]) if (x > 0) != (y > 0))
+        if r.get("sustain") is None:
+            r["sustain"] = sum(1 for x in carry if x > 0) / len(carry)
+            r["sustain_src"] = "recorded"
 
 
 def start_recorder(sample: Callable[[], list[tuple[str, str, float]]], every_s: float = HOUR_S, first_delay_s: float = 60.0,
