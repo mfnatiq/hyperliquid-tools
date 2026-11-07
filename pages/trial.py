@@ -2,6 +2,7 @@ import sys
 from pages.dashboard import display_upgrade_section
 from src.consts import acceptedPayments
 import streamlit as st
+from src.auth.session import sync_login
 
 from src.auth.db_utils import PremiumType, get_user, get_user_premium_type
 from pages.dashboard import show_login_info
@@ -27,14 +28,9 @@ logger = logging.getLogger(__name__)
 
 # robust logic to handle user login/logout and initiate trials.
 # runs only once when user's state changes
-if 'user_email' not in st.session_state and st.user and 'email' in st.user:
-    # runs only when the user has just logged in
-    st.session_state["user_email"] = st.user.email
-elif 'user_email' in st.session_state and not (st.user and 'email' in st.user):
-    # runs when the user has just logged out.
-    del st.session_state["user_email"]
-    if "user_object" in st.session_state:
-        del st.session_state["user_object"]
+err = sync_login(st.session_state, st.user, logger)
+if err:
+    st.error(err)
 
 if "user_email" in st.session_state:
     # display dynamic user status (premium, trial, expired)

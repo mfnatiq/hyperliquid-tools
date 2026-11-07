@@ -17,6 +17,7 @@ import pandas as pd
 from hyperliquid.utils.error import ClientError, ServerError
 from src.hl_client import HyperliquidClient
 import streamlit as st
+from src.auth.session import sync_login
 from src.utils.render_utils import venue_referral
 from src.utils.welcome import FOLLOW_TEXT, REMEMBER_JS, welcome_hidden
 import streamlit.components.v1 as components
@@ -70,18 +71,9 @@ if "db_initialized" not in st.session_state:
 
 # robust logic to handle user login/logout and initiate trials.
 # runs only once when user's state changes
-if 'user_email' not in st.session_state and st.user and 'email' in st.user:
-    # runs only when the user has just logged in
-    st.session_state["user_email"] = st.user.email
-    # start a trial for the user if they are new to the system
-    err = start_trial_if_new_user(st.session_state["user_email"], logger)
-    if err:
-        st.error(err)
-elif 'user_email' in st.session_state and not (st.user and 'email' in st.user):
-    # runs when the user has just logged out.
-    del st.session_state["user_email"]
-    if "user_object" in st.session_state:
-        del st.session_state["user_object"]
+err = sync_login(st.session_state, st.user, logger, start_trial_if_new_user)
+if err:
+    st.error(err)
 
 
 def is_logged_in():
