@@ -167,3 +167,20 @@ class Snapshot:
                 r["net_apr"] = None if r["rt_cost_bps"] is None else net_apr(
                     r["carry_apr"], r["rt_cost_bps"], r["mid_basis_bps"] or 0.0, hold_days)
         return [r for r in fs.sort_rows(rows, "verdict") if r["verdict"] != "SKIP"]  # GOOD, OK, MARGINAL, then break-even
+
+
+GRADE_RANK = {"GOOD": 0, "OK": 1, "MARGINAL": 2}
+SUSTAIN_GOOD = 0.8  # below this a pair cannot be GOOD
+SUSTAIN_OK = 0.5    # below this a pair is MARGINAL
+
+
+def apply_sustain(rows: list[dict]) -> list[dict]:
+    """cap each row's verdict by its sustain and add exp_apr (net APR x sustain). returns the rows best verdict first,
+    then break-even. a row with no sustain figure cannot be GOOD. the cap only lowers a verdict, so it is safe to run twice."""
+    for r in rows:
+        s = r.get("sustain")
+        cap = "OK" if s is None else "MARGINAL" if s < SUSTAIN_OK else "OK" if s < SUSTAIN_GOOD else "GOOD"
+        if GRADE_RANK[cap] > GRADE_RANK[r["verdict"]]:
+            r["verdict"] = cap
+        r["exp_apr"] = None if s is None or r.get("net_apr") is None else r["net_apr"] * s
+    return sorted(rows, key=lambda r: (GRADE_RANK[r["verdict"]], r["be_all_d"] if r["be_all_d"] is not None else 1e9))

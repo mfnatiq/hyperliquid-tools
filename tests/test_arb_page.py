@@ -78,7 +78,9 @@ def test_each_pair_is_one_line_with_a_details_button_after_the_verdict(monkeypat
     assert '<span class="pill good">GOOD</span>' in text
     assert '<span class="tone good">+50.0%</span>' in text
     assert '<span class="tone good">100%</span>' in text  # sustain at 80% or more is green
-    assert text.count("n/a") == 2  # ETH has no sustain and no risk: shown as text, since a lone dash would render as a bullet
+    assert text.count('<span class="tone good">+50.0%</span>') == 3  # ZRO and ETH net APR, and ZRO expected APR (50% x 100% sustain)
+    assert '<span class="pill mid">OK</span>' in text  # ETH has no sustain figure, so its GOOD is capped at OK
+    assert text.count("n/a") == 3  # ETH has no sustain, no expected APR and no risk: shown as text, since a lone dash would render as a bullet
     assert "1d 8h" in text
     assert "\\$139k / \\$2.0M" in text  # dollar signs are escaped so markdown does not read them as a formula
     assert "\\$56k / \\$1.6M" in text

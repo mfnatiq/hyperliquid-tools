@@ -29,8 +29,8 @@ Tests run with `pytest tests` and need `numpy` and `pytest`. They do not touch t
 `pages/arb_opportunities.py` ranks cross-venue funding carry, using the `trading-tools` scanner (`src/funding_arbs.py`).
 Venues: Phoenix, Variational, RISEx, Hyperliquid, Extended, Pacifica, Nado, QFEX, Ondo Perps and Arcus.
 
-- **Table.** One compact line per pair: the pair and its short and long venues, verdict, net APR, break-even, sustainability, spread risk,
-  open interest and 24h volume. Verdict, risk and sustain are colour coded, and sustain is green from 80% and amber from 50%. On a phone the table shows pair, verdict, Details and net APR.
+- **Table.** One compact line per pair: the pair and its short and long venues, verdict, net APR, expected APR (net APR times sustain), break-even, sustainability, spread risk,
+  open interest and 24h volume. Verdict, risk and sustain are colour coded. Sustain caps the verdict: under 80% is at most OK, under 50% is MARGINAL, and no figure means at most OK. Sustain is green from 80% and amber from 50%. The Details panel also shows how often the carry changed sign in the last 7 recorded days. On a phone the table shows pair, verdict, Details and net APR.
   Net APR is the carry after the round trip cost and adverse basis for the chosen hold (3 days by default), as a yearly rate. Pairs that lose money over the hold are hidden unless you switch that off in Filters. Volume and open
   interest show only where a venue reports them.
 - **Detail.** Press Details on a row to open a side panel with the 24h, 7d and 30d carry averages, the fee and slippage of each leg, the mid basis and
@@ -42,7 +42,8 @@ Venues: Phoenix, Variational, RISEx, Hyperliquid, Extended, Pacifica, Nado, QFEX
   `funding_samples` (Postgres through `DATABASE_URL` on Railway, a local sqlite file otherwise) and keeps 35 days.
   `src/arb_runtime.py` starts a recorder thread from `home.py` when the server boots. It samples once an hour and reuses
   the page's snapshot when it is warm. The 24h, 7d and 30d averages and the 30 day sustain figure come from these
-  samples, so they fill in over the first month. The 7 day sustain column comes from the venues' own history. A
+  samples, so they fill in over the first month. The 7 day sustain column comes from the venues' own history. Where a venue has none (Variational, TxFlow), it uses
+  the recorded hours instead, once 24 shared hours are stored. A
   database error turns recording off and the page still works.
 - **Fees.** Taker fees come from trading-tools' `bot/venues.toml`. Change the pinned trading-tools commit in
   `requirements-trading-tools.txt` to pick up new venues or fees.
