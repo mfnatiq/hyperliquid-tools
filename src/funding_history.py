@@ -92,11 +92,11 @@ SUSTAIN_DAYS = 7
 
 
 def fill_sustain(rows: list[dict], now: Optional[float] = None, engine: Optional[Engine] = None) -> None:
-    """give every row whose venues have no funding history (sustain is None) a sustain figure from the recorded samples:
-    the share of the last 7 days' hours with positive carry, once at least 24 shared hours are stored. sets
-    row["sustain_src"] = "recorded" on the rows it fills. one query for all rows, rows that already have a figure are untouched."""
-    todo = [r for r in rows if r.get("sustain") is None]
-    if not todo:
+    """add recorded-sample figures to every row, from the last 7 days and only with at least 24 shared hours stored:
+    row["flips"] = how many times the carry changed sign, and, for rows whose venues have no funding history
+    (sustain is None), row["sustain"] = the share of hours with positive carry and row["sustain_src"] = "recorded".
+    a row that already has a sustain figure keeps it. one query for all rows."""
+    if not rows:
         return
     engine = engine or get_engine()
     h = hour_of(time.time() if now is None else now)
@@ -106,15 +106,18 @@ def fill_sustain(rows: list[dict], now: Optional[float] = None, engine: Optional
     with engine.connect() as c:
         got = c.execute(stmt, {
             "cut": h - SUSTAIN_DAYS * 24,
-            "tickers": sorted({r["ticker"] for r in todo}),
-            "venues": sorted({r[k] for r in todo for k in ("short", "long")}),
+            "tickers": sorted({r["ticker"] for r in rows}),
+            "venues": sorted({r[k] for r in rows for k in ("short", "long")}),
         }).all()
     apr = {(v, t, int(ts)): float(a) for v, t, ts, a in got}
-    for r in todo:
+    for r in rows:
         carry = [apr[(r["short"], r["ticker"], ts)] - apr[(r["long"], r["ticker"], ts)]
                  for ts in range(h - SUSTAIN_DAYS * 24 + 1, h + 1)
                  if (r["short"], r["ticker"], ts) in apr and (r["long"], r["ticker"], ts) in apr]
-        if len(carry) >= MIN_SUSTAIN_HOURS:
+        if len(carry) < MIN_SUSTAIN_HOURS:
+            continue
+        r["flips"] = sum(1 for x, y in zip(carry, carry[1:]) if (x > 0) != (y > 0))
+        if r.get("sustain") is None:
             r["sustain"] = sum(1 for x in carry if x > 0) / len(carry)
             r["sustain_src"] = "recorded"
 

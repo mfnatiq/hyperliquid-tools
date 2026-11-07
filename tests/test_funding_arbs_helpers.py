@@ -62,3 +62,12 @@ def test_leg_meta_reads_volume_and_open_interest_where_a_venue_has_them():
     with_both.open_interest = lambda t: 139000
     assert Snapshot._leg_meta(with_both, "ZRO") == {"vol": 56000.0, "oi": 139000.0}
     assert Snapshot._leg_meta(FakeVenue("PHX", {}, vol=None), "ZRO") == {"vol": None, "oi": None}
+
+
+def test_apply_sustain_caps_the_verdict_and_sorts_best_first():
+    from src.funding_arbs import apply_sustain
+    row = lambda t, v, s, be: dict(ticker=t, verdict=v, sustain=s, net_apr=0.5, be_all_d=be)
+    out = apply_sustain([row("A", "GOOD", 0.79, 1.0), row("B", "GOOD", 0.8, 2.0), row("C", "OK", 0.49, 1.0),
+                         row("D", "GOOD", None, 0.5), row("E", "MARGINAL", 1.0, 0.5)])
+    assert [(r["ticker"], r["verdict"]) for r in out] == [("B", "GOOD"), ("D", "OK"), ("A", "OK"), ("E", "MARGINAL"), ("C", "MARGINAL")]
+    assert [r["exp_apr"] for r in out] == [pytest.approx(0.4), None, pytest.approx(0.395), pytest.approx(0.5), pytest.approx(0.245)]

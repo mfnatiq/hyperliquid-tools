@@ -78,3 +78,11 @@ def test_fill_sustain_needs_24_shared_hours(engine):
     rows = [dict(ticker="ZRO", short="VAR", long="PHX", sustain=None)]
     fh.fill_sustain(rows, now=at(H), engine=engine)
     assert rows[0]["sustain"] is None
+
+
+def test_fill_sustain_counts_sign_flips_for_every_row(engine):
+    for k in range(24):  # carry alternates +0.4, -0.1, +0.4 ... over 24 hours: 23 flips
+        fh.record([("VAR", "ZRO", 0.5 if k % 2 else 0.1), ("PHX", "ZRO", 0.1 if k % 2 else 0.2)], now=at(H - k), engine=engine)
+    rows = [dict(ticker="ZRO", short="VAR", long="PHX", sustain=0.9)]
+    fh.fill_sustain(rows, now=at(H), engine=engine)
+    assert rows[0]["flips"] == 23 and rows[0]["sustain"] == 0.9

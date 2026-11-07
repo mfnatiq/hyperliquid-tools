@@ -190,8 +190,8 @@ def open_pick(key):
     st.session_state["arb_pick"] = key
 
 
-# pair, route, verdict, details, net APR, break-even, sustain, risk, open interest, volume
-GRID = [1.1, 2.2, 1.3, 1.3, 1.2, 1.2, 1.0, 1.1, 1.7, 1.7]
+# pair, route, verdict, details, net APR, expected APR, break-even, sustain, risk, open interest, volume
+GRID = [1.1, 2.2, 1.3, 1.3, 1.2, 1.2, 1.2, 1.0, 1.1, 1.7, 1.7]
 
 
 def md_usd(x):
@@ -202,11 +202,12 @@ def md_usd(x):
 HEADERS = [
     ("Pair", None),
     ("Short → Long", "Short the venue with the higher funding rate, long the other"),
-    ("Verdict", "GOOD: break-even within 3 days (adverse basis included) and no warning. OK: within 7 days and at most one "
-                "warning. Otherwise MARGINAL. Warnings are adverse basis, unstable carry, a leg thinner than the position "
-                "within 10 bps, a stale Variational quote"),
+    ("Verdict", "GOOD: break-even within 3 days (adverse basis included), no warning and sustain of 80% or more. OK: within 7 days, "
+                "at most one warning, sustain of 50% or more. Otherwise MARGINAL. A pair with no sustain figure cannot be GOOD. "
+                "Warnings are adverse basis, unstable carry, a leg thinner than the position within 10 bps, a stale Variational quote"),
     ("More info", None),
     ("Net APR", None),
+    ("Exp. APR", "Net APR times sustain: what the pair is expected to pay if it keeps paying as often as it did, n/a without a sustain figure"),
     ("Break-even", "Days of funding to repay the round trip, adverse basis included"),
     ("Sustain", "Share of the last 7 days the carry was positive, from venue funding history, or from the hours this app recorded when a venue has none. 80% or more is green, 50% or more is amber"),
     ("Risk", "Slippage plus adverse basis, or a leg thinner than the position"),
@@ -243,11 +244,12 @@ def screener_rows(rows, hold):
             with c[3]:
                 details_button(r, hold)
             c[4].markdown(net_apr_text(r.get("net_apr")), unsafe_allow_html=True)
-            c[5].markdown(days_short(r["be_all_d"]))
-            c[6].markdown(sustain_text(r["sustain"]), unsafe_allow_html=True)
-            c[7].markdown(badge(r["risk"]), unsafe_allow_html=True)
-            c[8].markdown(f"{md_usd(r['oi_short'])} / {md_usd(r['oi_long'])}")
-            c[9].markdown(f"{md_usd(r['vol_short'])} / {md_usd(r['vol_long'])}")
+            c[5].markdown(net_apr_text(r.get("exp_apr")), unsafe_allow_html=True)
+            c[6].markdown(days_short(r["be_all_d"]))
+            c[7].markdown(sustain_text(r["sustain"]), unsafe_allow_html=True)
+            c[8].markdown(badge(r["risk"]), unsafe_allow_html=True)
+            c[9].markdown(f"{md_usd(r['oi_short'])} / {md_usd(r['oi_long'])}")
+            c[10].markdown(f"{md_usd(r['vol_short'])} / {md_usd(r['vol_long'])}")
 
 
 def status(text, stale=False):
@@ -287,6 +289,7 @@ def table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max
             funding_history.fill_sustain(all_rows)  # pairs with a venue that has no history use the recorded hours
         except Exception:
             pass
+    all_rows = funding_arbs.apply_sustain(all_rows)  # sustain caps the verdict
 
     def keep(r):
         return (
