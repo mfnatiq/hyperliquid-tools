@@ -42,7 +42,8 @@ Venues: Phoenix, Variational, RISEx, Hyperliquid, Extended, Pacifica, Nado, QFEX
   `funding_samples` (Postgres through `DATABASE_URL` on Railway, a local sqlite file otherwise) and keeps 35 days.
   `src/arb_runtime.py` starts a recorder thread from `home.py` when the server boots. It samples once an hour and reuses
   the page's snapshot when it is warm. The 24h, 7d and 30d averages and the 30 day sustain figure come from these
-  samples, so they fill in over the first month. The 7 day sustain column comes from the venues' own history. A
+  samples, so they fill in over the first month. The 7 day sustain column comes from the venues' own history. Where a venue has none (Variational, TxFlow), it uses
+  the recorded hours instead, once 24 shared hours are stored. A
   database error turns recording off and the page still works.
 - **Fees.** Taker fees come from trading-tools' `bot/venues.toml`. Change the pinned trading-tools commit in
   `requirements-trading-tools.txt` to pick up new venues or fees.

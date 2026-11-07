@@ -208,7 +208,7 @@ HEADERS = [
     ("More info", None),
     ("Net APR", None),
     ("Break-even", "Days of funding to repay the round trip, adverse basis included"),
-    ("Sustain", "Share of the last 7 days the carry was positive, from venue funding history. 80% or more is green, 50% or more is amber"),
+    ("Sustain", "Share of the last 7 days the carry was positive, from venue funding history, or from the hours this app recorded when a venue has none. 80% or more is green, 50% or more is amber"),
     ("Risk", "Slippage plus adverse basis, or a leg thinner than the position"),
     ("OI short / long", "Open interest in USD, short / long leg, n/a if the venue does not report it"),
     ("Volume 24h", "24h volume in USD, short / long leg, n/a if the venue does not report it"),
@@ -282,6 +282,11 @@ def table(venues_sel, notional, metric, sustain_min, be_max, min_carry, risk_max
 
     # priced from cached data, so changing the position makes no API calls
     all_rows = snapshot.rows(notional, hold)
+    if runtime.recording:
+        try:
+            funding_history.fill_sustain(all_rows)  # pairs with a venue that has no history use the recorded hours
+        except Exception:
+            pass
 
     def keep(r):
         return (

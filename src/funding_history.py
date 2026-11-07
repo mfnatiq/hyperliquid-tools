@@ -11,7 +11,7 @@ import time
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import bindparam, create_engine, text
 from sqlalchemy.engine import Engine
 
 TABLE = "funding_samples"
@@ -85,6 +85,38 @@ def pair_history(short: str, long: str, ticker: str, now: Optional[float] = None
         "sustain_30d": sum(1 for _, v in carry if v > 0) / len(carry) if carry else None,
         "hours": len(carry),
     }
+
+
+MIN_SUSTAIN_HOURS = 24
+SUSTAIN_DAYS = 7
+
+
+def fill_sustain(rows: list[dict], now: Optional[float] = None, engine: Optional[Engine] = None) -> None:
+    """give every row whose venues have no funding history (sustain is None) a sustain figure from the recorded samples:
+    the share of the last 7 days' hours with positive carry, once at least 24 shared hours are stored. sets
+    row["sustain_src"] = "recorded" on the rows it fills. one query for all rows, rows that already have a figure are untouched."""
+    todo = [r for r in rows if r.get("sustain") is None]
+    if not todo:
+        return
+    engine = engine or get_engine()
+    h = hour_of(time.time() if now is None else now)
+    stmt = text(
+        f"SELECT venue, ticker, ts_hour, apr FROM {TABLE} WHERE ts_hour > :cut AND ticker IN :tickers AND venue IN :venues"
+    ).bindparams(bindparam("tickers", expanding=True), bindparam("venues", expanding=True))
+    with engine.connect() as c:
+        got = c.execute(stmt, {
+            "cut": h - SUSTAIN_DAYS * 24,
+            "tickers": sorted({r["ticker"] for r in todo}),
+            "venues": sorted({r[k] for r in todo for k in ("short", "long")}),
+        }).all()
+    apr = {(v, t, int(ts)): float(a) for v, t, ts, a in got}
+    for r in todo:
+        carry = [apr[(r["short"], r["ticker"], ts)] - apr[(r["long"], r["ticker"], ts)]
+                 for ts in range(h - SUSTAIN_DAYS * 24 + 1, h + 1)
+                 if (r["short"], r["ticker"], ts) in apr and (r["long"], r["ticker"], ts) in apr]
+        if len(carry) >= MIN_SUSTAIN_HOURS:
+            r["sustain"] = sum(1 for x in carry if x > 0) / len(carry)
+            r["sustain_src"] = "recorded"
 
 
 def start_recorder(sample: Callable[[], list[tuple[str, str, float]]], every_s: float = HOUR_S, first_delay_s: float = 60.0,

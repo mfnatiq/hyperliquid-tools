@@ -122,7 +122,8 @@ def detail(r, hist, venue_names, hold_days):
         else:
             st.caption("No history yet, one sample is added an hour")
         if r["sustain"] is not None:
-            st.caption(f"Carry positive in {r['sustain'] * 100:.0f}% of the last 7 days' hours, from venue funding history")
+            src = "the hours this app recorded" if r.get("sustain_src") == "recorded" else "venue funding history"
+            st.caption(f"Carry positive in {r['sustain'] * 100:.0f}% of the last 7 days' hours, from {src}")
 
         st.markdown("**Cost per leg**")
         leg = lambda side, name: {
