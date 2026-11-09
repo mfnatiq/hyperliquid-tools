@@ -210,3 +210,16 @@ def test_sustain_is_green_from_80_percent_amber_from_50_and_red_below():
     assert sustain_text(0.5) == '<span class="tone mid">50%</span>'
     assert sustain_text(0.49) == '<span class="tone bad">49%</span>'
     assert sustain_text(None) == "n/a"
+
+
+def test_verdict_tooltip_puts_each_grade_and_each_warning_on_its_own_line():
+    import ast
+    tree = ast.parse(open("pages/arb_opportunities.py", encoding="utf-8").read())
+    headers = next(ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") == "HEADERS")
+    tip = dict(headers)["Verdict"]
+    assert tip.split("\n\n")[:3] == [
+        "**GOOD:** break-even within 3 days (adverse basis included), no warning, sustain of 80% or more.",
+        "**OK:** break-even within 7 days, at most one warning, sustain of 50% or more.",
+        "**MARGINAL:** anything else.",
+    ]
+    assert tip.endswith("- adverse basis\n- unstable carry\n- a leg thinner than the position within 10 bps\n- a stale Variational quote")

@@ -105,7 +105,7 @@ def controls():
         notional = st.selectbox("Position per leg (USD)", [1_000, 10_000, 50_000, 100_000, 500_000], index=1, key="s_notional")
         metric = st.selectbox(
             "Funding metric", ["24h", "7d", "last"], index=0, key="s_metric",
-            help="Rate the carry uses, the 24h average, the 7d average or the latest reading. Every rate is converted "
+            help="Rate the carry uses: the 24h average, the 7d average or the latest reading.\n\nEvery rate is converted "
                  "to yearly first, so hourly and 8-hourly venues compare directly",
         )
         sustain_min = st.slider(
@@ -123,7 +123,7 @@ def controls():
         risk_max = st.select_slider("Spread risk, max", ["Low", "Med", "High"], value="High", key="f_risk")
         hold = st.select_slider(
             "Hold (days)", HOLD_CHOICES, value=DEFAULT_HOLD, key="f_hold",
-            help="How long you plan to hold, entry and exit cost is paid once so a longer hold raises net APR",
+            help="How long you plan to hold.\n\nEntry and exit cost is paid once, so a longer hold raises net APR",
         )
         hide_neg = st.toggle(
             "Hide pairs that lose money over the hold", value=True, key="f_neg",
@@ -202,14 +202,20 @@ def md_usd(x):
 HEADERS = [
     ("Pair", None),
     ("Short → Long", "Short the venue with the higher funding rate, long the other"),
-    ("Verdict", "GOOD: break-even within 3 days (adverse basis included), no warning and sustain of 80% or more. OK: within 7 days, "
-                "at most one warning, sustain of 50% or more. Otherwise MARGINAL. A pair with no sustain figure cannot be GOOD. "
-                "Warnings are adverse basis, unstable carry, a leg thinner than the position within 10 bps, a stale Variational quote"),
+    ("Verdict", "**GOOD:** break-even within 3 days (adverse basis included), no warning, sustain of 80% or more.\n\n"
+                "**OK:** break-even within 7 days, at most one warning, sustain of 50% or more.\n\n"
+                "**MARGINAL:** anything else.\n\n"
+                "A pair with no sustain figure cannot be GOOD.\n\n"
+                "Warnings:\n\n"
+                "- adverse basis\n"
+                "- unstable carry\n"
+                "- a leg thinner than the position within 10 bps\n"
+                "- a stale Variational quote"),
     ("More info", None),
     ("Net APR", None),
-    ("Exp. APR", "Net APR times sustain: what the pair is expected to pay if it keeps paying as often as it did, n/a without a sustain figure"),
+    ("Exp. APR", "Net APR times sustain: what the pair is expected to pay if it keeps paying as often as it did.\n\nn/a without a sustain figure"),
     ("Break-even", "Days of funding to repay the round trip, adverse basis included"),
-    ("Sustain", "Share of the last 7 days the carry was positive, from venue funding history, or from the hours this app recorded when a venue has none. 80% or more is green, 50% or more is amber"),
+    ("Sustain", "Share of the last 7 days the carry was positive, from venue funding history, or from the hours this app recorded when a venue has none.\n\n80% or more is green, 50% or more is amber"),
     ("Risk", "Slippage plus adverse basis, or a leg thinner than the position"),
     ("OI short / long", "Open interest in USD, short / long leg, n/a if the venue does not report it"),
     ("Volume 24h", "24h volume in USD, short / long leg, n/a if the venue does not report it"),
@@ -233,7 +239,7 @@ def screener_rows(rows, hold):
     """compact grid, one line per pair, each with a Details button. no horizontal scroll on a phone: see the css"""
     with st.container(key="arb_rows"):
         head = st.columns(GRID, vertical_alignment="center")
-        for col, (label, tip) in zip(head, [(n, t if n != "Net APR" else f"Carry after round trip cost and adverse basis, yearly, for a {hold:g} day hold, longer holds raise it") for n, t in HEADERS]):
+        for col, (label, tip) in zip(head, [(n, t if n != "Net APR" else f"Carry after round trip cost and adverse basis, yearly, for a {hold:g} day hold.\n\nLonger holds raise it") for n, t in HEADERS]):
             col.caption(label, help=tip)
         for r in rows:
             c = st.columns(GRID, vertical_alignment="center")
