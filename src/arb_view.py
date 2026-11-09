@@ -4,7 +4,7 @@ import re
 import pandas as pd
 import streamlit as st
 
-from src.funding_arbs import days_short, usd_short
+from src.funding_arbs import SUSTAIN_GOOD, SUSTAIN_OK, days_short, usd_short, verdict_limits
 from src.utils.render_utils import referral
 
 
@@ -76,6 +76,46 @@ def plain_note(note, venue_names):
             return text(m)
     return note.strip()
 
+FLAG = re.compile(r"basis against|carry unstable|within 10bp|stale VAR|RFQ|current rate only")
+DOT = {"good": ":green[●]", "mid": ":orange[●]", "bad": ":red[●]"}
+
+
+def verdict_factors(r, venue_names):
+    """what pushed the verdict up or down, as (level, text) lines. level is good, mid or bad. it follows the
+    scanner's grading: break-even sets the ceiling, each warning counts, and sustain caps the result."""
+    good_be, ok_be = verdict_limits()
+    out = []
+    be = r.get("be_all_d")
+    if be is not None:
+        lead = f"Break-even with basis is {days_short(be)}"
+        if be <= good_be:
+            out.append(("good", f"{lead}, inside the {good_be:g} day limit for GOOD"))
+        elif be <= ok_be:
+            out.append(("mid", f"{lead}, over {good_be:g} days so GOOD is out, inside {ok_be:g} so OK stays"))
+        else:
+            out.append(("bad", f"{lead}, over {ok_be:g} days so it is MARGINAL"))
+    flags = [n.strip() for n in (r.get("note") or "").split("; ") if FLAG.search(n)]
+    if not flags:
+        out.append(("good", "No warnings"))
+    for n in flags:
+        level = "mid" if len(flags) == 1 else "bad"
+        out.append((level, plain_note(n, venue_names) + (", one warning allows OK but not GOOD" if len(flags) == 1 else ", two or more warnings make it MARGINAL")))
+    s = r.get("sustain")
+    if s is None:
+        out.append(("mid", "No sustain figure, so it cannot be GOOD"))
+    elif s >= SUSTAIN_GOOD:
+        out.append(("good", f"Carry was positive in {s * 100:.0f}% of the last 7 days, {SUSTAIN_GOOD * 100:.0f}% or more allows GOOD"))
+    elif s >= SUSTAIN_OK:
+        out.append(("mid", f"Carry was positive in {s * 100:.0f}% of the last 7 days, under {SUSTAIN_GOOD * 100:.0f}% so GOOD is out"))
+    else:
+        out.append(("bad", f"Carry was positive in {s * 100:.0f}% of the last 7 days, under {SUSTAIN_OK * 100:.0f}% so it is MARGINAL"))
+    return out
+
+
+def verdict_markdown(r, venue_names):
+    """the factor lines as a markdown list with a coloured dot each. the dollar sign is escaped for markdown"""
+    return "\n".join(f"- {DOT[level]} {text}" for level, text in verdict_factors(r, venue_names)).replace("$", "\\$")
+
 
 def notes_markdown(r, hold_days, venue_names):
     """the lines under the cost table, one per fact, as a markdown list. the dollar sign is escaped for markdown"""
@@ -98,6 +138,9 @@ def detail(r, hist, venue_names, hold_days):
         top[1].metric("Carry now", fmt_pct(r["carry_apr"]))
         bottom[0].metric("Break-even", days_short(r["be_all_d"]), help="Days of funding to repay the round trip, adverse basis included")
         bottom[1].metric("Round trip", "-" if r["rt_cost_bps"] is None else f"{r['rt_cost_bps']:.1f} bps")
+
+        st.markdown(f"**Why {r['verdict']}**")
+        st.markdown(verdict_markdown(r, venue_names))
 
         trade_links(short, long_)
 

@@ -77,6 +77,12 @@ def taker_bps() -> dict[str, float]:
     return {k: getattr(a, opt) for k, opt in opts.items()}
 
 
+def verdict_limits() -> tuple[float, float]:
+    """break-even limits in days for GOOD and OK, from the scanner's defaults"""
+    a = fs.make_parser().parse_args([])
+    return a.good_be, a.ok_be
+
+
 class Snapshot:
     """funding history, candidates and order books fetched once. raises RuntimeError when fewer than two venues
     respond (an unreachable or rate-limited API), so a cache does not keep the failure."""
