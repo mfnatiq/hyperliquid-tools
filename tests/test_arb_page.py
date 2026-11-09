@@ -103,7 +103,7 @@ def test_a_failed_first_build_shows_the_error(monkeypatch):
 def test_the_detail_panel_shows_averages_and_the_fee_breakdown():
     def app():
         from src import arb_view
-        row = {"ticker": "ZRO", "short": "PHX", "long": "VAR", "carry_apr": 0.631, "net_apr": 0.5, "be_all_d": 1.3333,
+        row = {"verdict": "OK", "ticker": "ZRO", "short": "PHX", "long": "VAR", "carry_apr": 0.631, "net_apr": 0.5, "be_all_d": 1.3333,
                "rt_cost_bps": 9.0, "sustain": 1.0, "risk": "Low", "mid_basis_bps": -1.5, "edge_bps": 30.0, "note": "",
                "short_fee_bps": 1.5, "long_fee_bps": 0.0, "slip_short_bps": 1.0, "slip_long_bps": 2.0,
                "vol_short": 56_000.0, "vol_long": None, "oi_short": 139_000.0, "oi_long": 2_000_000.0}
@@ -175,7 +175,7 @@ def test_the_notes_under_the_cost_table_are_one_line_each():
 def test_the_detail_panel_says_so_when_no_history_exists_yet():
     def app():
         from src import arb_view
-        row = {"ticker": "ZRO", "short": "PHX", "long": "VAR", "carry_apr": 0.6, "net_apr": None, "be_all_d": None,
+        row = {"verdict": "OK", "ticker": "ZRO", "short": "PHX", "long": "VAR", "carry_apr": 0.6, "net_apr": None, "be_all_d": None,
                "rt_cost_bps": None, "sustain": None, "risk": None, "mid_basis_bps": None, "edge_bps": None, "note": "",
                "short_fee_bps": 1.5, "long_fee_bps": 0.0, "slip_short_bps": None, "slip_long_bps": None,
                "vol_short": None, "vol_long": None, "oi_short": None, "oi_long": None}
@@ -223,3 +223,24 @@ def test_verdict_tooltip_puts_each_grade_and_each_warning_on_its_own_line():
         "**MARGINAL:** anything else.",
     ]
     assert tip.endswith("- adverse basis\n- unstable carry\n- a leg thinner than the position within 10 bps\n- a stale Variational quote")
+
+
+def test_the_verdict_factors_for_an_ok_pair_name_what_blocks_good_in_colour():
+    from src.arb_view import verdict_markdown
+    r = dict(be_all_d=19 / 24, note="EXT RFQ: indicative book; sustain 58%", sustain=0.58)
+    assert verdict_markdown(r, {}) == "\n".join([
+        "- :green[●] Break-even with basis is 19h, inside the 3 day limit for GOOD",
+        "- :orange[●] Extended prices on request, book is indicative, one warning allows OK but not GOOD",
+        "- :orange[●] Carry was positive in 58% of the last 7 days, under 80% so GOOD is out",
+    ])
+
+
+def test_the_verdict_factors_for_a_marginal_pair_are_red():
+    from src.arb_view import verdict_factors
+    r = dict(be_all_d=9.0, note="basis against 12bp; stale VAR quote", sustain=0.3)
+    assert verdict_factors(r, {}) == [
+        ("bad", "Break-even with basis is 9d, over 7 days so it is MARGINAL"),
+        ("bad", "Basis is against us by 12 bps, two or more warnings make it MARGINAL"),
+        ("bad", "Variational quote is over a minute old, two or more warnings make it MARGINAL"),
+        ("bad", "Carry was positive in 30% of the last 7 days, under 50% so it is MARGINAL"),
+    ]
